@@ -27,10 +27,20 @@ func (mk *MockKeyring) Store(service, username, password string) error {
 		key = service + ":" + username
 	}
 	mk.entries[key] = keyring.Entry{
-		Service:  service,
-		Username: username,
-		Password: password,
+		Service:    service,
+		Username:   username,
+		Password:   password,
+		SecretType: keyring.SecretTypePassword,
 	}
+	return nil
+}
+
+func (mk *MockKeyring) StoreEntry(entry keyring.Entry) error {
+	key := entry.Service
+	if entry.Username != "" {
+		key = entry.Service + ":" + entry.Username
+	}
+	mk.entries[key] = entry
 	return nil
 }
 
@@ -43,6 +53,17 @@ func (mk *MockKeyring) Get(service, username string) (string, error) {
 		return entry.Password, nil
 	}
 	return "", os.ErrNotExist
+}
+
+func (mk *MockKeyring) GetEntry(service, username string) (*keyring.Entry, error) {
+	key := service
+	if username != "" {
+		key = service + ":" + username
+	}
+	if entry, exists := mk.entries[key]; exists {
+		return &entry, nil
+	}
+	return nil, os.ErrNotExist
 }
 
 func (mk *MockKeyring) Delete(service, username string) error {

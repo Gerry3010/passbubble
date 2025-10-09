@@ -5,25 +5,48 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 // KeyringInterface defines the interface for keyring operations
 type KeyringInterface interface {
 	Store(service, username, password string) error
+	StoreEntry(entry Entry) error
 	Get(service, username string) (string, error)
+	GetEntry(service, username string) (*Entry, error)
 	Delete(service, username string) error
 	List() ([]Entry, error)
 	Search(pattern string) ([]Entry, error)
 	IsAvailable() bool
 }
 
-// Entry represents a password entry
+// SecretType represents the type of secret stored
+type SecretType string
+
+const (
+	SecretTypePassword SecretType = "password"
+	SecretTypeTOTP     SecretType = "totp"
+	SecretTypeNote     SecretType = "note"
+	SecretTypeAPIKey   SecretType = "api-key"
+	SecretTypeSSHKey   SecretType = "ssh-key"
+	SecretTypeCert     SecretType = "certificate"
+)
+
+// Entry represents a secret entry
 type Entry struct {
-	Service  string `json:"service"`
-	Username string `json:"username,omitempty"`
-	Password string `json:"password"`
-	Label    string `json:"label,omitempty"`
+	Service     string     `json:"service"`
+	Username    string     `json:"username,omitempty"`
+	Password    string     `json:"password"`           // For password type or TOTP secret
+	Label       string     `json:"label,omitempty"`
+	SecretType  SecretType `json:"secret_type,omitempty"` // Type of secret
+	Issuer      string     `json:"issuer,omitempty"`      // For TOTP issuer
+	Period      int        `json:"period,omitempty"`      // For TOTP period (default 30)
+	Digits      int        `json:"digits,omitempty"`      // For TOTP digits (default 6)
+	Algorithm   string     `json:"algorithm,omitempty"`   // For TOTP algorithm (default SHA1)
+	CreatedAt   string     `json:"created_at,omitempty"`
+	UpdatedAt   string     `json:"updated_at,omitempty"`
+	Notes       string     `json:"notes,omitempty"`       // Additional notes
 }
 
 // Keyring provides interface to GNOME Keyring
@@ -38,32 +61,83 @@ func New() *Keyring {
 	}
 }
 
-// Store stores a password in the keyring
+// Store stores a password in the keyring (legacy method)
 func (k *Keyring) Store(service, username, password string) error {
-	label := fmt.Sprintf("Password for %s", service)
-	if username != "" {
-		label = fmt.Sprintf("Password for %s (%s)", service, username)
+	entry := Entry{
+		Service:    service,
+		Username:   username,
+		Password:   password,
+		SecretType: SecretTypePassword,
+	}
+	return k.StoreEntry(entry)
+}
+
+// StoreEntry stores a complete entry with all metadata
+func (k *Keyring) StoreEntry(entry Entry) error {
+	label := fmt.Sprintf("%s for %s", k.getTypeLabel(entry.SecretType), entry.Service)
+	if entry.Username != "" {
+		label = fmt.Sprintf("%s for %s (%s)", k.getTypeLabel(entry.SecretType), entry.Service, entry.Username)
+	}
+	if entry.Label != "" {
+		label = entry.Label
 	}
 
 	args := []string{"store", "--label=" + label}
 	
-	// Add attributes
-	args = append(args, "service", service)
-	if username != "" {
-		args = append(args, "username", username)
+	// Add basic attributes
+	args = append(args, "service", entry.Service)
+	if entry.Username != "" {
+		args = append(args, "username", entry.Username)
+	}
+	
+	// Add secret type and metadata
+	if entry.SecretType != "" {
+		args = append(args, "secret_type", string(entry.SecretType))
+	}
+	if entry.Issuer != "" {
+		args = append(args, "issuer", entry.Issuer)
+	}
+	if entry.Period > 0 {
+		args = append(args, "period", fmt.Sprintf("%d", entry.Period))
+	}
+	if entry.Digits > 0 {
+		args = append(args, "digits", fmt.Sprintf("%d", entry.Digits))
+	}
+	if entry.Algorithm != "" {
+		args = append(args, "algorithm", entry.Algorithm)
+	}
+	if entry.Notes != "" {
+		args = append(args, "notes", entry.Notes)
 	}
 
 	cmd := exec.Command("secret-tool", args...)
-	cmd.Stdin = strings.NewReader(password)
+	cmd.Stdin = strings.NewReader(entry.Password)
 	
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to store password: %w", err)
+		return fmt.Errorf("failed to store entry: %w", err)
 	}
 	
 	return nil
 }
 
-// Get retrieves a password from the keyring
+func (k *Keyring) getTypeLabel(secretType SecretType) string {
+	switch secretType {
+	case SecretTypeTOTP:
+		return "TOTP Secret"
+	case SecretTypeNote:
+		return "Secure Note"
+	case SecretTypeAPIKey:
+		return "API Key"
+	case SecretTypeSSHKey:
+		return "SSH Key"
+	case SecretTypeCert:
+		return "Certificate"
+	default:
+		return "Password"
+	}
+}
+
+// Get retrieves a password from the keyring (legacy method)
 func (k *Keyring) Get(service, username string) (string, error) {
 	args := []string{"lookup", "service", service}
 	if username != "" {
@@ -77,6 +151,36 @@ func (k *Keyring) Get(service, username string) (string, error) {
 	}
 	
 	return strings.TrimSpace(string(output)), nil
+}
+
+// GetEntry retrieves a complete entry with metadata
+func (k *Keyring) GetEntry(service, username string) (*Entry, error) {
+	// First get the password/secret
+	password, err := k.Get(service, username)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Get all entries and find the matching one with metadata
+	entries, err := k.List()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entry metadata: %w", err)
+	}
+	
+	for _, entry := range entries {
+		if entry.Service == service && entry.Username == username {
+			entry.Password = password // Set the actual password
+			return &entry, nil
+		}
+	}
+	
+	// If not found in metadata, return basic entry
+	return &Entry{
+		Service:    service,
+		Username:   username,
+		Password:   password,
+		SecretType: SecretTypePassword,
+	}, nil
 }
 
 // Delete removes a password from the keyring
@@ -138,26 +242,60 @@ func (k *Keyring) List() ([]Entry, error) {
 
 		service := serviceMatch[1]
 		
-		// Look for username attribute
-		usernameRegex := regexp.MustCompile(`"username" "([^"]+)"`)
-		usernameMatch := usernameRegex.FindStringSubmatch(attrs)
+		// Parse all attributes
+		entry := Entry{
+			Service: service,
+		}
 		
-		var username string
-		if usernameMatch != nil {
-			username = usernameMatch[1]
+		// Look for username
+		if usernameMatch := regexp.MustCompile(`"username" "([^"]+)"`).FindStringSubmatch(attrs); usernameMatch != nil {
+			entry.Username = usernameMatch[1]
+		}
+		
+		// Look for secret_type
+		if typeMatch := regexp.MustCompile(`"secret_type" "([^"]+)"`).FindStringSubmatch(attrs); typeMatch != nil {
+			entry.SecretType = SecretType(typeMatch[1])
+		} else {
+			entry.SecretType = SecretTypePassword // Default type
+		}
+		
+		// Look for issuer (TOTP)
+		if issuerMatch := regexp.MustCompile(`"issuer" "([^"]+)"`).FindStringSubmatch(attrs); issuerMatch != nil {
+			entry.Issuer = issuerMatch[1]
+		}
+		
+		// Look for period (TOTP)
+		if periodMatch := regexp.MustCompile(`"period" "([^"]+)"`).FindStringSubmatch(attrs); periodMatch != nil {
+			if period := parseInt(periodMatch[1]); period > 0 {
+				entry.Period = period
+			}
+		}
+		
+		// Look for digits (TOTP)
+		if digitsMatch := regexp.MustCompile(`"digits" "([^"]+)"`).FindStringSubmatch(attrs); digitsMatch != nil {
+			if digits := parseInt(digitsMatch[1]); digits > 0 {
+				entry.Digits = digits
+			}
+		}
+		
+		// Look for algorithm (TOTP)
+		if algoMatch := regexp.MustCompile(`"algorithm" "([^"]+)"`).FindStringSubmatch(attrs); algoMatch != nil {
+			entry.Algorithm = algoMatch[1]
+		}
+		
+		// Look for notes
+		if notesMatch := regexp.MustCompile(`"notes" "([^"]+)"`).FindStringSubmatch(attrs); notesMatch != nil {
+			entry.Notes = notesMatch[1]
 		}
 
 		// Create unique key for deduplication
-		key := service
-		if username != "" {
-			key = fmt.Sprintf("%s:%s", service, username)
+		key := entry.Service
+		if entry.Username != "" {
+			key = fmt.Sprintf("%s:%s", entry.Service, entry.Username)
 		}
 
 		if !seen[key] {
-			entries = append(entries, Entry{
-				Service:  service,
-				Username: username,
-			})
+			entries = append(entries, entry)
 			seen[key] = true
 		}
 	}
@@ -199,4 +337,12 @@ func (k *Keyring) Search(pattern string) ([]Entry, error) {
 func (k *Keyring) IsAvailable() bool {
 	_, err := exec.LookPath("secret-tool")
 	return err == nil
+}
+
+// Helper function to parse integers
+func parseInt(s string) int {
+	if i, err := strconv.Atoi(s); err == nil {
+		return i
+	}
+	return 0
 }
