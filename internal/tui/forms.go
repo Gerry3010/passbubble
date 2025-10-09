@@ -15,9 +15,11 @@ type FormType int
 const (
 	AddPasswordForm FormType = iota
 	AddTOTPForm
+	AddTOTPToEntryForm
 	EditEntryForm
 	ConfirmDeleteForm
 	CreateBackupForm
+	SavePasswordForm
 )
 
 // FormField represents a single input field
@@ -133,6 +135,43 @@ func CreateAddTOTPForm() FormModel {
 	}
 }
 
+// CreateAddTOTPToEntryForm creates a form for adding TOTP to an existing entry
+func CreateAddTOTPToEntryForm(entry Entry) FormModel {
+	return FormModel{
+		Type:  AddTOTPToEntryForm,
+		Title: fmt.Sprintf("Add TOTP to %s", entry.Service),
+		Entry: &entry,
+		Fields: []FormField{
+			{
+				Label:       "Service (read-only)",
+				Value:       entry.Service,
+				IsRequired:  false,
+			},
+			{
+				Label:       "Username (read-only)",
+				Value:       entry.Username,
+				IsRequired:  false,
+			},
+			{
+				Label:       "Issuer",
+				Placeholder: "e.g., Google, GitHub",
+				IsRequired:  false,
+			},
+			{
+				Label:       "TOTP Secret (leave empty to generate)",
+				Placeholder: "Base32 secret or leave blank",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s != "" && !totp.IsValidSecret(s) {
+						return fmt.Errorf("invalid base32 secret")
+					}
+					return nil
+				},
+			},
+		},
+	}
+}
+
 // CreateEditEntryForm creates a form for editing entries
 func CreateEditEntryForm(entry Entry) FormModel {
 	var fields []FormField
@@ -202,6 +241,37 @@ func CreateCreateBackupForm() FormModel {
 			{
 				Label:       "Backup Name (optional)",
 				Placeholder: "Leave empty for auto-generated name",
+				IsRequired:  false,
+			},
+		},
+	}
+}
+
+// CreateSavePasswordForm creates a form for saving a generated password
+func CreateSavePasswordForm(generatedPassword string) FormModel {
+	return FormModel{
+		Type:  SavePasswordForm,
+		Title: "Save Generated Password",
+		Fields: []FormField{
+			{
+				Label:       "Service",
+				Placeholder: "e.g., gmail, github, bank",
+				IsRequired:  true,
+				Validator: func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("service name is required")
+					}
+					return nil
+				},
+			},
+			{
+				Label:       "Username/Email",
+				Placeholder: "user@example.com (optional)",
+				IsRequired:  false,
+			},
+			{
+				Label:       "Generated Password (read-only)",
+				Value:       generatedPassword,
 				IsRequired:  false,
 			},
 		},
@@ -367,6 +437,8 @@ func (f FormModel) submitForm() (FormModel, tea.Cmd) {
 			fieldMap["issuer"] = field.Value
 		case "Backup Name (optional)":
 			fieldMap["backup_name"] = field.Value
+		case "Generated Password (read-only)":
+			fieldMap["password"] = field.Value
 		}
 	}
 	

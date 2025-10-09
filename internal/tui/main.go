@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gerry/password-manager/pkg/backup"
+	"github.com/gerry/password-manager/pkg/generator"
 	"github.com/gerry/password-manager/pkg/keyring"
 )
 
@@ -20,6 +21,7 @@ const (
 	BackupScreen
 	AddScreen
 	EditScreen
+	GenerateScreen
 )
 
 // Entry represents a stored secret entry
@@ -42,6 +44,7 @@ type Model struct {
 	// Detail screen state
 	detailEntry Entry
 	showSecrets bool
+	maskPasswords bool
 	totpCode    string
 	totpRemaining int
 	password    string
@@ -49,6 +52,10 @@ type Model struct {
 	// Backup screen state
 	backups     []backup.BackupInfo
 	backupCursor int
+	
+	// Generate screen state
+	generatedPassword string
+	generateType      string // "random", "memorable", or "passphrase"
 	
 	// Form state
 	showingForm bool
@@ -73,8 +80,9 @@ type Model struct {
 // NewModel creates a new TUI model
 func NewModel() Model {
 	return Model{
-		screen:   MainScreen,
-		selected: make(map[int]struct{}),
+		screen:        MainScreen,
+		selected:      make(map[int]struct{}),
+			maskPasswords: true, // Mask passwords by default
 		
 		// Styles
 		titleStyle: lipgloss.NewStyle().
@@ -273,6 +281,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.updateTOTPReal()
 		}
 		return m, nil
+		
+	case PasswordGeneratedMsg:
+		if msg.Error != nil {
+			m.status = fmt.Sprintf("Password generation failed: %v", msg.Error)
+			m.statusType = "error"
+			return m, nil
+		}
+		m.generatedPassword = msg.Password
+		m.generateType = msg.Type
+		m.status = fmt.Sprintf("%s password generated successfully", msg.Type)
+		m.statusType = "success"
+		return m, nil
 	}
 	
 	return m, nil
@@ -287,6 +307,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDetailScreen(msg)
 	case BackupScreen:
 		return m.handleBackupScreen(msg)
+	case GenerateScreen:
+		return m.handleGenerateScreen(msg)
 	default:
 		return m, nil
 	}
@@ -313,6 +335,10 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailEntry = m.entries[m.cursor]
 			m.screen = DetailScreen
 			m.showSecrets = false
+			// Auto-load passwords for password entries
+			if m.detailEntry.Type == "password" {
+				return m, m.loadPasswordReal()
+			}
 			return m, m.loadSecretDetails()
 		}
 		
@@ -340,6 +366,16 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showingForm = true
 			m.form = CreateAddTOTPForm()
 			m.status = "Adding new TOTP secret"
+			m.statusType = "info"
+		}
+		return m, nil
+		
+	case "T":
+		// Add TOTP to existing entry
+		if len(m.entries) > 0 {
+			m.showingForm = true
+			m.form = CreateAddTOTPToEntryForm(m.entries[m.cursor])
+			m.status = "Adding TOTP to existing entry"
 			m.statusType = "info"
 		}
 		return m, nil
@@ -378,6 +414,15 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.backupCursor = 0
 		return m, m.loadBackups()
 		
+	case "g":
+		// Generate password
+		m.screen = GenerateScreen
+		m.generatedPassword = ""
+		m.generateType = ""
+		m.status = "Password Generator"
+		m.statusType = "info"
+		return m, nil
+		
 	case "r":
 		// Refresh entries
 		m.status = "Refreshing entries..."
@@ -395,20 +440,19 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 		
 	case "s":
-		// Toggle show/hide secrets
-		m.showSecrets = !m.showSecrets
-		if m.showSecrets {
-			switch m.detailEntry.Type {
-			case "totp":
+		// Toggle password masking for password entries, or TOTP secrets for TOTP entries
+		switch m.detailEntry.Type {
+		case "password":
+			m.maskPasswords = !m.maskPasswords
+		case "totp":
+			m.showSecrets = !m.showSecrets
+			if m.showSecrets {
 				return m, m.updateTOTPReal()
-			case "password":
-				return m, m.loadPasswordReal()
+			} else {
+				// Clear TOTP data when hiding
+				m.totpCode = ""
+				m.totpRemaining = 0
 			}
-		} else {
-			// Clear sensitive data when hiding
-			m.totpCode = ""
-			m.totpRemaining = 0
-			m.password = ""
 		}
 		return m, nil
 	}
@@ -456,6 +500,42 @@ func (m Model) handleBackupScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleGenerateScreen handles generate screen key presses
+func (m Model) handleGenerateScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "esc":
+		m.screen = MainScreen
+		return m, nil
+		
+	case "r":
+		// Generate random password
+		m.generateType = "random"
+		return m, m.generatePassword("strong")
+		
+	case "m":
+		// Generate memorable password
+		m.generateType = "memorable"
+		return m, m.generatePassword("memorable")
+		
+	case "p":
+		// Generate passphrase
+		m.generateType = "passphrase"
+		return m, m.generatePassword("passphrase")
+		
+	case "s":
+		// Save generated password
+		if m.generatedPassword != "" {
+			m.showingForm = true
+			m.form = CreateSavePasswordForm(m.generatedPassword)
+			m.status = "Save generated password"
+			m.statusType = "info"
+		}
+		return m, nil
+	}
+	
+	return m, nil
+}
+
 
 // View renders the current view
 func (m Model) View() string {
@@ -471,6 +551,8 @@ func (m Model) View() string {
 		return m.renderDetailScreen()
 	case BackupScreen:
 		return m.renderBackupScreen()
+	case GenerateScreen:
+		return m.renderGenerateScreen()
 	default:
 		return "Unknown screen"
 	}
@@ -513,7 +595,7 @@ func (m Model) renderMainScreen() string {
 	
 	// Help text
 	help := m.helpStyle.Render(
-		"Navigation: ↑/↓ or j/k • Enter: view details • a: add menu • p: add password • t: add TOTP • e: edit • d: delete • c: create backup • b: backups • r: refresh • q: quit",
+		"Navigation: ↑/↓ or j/k • Enter: view details • a: add menu • p: add password • t: add TOTP • e: edit • d: delete • g: generate passwords • c: create backup • b: backups • r: refresh • q: quit",
 	)
 	
 	// Status
@@ -554,20 +636,28 @@ func (m Model) renderDetailScreen() string {
 	
 	details = append(details, fmt.Sprintf("Type: %s %s", m.getTypeIcon(m.detailEntry.Type), m.detailEntry.Type))
 	
-	// Show secrets if toggled
-	if m.showSecrets {
-		switch m.detailEntry.Type {
-		case "password":
-			details = append(details, "")
-			if m.password != "" {
-				// Show actual password when secrets are revealed
-				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(m.password)))
-				details = append(details, m.helpStyle.Render("🔒 Password revealed - handle with care!"))
+	// Always show password field for password entries
+	if m.detailEntry.Type == "password" {
+		details = append(details, "")
+		if m.password != "" {
+			if m.maskPasswords {
+				// Show password as dots when masked
+				maskedPassword := strings.Repeat("•", len(m.password))
+				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(maskedPassword)))
+				details = append(details, m.helpStyle.Render("🔒 Password hidden ("+fmt.Sprintf("%d chars", len(m.password))+") - Press 's' to reveal"))
 			} else {
-				details = append(details, m.hiddenStyle.Render("Loading password..."))
+				// Show actual password when unmasked
+				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(m.password)))
+				details = append(details, m.helpStyle.Render("🔓 Password visible - Press 's' to hide"))
 			}
-			
-		case "totp":
+		} else {
+			details = append(details, m.hiddenStyle.Render("Loading password..."))
+		}
+	}
+	
+	// Show TOTP codes only if secrets are toggled
+	if m.detailEntry.Type == "totp" {
+		if m.showSecrets {
 			if m.totpCode != "" {
 				details = append(details, "")
 				codeDisplay := m.secretStyle.Render(m.totpCode)
@@ -579,15 +669,25 @@ func (m Model) renderDetailScreen() string {
 					details = append(details, fmt.Sprintf("Valid for: %ds %s", m.totpRemaining, progress))
 				}
 			}
+		} else {
+			details = append(details, "")
+			details = append(details, m.hiddenStyle.Render("🔒 TOTP code hidden - Press 's' to reveal"))
 		}
-	} else {
-		details = append(details, "")
-		details = append(details, m.hiddenStyle.Render("🔒 Secrets hidden - Press 's' to reveal"))
 	}
 	
 	content := m.detailStyle.Render(strings.Join(details, "\n"))
 	
-	help := m.helpStyle.Render("s: show/hide secrets • esc/q: back to list")
+	// Context-sensitive help text
+	var helpText string
+	switch m.detailEntry.Type {
+	case "password":
+		helpText = "s: show/hide password • esc/q: back to list"
+	case "totp":
+		helpText = "s: show/hide TOTP code • esc/q: back to list"
+	default:
+		helpText = "esc/q: back to list"
+	}
+	help := m.helpStyle.Render(helpText)
 	
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
@@ -635,6 +735,52 @@ func (m Model) renderBackupScreen() string {
 		title,
 		"",
 		list,
+		"",
+		help,
+		status,
+	)
+}
+
+// renderGenerateScreen renders the password generation screen
+func (m Model) renderGenerateScreen() string {
+	title := m.titleStyle.Render("🎲 Password Generator")
+	
+	var content []string
+	content = append(content, "Generate secure passwords with different styles:")
+	content = append(content, "")
+	
+	// Show generation options
+	content = append(content, "Available generation types:")
+	content = append(content, "  [r] Random - Strong random password with mixed characters")
+	content = append(content, "  [m] Memorable - Easy to type with alternating case")
+	content = append(content, "  [p] Passphrase - Word-based password with separators")
+	content = append(content, "")
+	
+	// Show generated password if available
+	if m.generatedPassword != "" {
+		content = append(content, fmt.Sprintf("Generated %s password:", m.generateType))
+		content = append(content, "")
+		passwordDisplay := m.secretStyle.Render(m.generatedPassword)
+		content = append(content, fmt.Sprintf("Password: %s", passwordDisplay))
+		content = append(content, "")
+		content = append(content, "Press [s] to save this password to keyring")
+	} else {
+		content = append(content, "Press [r], [m], or [p] to generate a password")
+	}
+	
+	contentBox := m.detailStyle.Render(strings.Join(content, "\n"))
+	
+	help := m.helpStyle.Render("r: random • m: memorable • p: passphrase • s: save password • esc/q: back to main")
+	
+	status := ""
+	if m.status != "" {
+		status = m.statusStyle.Render(fmt.Sprintf("Status: %s", m.status))
+	}
+	
+	return lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"",
+		contentBox,
 		"",
 		help,
 		status,
@@ -724,6 +870,61 @@ func (m Model) loadSecretDetails() tea.Cmd {
 // updateTOTP updates the TOTP code and remaining time (legacy method)
 func (m Model) updateTOTP() tea.Cmd {
 	return m.updateTOTPReal()
+}
+
+// PasswordGeneratedMsg represents a generated password result
+type PasswordGeneratedMsg struct {
+	Password string
+	Type     string
+	Error    error
+}
+
+// generatePassword generates a password of the specified type
+func (m Model) generatePassword(passwordType string) tea.Cmd {
+	return func() tea.Msg {
+		// Create options based on password type
+		var opts *generator.Options
+		
+		switch passwordType {
+		case "strong":
+			// Generate strong random password
+			opts = generator.DefaultOptions()
+			opts.Type = generator.Strong
+		case "memorable":
+			// Generate memorable password
+			opts = generator.DefaultOptions()
+			opts.Type = generator.Memorable
+		case "passphrase":
+			// Generate passphrase
+			opts = generator.DefaultOptions()
+			opts.Type = generator.Passphrase
+		default:
+			return PasswordGeneratedMsg{
+				Error: fmt.Errorf("unknown password type: %s", passwordType),
+			}
+		}
+		
+		// Create generator and generate password
+		gen := generator.New(opts)
+		passwords, err := gen.Generate()
+		
+		if err != nil {
+			return PasswordGeneratedMsg{
+				Error: fmt.Errorf("failed to generate password: %w", err),
+			}
+		}
+		
+		if len(passwords) == 0 {
+			return PasswordGeneratedMsg{
+				Error: fmt.Errorf("no passwords generated"),
+			}
+		}
+		
+		return PasswordGeneratedMsg{
+			Password: passwords[0],
+			Type:     passwordType,
+		}
+	}
 }
 
 // StartTUI starts the TUI application
