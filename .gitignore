@@ -32,3 +32,13 @@ Thumbs.db
 
 # Test outputs
 test_results/
+
+# Go build artifacts
+pwmgr-go
+pwmgr-*
+*.exe
+dist/
+build/
+
+# Go module cache
+go.sum

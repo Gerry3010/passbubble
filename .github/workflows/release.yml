@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run linting
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            name: pwmgr-linux-amd64
+          - os: linux
+            arch: arm64
+            name: pwmgr-linux-arm64
+          - os: darwin
+            arch: amd64
+            name: pwmgr-darwin-amd64
+          - os: darwin
+            arch: arm64
+            name: pwmgr-darwin-arm64
+          - os: windows
+            arch: amd64
+            name: pwmgr-windows-amd64.exe
+          - os: freebsd
+            arch: amd64
+            name: pwmgr-freebsd-amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o ${{ matrix.name }} ./cmd/pwmgr
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Create checksums
+        run: |
+          mkdir -p release-assets
+          for dir in pwmgr-*; do
+            if [ -d "$dir" ]; then
+              cp "$dir"/* release-assets/ 2>/dev/null || true
+            fi
+          done
+          cd release-assets
+          sha256sum * > checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-assets/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            ## Password Manager CLI - ${{ github.ref_name }}
+            
+            A secure command-line password manager with TOTP support, built in Go.
+            
+            ### Features
+            - 🔐 Secure password storage using system keyring
+            - 🔑 TOTP (Time-based One-Time Password) support
+            - 🎨 Beautiful Terminal User Interface (TUI)
+            - 🌐 Cross-platform support
+            - 🛡️ Strong password generation
+            - 💾 Backup and restore functionality
+            
+            ### Installation
+            
+            Download the appropriate binary for your system:
+            
+            - **Linux (x64)**: `pwmgr-linux-amd64`
+            - **Linux (ARM64)**: `pwmgr-linux-arm64`  
+            - **macOS (Intel)**: `pwmgr-darwin-amd64`
+            - **macOS (Apple Silicon)**: `pwmgr-darwin-arm64`
+            - **Windows**: `pwmgr-windows-amd64.exe`
+            - **FreeBSD**: `pwmgr-freebsd-amd64`
+            
+            ### Quick Start
+            
+            ```bash
+            # Make executable (Linux/macOS)
+            chmod +x pwmgr-*
+            
+            # Run TUI mode
+            ./pwmgr-* tui
+            
+            # CLI usage
+            ./pwmgr-* add myservice
+            ./pwmgr-* get myservice
+            ./pwmgr-* list
+            ```
+            
+            ### System Requirements
+            
+            **Linux**: Requires GNOME Keyring or compatible keyring service
+            ```bash
+            # Ubuntu/Debian
+            sudo apt install gnome-keyring libsecret-tools
+            
+            # Arch/Manjaro
+            sudo pacman -S gnome-keyring libsecret
+            ```
+            
+            **macOS**: Uses system keychain (no additional setup required)
+            
+            **Windows**: Uses Windows Credential Manager (no additional setup required)
+            
+            ### Verification
+            
+            Verify download integrity using the provided checksums:
+            ```bash
+            sha256sum -c checksums.txt
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
