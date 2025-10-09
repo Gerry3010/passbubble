@@ -1,5 +1,7 @@
 # Password Manager - Keychain Edition
 
+> 🤖 **AI Development Notice**: This project was developed collaboratively between Gerry and Claude (Anthropic's AI assistant). The initial codebase, fixes, and documentation were created through AI assistance to ensure robust functionality and proper security practices. We believe in transparency about AI involvement in open source projects.
+
 A comprehensive command-line password manager built for Linux systems using GNOME Keyring as the secure backend storage.
 
 ## 🌿 Branches
