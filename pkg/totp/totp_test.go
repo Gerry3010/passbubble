@@ -9,7 +9,7 @@ import (
 
 func TestDefaultOptions(t *testing.T) {
 	opts := DefaultOptions()
-	
+
 	if opts.Period != 30 {
 		t.Errorf("Expected default period 30, got %d", opts.Period)
 	}
@@ -186,7 +186,7 @@ func TestFormatCode(t *testing.T) {
 	}{
 		{"123456", "123 456"},
 		{"12345678", "1234 5678"},
-		{"12345", "12345"}, // too short, no formatting
+		{"12345", "12345"},         // too short, no formatting
 		{"123456789", "123456789"}, // too long, no formatting
 	}
 
@@ -203,13 +203,13 @@ func TestIsValidSecret(t *testing.T) {
 		secret string
 		valid  bool
 	}{
-		{"JBSWY3DPEHPK3PXP", true},    // valid base32
-		{"MZXW6YTBOI======", true},    // valid base32 with padding
-		{"12345", false},              // not base32
-		{"!@#$%", false},              // not base32
-		{"", false},                   // empty
-		{"JBSWY3DPEHPK3PXP", true},    // spaces cleaned in function
-		{"jbswy3dpehpk3pxp", true},    // case insensitive
+		{"JBSWY3DPEHPK3PXP", true}, // valid base32
+		{"MZXW6YTBOI======", true}, // valid base32 with padding
+		{"12345", false},           // not base32
+		{"!@#$%", false},           // not base32
+		{"", false},                // empty
+		{"JBSWY3DPEHPK3PXP", true}, // spaces cleaned in function
+		{"jbswy3dpehpk3pxp", true}, // case insensitive
 	}
 
 	for _, tc := range testCases {

@@ -32,7 +32,7 @@ func init() {
 
 func runVersion(cmd *cobra.Command, args []string) {
 	info := version.GetInfo()
-	
+
 	if jsonOutput {
 		jsonData, err := json.MarshalIndent(info, "", "  ")
 		if err != nil {

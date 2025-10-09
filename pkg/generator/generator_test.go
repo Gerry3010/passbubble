@@ -29,29 +29,29 @@ func TestGenerateStrong(t *testing.T) {
 		MinDigits:  1,
 		MinSymbols: 1,
 	}
-	
+
 	gen := New(opts)
 	passwords, err := gen.Generate()
-	
+
 	if err != nil {
 		t.Fatalf("Failed to generate password: %v", err)
 	}
-	
+
 	if len(passwords) != 1 {
 		t.Errorf("Expected 1 password, got %d", len(passwords))
 	}
-	
+
 	password := passwords[0]
 	if len(password) != 16 {
 		t.Errorf("Expected password length 16, got %d", len(password))
 	}
-	
+
 	// Check character requirements
 	hasUpper := false
 	hasLower := false
 	hasDigit := false
 	hasSymbol := false
-	
+
 	for _, char := range password {
 		switch {
 		case char >= 'A' && char <= 'Z':
@@ -64,7 +64,7 @@ func TestGenerateStrong(t *testing.T) {
 			hasSymbol = true
 		}
 	}
-	
+
 	if !hasUpper {
 		t.Error("Password should contain uppercase letters")
 	}
@@ -85,19 +85,19 @@ func TestGenerateAlphanumeric(t *testing.T) {
 		Type:   Alphanumeric,
 		Count:  1,
 	}
-	
+
 	gen := New(opts)
 	passwords, err := gen.Generate()
-	
+
 	if err != nil {
 		t.Fatalf("Failed to generate password: %v", err)
 	}
-	
+
 	password := passwords[0]
 	if len(password) != 12 {
 		t.Errorf("Expected password length 12, got %d", len(password))
 	}
-	
+
 	// Should only contain letters and numbers
 	for _, char := range password {
 		if !((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')) {
@@ -112,19 +112,19 @@ func TestGenerateNumbers(t *testing.T) {
 		Type:   Numbers,
 		Count:  1,
 	}
-	
+
 	gen := New(opts)
 	passwords, err := gen.Generate()
-	
+
 	if err != nil {
 		t.Fatalf("Failed to generate password: %v", err)
 	}
-	
+
 	password := passwords[0]
 	if len(password) != 8 {
 		t.Errorf("Expected password length 8, got %d", len(password))
 	}
-	
+
 	// Should only contain digits
 	for _, char := range password {
 		if char < '0' || char > '9' {
@@ -139,23 +139,23 @@ func TestGeneratePassphrase(t *testing.T) {
 		Type:   Passphrase,
 		Count:  1,
 	}
-	
+
 	gen := New(opts)
 	passwords, err := gen.Generate()
-	
+
 	if err != nil {
 		t.Fatalf("Failed to generate password: %v", err)
 	}
-	
+
 	password := passwords[0]
 	if len(password) < 10 {
 		t.Errorf("Passphrase too short: %s", password)
 	}
-	
+
 	// Should contain separators and end with digits
-	hasSeparator := strings.Contains(password, "-") || strings.Contains(password, "_") || 
-					strings.Contains(password, ".") || strings.Contains(password, "+")
-	
+	hasSeparator := strings.Contains(password, "-") || strings.Contains(password, "_") ||
+		strings.Contains(password, ".") || strings.Contains(password, "+")
+
 	if !hasSeparator {
 		t.Error("Passphrase should contain separator characters")
 	}
@@ -167,18 +167,18 @@ func TestGenerateMultiple(t *testing.T) {
 		Type:   Strong,
 		Count:  5,
 	}
-	
+
 	gen := New(opts)
 	passwords, err := gen.Generate()
-	
+
 	if err != nil {
 		t.Fatalf("Failed to generate passwords: %v", err)
 	}
-	
+
 	if len(passwords) != 5 {
 		t.Errorf("Expected 5 passwords, got %d", len(passwords))
 	}
-	
+
 	// All passwords should be different
 	seen := make(map[string]bool)
 	for _, password := range passwords {
@@ -186,7 +186,7 @@ func TestGenerateMultiple(t *testing.T) {
 			t.Errorf("Duplicate password generated: %s", password)
 		}
 		seen[password] = true
-		
+
 		if len(password) != 10 {
 			t.Errorf("Expected password length 10, got %d for password: %s", len(password), password)
 		}
@@ -199,25 +199,25 @@ func TestCheckStrength(t *testing.T) {
 		minScore int
 		maxScore int
 	}{
-		{"12345678", 0, 35},         // Very weak
-		{"password", 15, 50},        // Weak to moderate
-		{"Password1", 35, 65},       // Weak to strong
-		{"Password1!", 65, 85},      // Strong to very strong
-		{"P@ssw0rd!2023", 80, 100},  // Very strong
+		{"12345678", 0, 35},        // Very weak
+		{"password", 15, 50},       // Weak to moderate
+		{"Password1", 35, 65},      // Weak to strong
+		{"Password1!", 65, 85},     // Strong to very strong
+		{"P@ssw0rd!2023", 80, 100}, // Very strong
 	}
-	
+
 	for _, tc := range testCases {
 		result := CheckStrength(tc.password)
-		
+
 		if result.Password != tc.password {
 			t.Errorf("Expected password %s, got %s", tc.password, result.Password)
 		}
-		
+
 		if result.Score < tc.minScore || result.Score > tc.maxScore {
-			t.Errorf("Password %s: expected score between %d-%d, got %d", 
+			t.Errorf("Password %s: expected score between %d-%d, got %d",
 				tc.password, tc.minScore, tc.maxScore, result.Score)
 		}
-		
+
 		if result.Length != len(tc.password) {
 			t.Errorf("Expected length %d, got %d", len(tc.password), result.Length)
 		}
@@ -231,14 +231,14 @@ func TestNoAmbiguous(t *testing.T) {
 		Count:       10,
 		NoAmbiguous: true,
 	}
-	
+
 	gen := New(opts)
 	passwords, err := gen.Generate()
-	
+
 	if err != nil {
 		t.Fatalf("Failed to generate passwords: %v", err)
 	}
-	
+
 	ambiguous := "0O1lI"
 	for _, password := range passwords {
 		for _, char := range ambiguous {
@@ -257,14 +257,14 @@ func TestExcludeChars(t *testing.T) {
 		Count:        5,
 		ExcludeChars: excluded,
 	}
-	
+
 	gen := New(opts)
 	passwords, err := gen.Generate()
-	
+
 	if err != nil {
 		t.Fatalf("Failed to generate passwords: %v", err)
 	}
-	
+
 	for _, password := range passwords {
 		for _, char := range excluded {
 			if strings.ContainsRune(password, char) {

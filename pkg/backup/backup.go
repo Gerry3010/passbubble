@@ -36,11 +36,11 @@ type BackupMetadata struct {
 
 // BackupOptions contains options for backup operations
 type BackupOptions struct {
-	OutputPath    string
-	UseGPG        bool
-	UsePassword   bool
-	BackupDir     string
-	MaxBackups    int
+	OutputPath  string
+	UseGPG      bool
+	UsePassword bool
+	BackupDir   string
+	MaxBackups  int
 }
 
 // Manager handles backup and restore operations

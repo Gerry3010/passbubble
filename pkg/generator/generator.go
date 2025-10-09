@@ -12,25 +12,25 @@ import (
 type PasswordType string
 
 const (
-	Strong      PasswordType = "strong"
+	Strong       PasswordType = "strong"
 	Alphanumeric PasswordType = "alphanum"
-	Numbers     PasswordType = "numbers"
-	Memorable   PasswordType = "memorable"
-	Passphrase  PasswordType = "passphrase"
+	Numbers      PasswordType = "numbers"
+	Memorable    PasswordType = "memorable"
+	Passphrase   PasswordType = "passphrase"
 )
 
 // Options contains password generation options
 type Options struct {
-	Length        int
-	Type          PasswordType
-	Count         int
-	Symbols       string
-	ExcludeChars  string
-	NoAmbiguous   bool
-	MinUpper      int
-	MinLower      int
-	MinDigits     int
-	MinSymbols    int
+	Length       int
+	Type         PasswordType
+	Count        int
+	Symbols      string
+	ExcludeChars string
+	NoAmbiguous  bool
+	MinUpper     int
+	MinLower     int
+	MinDigits    int
+	MinSymbols   int
 }
 
 // DefaultOptions returns default generation options
@@ -63,7 +63,7 @@ func New(opts *Options) *Generator {
 // Generate generates passwords based on the configured options
 func (g *Generator) Generate() ([]string, error) {
 	var passwords []string
-	
+
 	for i := 0; i < g.options.Count; i++ {
 		password, err := g.generateSingle()
 		if err != nil {
@@ -71,7 +71,7 @@ func (g *Generator) Generate() ([]string, error) {
 		}
 		passwords = append(passwords, password)
 	}
-	
+
 	return passwords, nil
 }
 
@@ -97,7 +97,7 @@ func (g *Generator) generateStrong() (string, error) {
 	uppercase := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	digits := "0123456789"
 	symbols := g.options.Symbols
-	
+
 	if g.options.NoAmbiguous {
 		lowercase = strings.ReplaceAll(lowercase, "l", "")
 		uppercase = strings.ReplaceAll(uppercase, "O", "")
@@ -105,7 +105,7 @@ func (g *Generator) generateStrong() (string, error) {
 		digits = strings.ReplaceAll(digits, "0", "")
 		digits = strings.ReplaceAll(digits, "1", "")
 	}
-	
+
 	// Remove excluded characters
 	if g.options.ExcludeChars != "" {
 		for _, char := range g.options.ExcludeChars {
@@ -116,9 +116,9 @@ func (g *Generator) generateStrong() (string, error) {
 			symbols = strings.ReplaceAll(symbols, c, "")
 		}
 	}
-	
+
 	var password strings.Builder
-	
+
 	// Ensure minimum requirements
 	for i := 0; i < g.options.MinLower; i++ {
 		char, err := randomChar(lowercase)
@@ -127,7 +127,7 @@ func (g *Generator) generateStrong() (string, error) {
 		}
 		password.WriteString(char)
 	}
-	
+
 	for i := 0; i < g.options.MinUpper; i++ {
 		char, err := randomChar(uppercase)
 		if err != nil {
@@ -135,7 +135,7 @@ func (g *Generator) generateStrong() (string, error) {
 		}
 		password.WriteString(char)
 	}
-	
+
 	for i := 0; i < g.options.MinDigits; i++ {
 		char, err := randomChar(digits)
 		if err != nil {
@@ -143,7 +143,7 @@ func (g *Generator) generateStrong() (string, error) {
 		}
 		password.WriteString(char)
 	}
-	
+
 	for i := 0; i < g.options.MinSymbols; i++ {
 		char, err := randomChar(symbols)
 		if err != nil {
@@ -151,11 +151,11 @@ func (g *Generator) generateStrong() (string, error) {
 		}
 		password.WriteString(char)
 	}
-	
+
 	// Fill remaining length with random characters from all sets
 	allChars := lowercase + uppercase + digits + symbols
 	remaining := g.options.Length - password.Len()
-	
+
 	for i := 0; i < remaining; i++ {
 		char, err := randomChar(allChars)
 		if err != nil {
@@ -163,14 +163,14 @@ func (g *Generator) generateStrong() (string, error) {
 		}
 		password.WriteString(char)
 	}
-	
+
 	// Shuffle the password
 	return shuffleString(password.String())
 }
 
 func (g *Generator) generateAlphanumeric() (string, error) {
 	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	
+
 	if g.options.NoAmbiguous {
 		chars = strings.ReplaceAll(chars, "l", "")
 		chars = strings.ReplaceAll(chars, "O", "")
@@ -178,7 +178,7 @@ func (g *Generator) generateAlphanumeric() (string, error) {
 		chars = strings.ReplaceAll(chars, "0", "")
 		chars = strings.ReplaceAll(chars, "1", "")
 	}
-	
+
 	// Remove excluded characters
 	if g.options.ExcludeChars != "" {
 		for _, char := range g.options.ExcludeChars {
@@ -186,7 +186,7 @@ func (g *Generator) generateAlphanumeric() (string, error) {
 			chars = strings.ReplaceAll(chars, c, "")
 		}
 	}
-	
+
 	return randomString(chars, g.options.Length)
 }
 
@@ -203,29 +203,29 @@ func (g *Generator) generateMemorable() (string, error) {
 	consonants := "bcdfghjklmnpqrstvwxyz"
 	var password strings.Builder
 	useConsonant := true
-	
+
 	for i := 0; i < g.options.Length; i++ {
 		var char string
 		var err error
-		
+
 		if useConsonant {
 			char, err = randomChar(consonants)
 		} else {
 			char, err = randomChar(vowels)
 		}
-		
+
 		if err != nil {
 			return "", err
 		}
-		
+
 		// Randomly capitalize some letters
 		if randomBool() {
 			char = strings.ToUpper(char)
 		}
-		
+
 		password.WriteString(char)
 		useConsonant = !useConsonant
-		
+
 		// Randomly insert digits
 		if i > 0 && i < g.options.Length-1 && randomBool() {
 			digit, err := randomChar("23456789")
@@ -235,12 +235,12 @@ func (g *Generator) generateMemorable() (string, error) {
 			password.WriteString(digit)
 		}
 	}
-	
+
 	result := password.String()
 	if len(result) > g.options.Length {
 		result = result[:g.options.Length]
 	}
-	
+
 	return result, nil
 }
 
@@ -252,46 +252,46 @@ func (g *Generator) generatePassphrase() (string, error) {
 		"mystery", "journey", "courage", "freedom", "wisdom", "strength",
 		"harmony", "balance", "energy", "spirit", "magic", "wonder",
 	}
-	
+
 	wordCount := 4
 	if g.options.Length >= 20 {
 		wordCount = 5
 	} else if g.options.Length <= 12 {
 		wordCount = 3
 	}
-	
+
 	var selectedWords []string
 	for i := 0; i < wordCount; i++ {
 		word, err := randomChoice(words)
 		if err != nil {
 			return "", err
 		}
-		
+
 		// Randomly capitalize
 		if randomBool() {
 			if len(word) > 0 {
 				word = strings.ToUpper(word[:1]) + word[1:]
 			}
 		}
-		
+
 		selectedWords = append(selectedWords, word)
 	}
-	
+
 	// Join with random separators
 	separators := []string{"-", "_", ".", "+"}
 	separator, err := randomChoice(separators)
 	if err != nil {
 		return "", err
 	}
-	
+
 	result := strings.Join(selectedWords, separator)
-	
+
 	// Add a random number at the end
 	num, err := randomRange(10, 999)
 	if err != nil {
 		return "", err
 	}
-	
+
 	return fmt.Sprintf("%s%d", result, num), nil
 }
 
@@ -301,9 +301,9 @@ func CheckStrength(password string) *StrengthResult {
 		Password: password,
 		Length:   len(password),
 	}
-	
+
 	score := 0
-	
+
 	// Length scoring
 	if result.Length >= 12 {
 		score += 25
@@ -312,7 +312,7 @@ func CheckStrength(password string) *StrengthResult {
 	} else {
 		result.Feedback = append(result.Feedback, "Password is too short (minimum 8 characters)")
 	}
-	
+
 	// Character variety
 	if regexp.MustCompile(`[a-z]`).MatchString(password) {
 		score += 15
@@ -320,28 +320,28 @@ func CheckStrength(password string) *StrengthResult {
 	} else {
 		result.Feedback = append(result.Feedback, "Add lowercase letters")
 	}
-	
+
 	if regexp.MustCompile(`[A-Z]`).MatchString(password) {
 		score += 15
 		result.HasUpper = true
 	} else {
 		result.Feedback = append(result.Feedback, "Add uppercase letters")
 	}
-	
+
 	if regexp.MustCompile(`[0-9]`).MatchString(password) {
 		score += 15
 		result.HasDigits = true
 	} else {
 		result.Feedback = append(result.Feedback, "Add numbers")
 	}
-	
+
 	if regexp.MustCompile(`[^a-zA-Z0-9]`).MatchString(password) {
 		score += 20
 		result.HasSymbols = true
 	} else {
 		result.Feedback = append(result.Feedback, "Add symbols")
 	}
-	
+
 	// Pattern penalties - check for repeated characters
 	hasRepeated := false
 	for i := 0; i < len(password)-2; i++ {
@@ -354,15 +354,15 @@ func CheckStrength(password string) *StrengthResult {
 		score -= 10
 		result.Feedback = append(result.Feedback, "Avoid repeated characters")
 	}
-	
+
 	if regexp.MustCompile(`(abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz)`).MatchString(strings.ToLower(password)) ||
 		regexp.MustCompile(`(012|123|234|345|456|567|678|789)`).MatchString(password) {
 		score -= 15
 		result.Feedback = append(result.Feedback, "Avoid sequential characters")
 	}
-	
+
 	result.Score = score
-	
+
 	// Determine strength level
 	if score >= 80 {
 		result.Level = "Very Strong"
@@ -375,7 +375,7 @@ func CheckStrength(password string) *StrengthResult {
 	} else {
 		result.Level = "Very Weak"
 	}
-	
+
 	return result
 }
 

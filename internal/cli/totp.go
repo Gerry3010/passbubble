@@ -91,13 +91,13 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to parse TOTP URL: %w", err)
 			}
-			
+
 			entry.Password = parsedSecret
 			entry.Issuer = opts.Issuer
 			entry.Period = int(opts.Period)
 			entry.Digits = int(opts.Digits)
 			entry.Algorithm = strings.ToUpper(opts.Algorithm.String())
-			
+
 		} else if generate {
 			// Generate new TOTP secret
 			opts := &totp.GenerateOptions{
@@ -107,35 +107,35 @@ Examples:
 				Digits:      convertToOTPDigits(digits),
 				Algorithm:   convertToOTPAlgorithm(algorithm),
 			}
-			
+
 			generatedSecret, url, err := totp.GenerateSecret(opts)
 			if err != nil {
 				return fmt.Errorf("failed to generate TOTP secret: %w", err)
 			}
-			
+
 			entry.Password = generatedSecret
 			entry.Issuer = issuer
 			entry.Period = int(period)
 			entry.Digits = int(digits)
 			entry.Algorithm = strings.ToUpper(algorithm)
-			
+
 			fmt.Printf("Generated TOTP secret for %s\n", service)
 			fmt.Printf("Secret: %s\n", generatedSecret)
 			fmt.Printf("URL: %s\n", url)
 			fmt.Println()
-			
+
 		} else if secret != "" {
 			// Use provided secret
 			if !totp.IsValidSecret(secret) {
 				return fmt.Errorf("invalid TOTP secret format (must be base32)")
 			}
-			
+
 			entry.Password = secret
 			entry.Issuer = issuer
 			entry.Period = int(period)
 			entry.Digits = int(digits)
 			entry.Algorithm = strings.ToUpper(algorithm)
-			
+
 		} else {
 			return fmt.Errorf("must provide either --secret, --url, or --generate")
 		}
@@ -168,7 +168,7 @@ Examples:
 			Digits:    convertToOTPDigits(uint(entry.Digits)),
 			Algorithm: convertToOTPAlgorithm(entry.Algorithm),
 		}
-		
+
 		code, err := totp.GenerateCode(entry.Password, opts)
 		if err == nil {
 			remaining := totp.GetTimeRemaining(uint(entry.Period))
@@ -252,7 +252,7 @@ Examples:
 			// Watch mode - continuously display codes
 			fmt.Printf("TOTP codes for %s (Press Ctrl+C to stop)\n", displayName)
 			fmt.Printf("Period: %ds, Digits: %d, Algorithm: %s\n\n", opts.Period, opts.Digits, opts.Algorithm)
-			
+
 			for {
 				code, err := totp.GenerateCode(entry.Password, opts)
 				if err != nil {
@@ -261,9 +261,9 @@ Examples:
 
 				remaining := totp.GetTimeRemaining(opts.Period)
 				timestamp := time.Now().Format("15:04:05")
-				
+
 				fmt.Printf("\r%s | Code: %s | Valid for: %2ds", timestamp, totp.FormatCode(code), remaining)
-				
+
 				time.Sleep(time.Duration(refresh) * time.Second)
 			}
 		} else {
@@ -314,19 +314,19 @@ Shows service names, usernames, issuers, and TOTP parameters.`,
 		}
 
 		fmt.Printf("Found %d TOTP secrets:\n\n", len(totpEntries))
-		
+
 		for _, entry := range totpEntries {
 			displayName := entry.Service
 			if entry.Username != "" {
 				displayName = fmt.Sprintf("%s (%s)", entry.Service, entry.Username)
 			}
-			
+
 			fmt.Printf("• %s", displayName)
-			
+
 			if entry.Issuer != "" {
 				fmt.Printf(" [%s]", entry.Issuer)
 			}
-			
+
 			// Show TOTP parameters
 			period := entry.Period
 			if period == 0 {
@@ -340,13 +340,13 @@ Shows service names, usernames, issuers, and TOTP parameters.`,
 			if algorithm == "" {
 				algorithm = "SHA1"
 			}
-			
+
 			fmt.Printf(" - %ds/%dd/%s", period, digits, algorithm)
-			
+
 			if entry.Notes != "" {
 				fmt.Printf(" (%s)", entry.Notes)
 			}
-			
+
 			fmt.Println()
 		}
 

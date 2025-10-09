@@ -29,15 +29,16 @@ A comprehensive command-line password manager built for multiple platforms using
 
 ## 🌟 Features
 
-- **Secure Storage**: Uses GNOME Keyring (Linux), Keychain (macOS), or Credential Manager (Windows)
-- **TOTP Support**: Two-Factor Authentication compatible with Google Authenticator, Authy, etc.
-- **Cross-Platform**: Linux, macOS, Windows, FreeBSD, OpenBSD support
-- **Easy CLI Interface**: Modern Cobra-based CLI with help and auto-completion
-- **Advanced Password Generation**: Multiple password types with cryptographic security
-- **Backup & Restore**: JSON-based encrypted backup system with GPG support  
-- **Search & Organization**: Fast searching and categorization of all secret types
-- **Multiple Secret Types**: Passwords, TOTP keys, API keys, secure notes (planned)
-- **Version Information**: Built-in version tracking with build details
+- **🔐 Interactive TUI**: Beautiful terminal interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+- **🔑 Secure Storage**: Uses GNOME Keyring (Linux), Keychain (macOS), or Credential Manager (Windows)
+- **🔓 TOTP Support**: Two-Factor Authentication compatible with Google Authenticator, Authy, etc.
+- **🌐 Cross-Platform**: Linux, macOS, Windows, FreeBSD, OpenBSD support
+- **💻 Dual Interface**: Both interactive TUI and traditional CLI commands
+- **🎲 Advanced Password Generation**: Multiple password types with cryptographic security
+- **💾 Backup & Restore**: JSON-based encrypted backup system with GPG support  
+- **🔍 Search & Organization**: Fast searching and categorization of all secret types
+- **🔒 Multiple Secret Types**: Passwords, TOTP keys, API keys, secure notes (planned)
+- **📊 Version Information**: Built-in version tracking with build details
 
 ## 📋 Requirements
 
@@ -70,35 +71,48 @@ sudo dnf install gnome-keyring libsecret
 
 ## 🚀 Quick Start
 
-1. **Build or install the password manager**:
+### Interactive TUI (Recommended)
+
+1. **Launch the beautiful TUI interface**:
    ```bash
-   # Build from source
-   make build
+   # Build and run
+   make build && ./build/pwmgr-go
    
-   # Or download from releases and extract
+   # Or run TUI explicitly
+   ./build/pwmgr-go tui
    ```
 
-2. **Add your first password**:
+2. **Navigate with intuitive controls**:
+   - `↑/↓` or `j/k`: Navigate lists
+   - `Enter`: View entry details with live TOTP codes
+   - `s`: Show/hide secrets securely
+   - `a`: Add new entry
+   - `b`: Backup management
+   - `q`: Quit
+
+### CLI Commands (Traditional)
+
+1. **Add your first password**:
    ```bash
    ./build/pwmgr-go add gmail john.doe@gmail.com
    ```
 
-3. **Set up TOTP for 2FA**:
+2. **Set up TOTP for 2FA**:
    ```bash
    ./build/pwmgr-go totp-add google user@gmail.com --generate --issuer "Google"
    ```
 
-4. **Retrieve a password**:
+3. **Retrieve a password**:
    ```bash
    ./build/pwmgr-go get gmail john.doe@gmail.com
    ```
 
-5. **Generate a TOTP code**:
+4. **Generate a TOTP code**:
    ```bash
    ./build/pwmgr-go totp-code google user@gmail.com
    ```
 
-6. **List all stored secrets**:
+5. **List all stored secrets**:
    ```bash
    ./build/pwmgr-go list
    ```
@@ -159,6 +173,42 @@ sudo dnf install gnome-keyring libsecret
 **Windows:** Built-in Credential Manager (no installation needed)
 
 ## 📚 Usage Guide (Go Implementation)
+
+### 🔐 Interactive TUI (Bubble Tea)
+
+The TUI provides a beautiful, interactive interface for managing your secrets:
+
+```bash
+# Launch TUI (default when no command specified)
+pwmgr-go
+
+# Or explicitly launch TUI
+pwmgr-go tui
+```
+
+**Main Screen Features:**
+- 🔑 Browse all stored passwords and TOTP secrets
+- 🔍 Search and filter entries
+- 🎨 Color-coded entry types with icons
+- ⌨️ Vim-style navigation (`j`/`k` or arrow keys)
+- 🎯 Quick access to all major functions
+
+**Detail Screen Features:**
+- 🔍 View complete entry information
+- 🔓 Secure secret display (press `s` to toggle)
+- 🔄 Live TOTP code generation with countdown
+- 📊 Progress bar showing code validity
+- ⏱️ Auto-refresh TOTP codes every second
+
+**Backup Management Screen:**
+- 💾 Visual backup browser
+- 📅 Backup creation dates and file sizes
+- 🎢 Quick restore and delete options
+
+**Security Features:**
+- 🔐 Passwords hidden by default (use CLI for copying)
+- 🗱️ Automatic sensitive data cleanup
+- ⚠️ Clear security notices and guidance
 
 ### Password Management
 

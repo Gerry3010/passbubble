@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gerry/password-manager/internal/tui"
 	"github.com/gerry/password-manager/internal/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -18,19 +19,33 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:     "pwmgr",
-	Short:   "A secure password manager using GNOME Keyring",
-	Long: `Password Manager - Keychain Edition
+	Short:   "A secure password manager with interactive TUI",
+	Long: `Password Manager - Go Edition
 
-A comprehensive command-line password manager built for Linux systems 
-using GNOME Keyring as the secure backend storage.
+A comprehensive password manager with both CLI and TUI interfaces.
+Built using GNOME Keyring (Linux), Keychain (macOS), or Credential Manager (Windows).
 
 Features:
-- Secure password storage using GNOME Keyring
-- Advanced password generation with multiple types
-- Encrypted backup and restore functionality
-- Search and organization capabilities
-- Cross-system compatibility with Linux distributions`,
+- 🔐 Interactive Bubble Tea TUI interface (default)
+- 🔑 Secure password storage using system keyring
+- 🔓 TOTP 2FA support with live code generation
+- 🎲 Advanced password generation with multiple types
+- 💾 Encrypted backup and restore functionality
+- 🔍 Search and organization capabilities
+- 🌐 Cross-platform compatibility
+
+Usage:
+  pwmgr           Launch interactive TUI (default)
+  pwmgr [command] Use specific CLI command
+  pwmgr help      Show all available commands`,
 	Version: version.GetInfo().Short(),
+	Run: func(cmd *cobra.Command, args []string) {
+		// Default behavior: launch TUI
+		if err := tui.StartTUI(); err != nil {
+			cmd.PrintErrf("Error launching TUI: %v\n", err)
+			cmd.PrintErrln("Use 'pwmgr help' to see available CLI commands.")
+		}
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

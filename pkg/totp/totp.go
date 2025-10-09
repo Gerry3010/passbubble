@@ -15,11 +15,11 @@ import (
 
 // GenerateOptions contains options for generating TOTP secrets
 type GenerateOptions struct {
-	Issuer    string
+	Issuer      string
 	AccountName string
-	Period    uint
-	Digits    otp.Digits
-	Algorithm otp.Algorithm
+	Period      uint
+	Digits      otp.Digits
+	Algorithm   otp.Algorithm
 }
 
 // DefaultOptions returns default TOTP generation options
@@ -59,7 +59,7 @@ func GenerateCode(secret string, opts *GenerateOptions) (string, error) {
 
 	// Validate and clean the secret
 	secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
-	
+
 	// Generate code with custom options
 	code, err := totp.GenerateCodeCustom(secret, time.Now(), totp.ValidateOpts{
 		Period:    opts.Period,
@@ -82,7 +82,7 @@ func ValidateCode(code, secret string, opts *GenerateOptions) bool {
 
 	// Validate and clean the secret
 	secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
-	
+
 	valid, _ := totp.ValidateCustom(code, secret, time.Now(), totp.ValidateOpts{
 		Period:    opts.Period,
 		Skew:      1,
@@ -105,7 +105,7 @@ func ParseTOTPURL(otpURL string) (*GenerateOptions, string, error) {
 
 	// Extract account name from path
 	accountName := strings.TrimPrefix(u.Path, "/")
-	
+
 	// Parse query parameters
 	params := u.Query()
 	secret := params.Get("secret")
@@ -155,7 +155,7 @@ func GenerateRandomSecret() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to generate random secret: %w", err)
 	}
-	
+
 	return base32.StdEncoding.EncodeToString(bytes), nil
 }
 
@@ -182,12 +182,12 @@ func FormatCode(code string) string {
 func IsValidSecret(secret string) bool {
 	// Clean the secret
 	secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
-	
+
 	// Empty secrets are not valid
 	if secret == "" {
 		return false
 	}
-	
+
 	// Check if it's valid base32
 	_, err := base32.StdEncoding.DecodeString(secret)
 	return err == nil

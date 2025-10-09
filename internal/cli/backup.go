@@ -17,19 +17,19 @@ func init() {
 	for _, cmd := range backupCmds {
 		rootCmd.AddCommand(cmd)
 	}
-	
+
 	// Backup command flags
 	backupCmd.Flags().StringP("output", "o", "", "Output file path")
 	backupCmd.Flags().StringP("dir", "d", "", "Backup directory (default: ~/Documents/pwmgr-backups)")
 	backupCmd.Flags().BoolP("encrypt", "e", false, "Encrypt backup with GPG")
 	backupCmd.Flags().BoolP("password", "p", false, "Use password encryption instead of GPG")
-	
+
 	// Restore command flags
 	restoreCmd.Flags().BoolP("force", "f", false, "Force restore without confirmation")
-	
+
 	// List command flags
 	listBackupsCmd.Flags().StringP("dir", "d", "", "Backup directory (default: ~/Documents/pwmgr-backups)")
-	
+
 	// Clean command flags
 	cleanCmd.Flags().StringP("dir", "d", "", "Backup directory (default: ~/Documents/pwmgr-backups)")
 	cleanCmd.Flags().IntP("keep", "k", 10, "Number of backups to keep")
@@ -108,7 +108,7 @@ Examples:
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		backupFile := args[0]
-		
+
 		kr := keyring.New()
 		if !kr.IsAvailable() {
 			return fmt.Errorf("secret-tool is not available. Please install libsecret-tools package")
@@ -127,7 +127,7 @@ Examples:
 			fmt.Printf("This will restore passwords from: %s\n", backupFile)
 			fmt.Printf("Existing passwords will not be overwritten.\n")
 			fmt.Print("Continue? [y/N]: ")
-			
+
 			var response string
 			fmt.Scanln(&response)
 			if response != "y" && response != "Y" && response != "yes" {
@@ -177,7 +177,7 @@ Examples:
 		opts := &backup.BackupOptions{
 			BackupDir: backupDir,
 		}
-		
+
 		kr := keyring.New() // We need this for the manager, but won't use keyring operations
 		mgr := backup.New(kr, opts)
 

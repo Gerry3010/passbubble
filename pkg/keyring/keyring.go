@@ -35,18 +35,18 @@ const (
 
 // Entry represents a secret entry
 type Entry struct {
-	Service     string     `json:"service"`
-	Username    string     `json:"username,omitempty"`
-	Password    string     `json:"password"`           // For password type or TOTP secret
-	Label       string     `json:"label,omitempty"`
-	SecretType  SecretType `json:"secret_type,omitempty"` // Type of secret
-	Issuer      string     `json:"issuer,omitempty"`      // For TOTP issuer
-	Period      int        `json:"period,omitempty"`      // For TOTP period (default 30)
-	Digits      int        `json:"digits,omitempty"`      // For TOTP digits (default 6)
-	Algorithm   string     `json:"algorithm,omitempty"`   // For TOTP algorithm (default SHA1)
-	CreatedAt   string     `json:"created_at,omitempty"`
-	UpdatedAt   string     `json:"updated_at,omitempty"`
-	Notes       string     `json:"notes,omitempty"`       // Additional notes
+	Service    string     `json:"service"`
+	Username   string     `json:"username,omitempty"`
+	Password   string     `json:"password"` // For password type or TOTP secret
+	Label      string     `json:"label,omitempty"`
+	SecretType SecretType `json:"secret_type,omitempty"` // Type of secret
+	Issuer     string     `json:"issuer,omitempty"`      // For TOTP issuer
+	Period     int        `json:"period,omitempty"`      // For TOTP period (default 30)
+	Digits     int        `json:"digits,omitempty"`      // For TOTP digits (default 6)
+	Algorithm  string     `json:"algorithm,omitempty"`   // For TOTP algorithm (default SHA1)
+	CreatedAt  string     `json:"created_at,omitempty"`
+	UpdatedAt  string     `json:"updated_at,omitempty"`
+	Notes      string     `json:"notes,omitempty"` // Additional notes
 }
 
 // Keyring provides interface to GNOME Keyring
@@ -83,13 +83,13 @@ func (k *Keyring) StoreEntry(entry Entry) error {
 	}
 
 	args := []string{"store", "--label=" + label}
-	
+
 	// Add basic attributes
 	args = append(args, "service", entry.Service)
 	if entry.Username != "" {
 		args = append(args, "username", entry.Username)
 	}
-	
+
 	// Add secret type and metadata
 	if entry.SecretType != "" {
 		args = append(args, "secret_type", string(entry.SecretType))
@@ -112,11 +112,11 @@ func (k *Keyring) StoreEntry(entry Entry) error {
 
 	cmd := exec.Command("secret-tool", args...)
 	cmd.Stdin = strings.NewReader(entry.Password)
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to store entry: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -149,7 +149,7 @@ func (k *Keyring) Get(service, username string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("password not found for %s", service)
 	}
-	
+
 	return strings.TrimSpace(string(output)), nil
 }
 
@@ -160,20 +160,20 @@ func (k *Keyring) GetEntry(service, username string) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Get all entries and find the matching one with metadata
 	entries, err := k.List()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get entry metadata: %w", err)
 	}
-	
+
 	for _, entry := range entries {
 		if entry.Service == service && entry.Username == username {
 			entry.Password = password // Set the actual password
 			return &entry, nil
 		}
 	}
-	
+
 	// If not found in metadata, return basic entry
 	return &Entry{
 		Service:    service,
@@ -194,7 +194,7 @@ func (k *Keyring) Delete(service, username string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to delete password: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -206,7 +206,7 @@ func (k *Keyring) List() ([]Entry, error) {
 		"/org/freedesktop/secrets/collection/login",
 		"org.freedesktop.Secret.Collection",
 		"SearchItems", "a{ss}", "0")
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to enumerate keyring entries: %w", err)
@@ -225,14 +225,14 @@ func (k *Keyring) List() ([]Entry, error) {
 			"org.freedesktop.secrets", path,
 			"org.freedesktop.DBus.Properties", "Get",
 			"ss", "org.freedesktop.Secret.Item", "Attributes")
-		
+
 		attrOutput, err := attrCmd.Output()
 		if err != nil {
 			continue
 		}
 
 		attrs := string(attrOutput)
-		
+
 		// Look for service attribute
 		serviceRegex := regexp.MustCompile(`"service" "([^"]+)"`)
 		serviceMatch := serviceRegex.FindStringSubmatch(attrs)
@@ -241,48 +241,48 @@ func (k *Keyring) List() ([]Entry, error) {
 		}
 
 		service := serviceMatch[1]
-		
+
 		// Parse all attributes
 		entry := Entry{
 			Service: service,
 		}
-		
+
 		// Look for username
 		if usernameMatch := regexp.MustCompile(`"username" "([^"]+)"`).FindStringSubmatch(attrs); usernameMatch != nil {
 			entry.Username = usernameMatch[1]
 		}
-		
+
 		// Look for secret_type
 		if typeMatch := regexp.MustCompile(`"secret_type" "([^"]+)"`).FindStringSubmatch(attrs); typeMatch != nil {
 			entry.SecretType = SecretType(typeMatch[1])
 		} else {
 			entry.SecretType = SecretTypePassword // Default type
 		}
-		
+
 		// Look for issuer (TOTP)
 		if issuerMatch := regexp.MustCompile(`"issuer" "([^"]+)"`).FindStringSubmatch(attrs); issuerMatch != nil {
 			entry.Issuer = issuerMatch[1]
 		}
-		
+
 		// Look for period (TOTP)
 		if periodMatch := regexp.MustCompile(`"period" "([^"]+)"`).FindStringSubmatch(attrs); periodMatch != nil {
 			if period := parseInt(periodMatch[1]); period > 0 {
 				entry.Period = period
 			}
 		}
-		
+
 		// Look for digits (TOTP)
 		if digitsMatch := regexp.MustCompile(`"digits" "([^"]+)"`).FindStringSubmatch(attrs); digitsMatch != nil {
 			if digits := parseInt(digitsMatch[1]); digits > 0 {
 				entry.Digits = digits
 			}
 		}
-		
+
 		// Look for algorithm (TOTP)
 		if algoMatch := regexp.MustCompile(`"algorithm" "([^"]+)"`).FindStringSubmatch(attrs); algoMatch != nil {
 			entry.Algorithm = algoMatch[1]
 		}
-		
+
 		// Look for notes
 		if notesMatch := regexp.MustCompile(`"notes" "([^"]+)"`).FindStringSubmatch(attrs); notesMatch != nil {
 			entry.Notes = notesMatch[1]
@@ -324,7 +324,7 @@ func (k *Keyring) Search(pattern string) ([]Entry, error) {
 	for _, entry := range entries {
 		service := strings.ToLower(entry.Service)
 		username := strings.ToLower(entry.Username)
-		
+
 		if strings.Contains(service, pattern) || strings.Contains(username, pattern) {
 			matches = append(matches, entry)
 		}

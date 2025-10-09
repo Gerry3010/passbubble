@@ -12,7 +12,7 @@ import (
 func init() {
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(searchCmd)
-	
+
 	// Generate command flags
 	generateCmd.Flags().IntP("length", "l", 16, "Password length")
 	generateCmd.Flags().IntP("count", "c", 1, "Number of passwords to generate")
