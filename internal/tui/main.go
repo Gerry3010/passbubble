@@ -560,10 +560,9 @@ func (m Model) renderDetailScreen() string {
 		case "password":
 			details = append(details, "")
 			if m.password != "" {
-				// Show actual password (masked)
-				maskedPassword := strings.Repeat("•", len(m.password))
-				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(maskedPassword)))
-				details = append(details, m.helpStyle.Render("🔒 Password loaded (use CLI to copy safely)"))
+				// Show actual password when secrets are revealed
+				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(m.password)))
+				details = append(details, m.helpStyle.Render("🔒 Password revealed - handle with care!"))
 			} else {
 				details = append(details, m.hiddenStyle.Render("Loading password..."))
 			}
@@ -583,12 +582,12 @@ func (m Model) renderDetailScreen() string {
 		}
 	} else {
 		details = append(details, "")
-		details = append(details, m.hiddenStyle.Render("Press 's' to show secrets"))
+		details = append(details, m.hiddenStyle.Render("🔒 Secrets hidden - Press 's' to reveal"))
 	}
 	
 	content := m.detailStyle.Render(strings.Join(details, "\n"))
 	
-	help := m.helpStyle.Render("s: toggle secrets • esc/q: back to list")
+	help := m.helpStyle.Render("s: show/hide secrets • esc/q: back to list")
 	
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
