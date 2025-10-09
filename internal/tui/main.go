@@ -44,18 +44,19 @@ type Model struct {
 	showSecrets bool
 	totpCode    string
 	totpRemaining int
+	password    string
 	
 	// Backup screen state
 	backups     []backup.BackupInfo
 	backupCursor int
 	
-	// Input state
-	inputMode   bool
-	inputValue  string
-	inputPrompt string
+	// Form state
+	showingForm bool
+	form        FormModel
 	
 	// Status
 	status string
+	statusType string // success, error, info
 	
 	// Styles
 	titleStyle       lipgloss.Style
@@ -147,6 +148,38 @@ type LoadBackupsMsg struct {
 
 // Update handles messages and updates the model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle form updates when showing form
+	if m.showingForm {
+		switch msg := msg.(type) {
+		case FormSubmittedMsg:
+			m.showingForm = false
+			return m, processFormSubmission(msg)
+			
+		case FormCancelledMsg:
+			m.showingForm = false
+			m.status = "Action cancelled"
+			m.statusType = "info"
+			return m, nil
+			
+		case ConfirmationMsg:
+			m.showingForm = false
+			if msg.Confirmed && msg.Action == "delete" {
+				if entry, ok := msg.Data.(*Entry); ok {
+					return m, handleDeleteEntry(entry)
+				}
+			} else {
+				m.status = "Action cancelled"
+				m.statusType = "info"
+			}
+			return m, nil
+			
+		default:
+			updatedForm, cmd := m.form.Update(msg)
+			m.form = updatedForm
+			return m, cmd
+		}
+	}
+	
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -162,6 +195,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.entries = msg.Entries
+		m.status = "Entries refreshed"
+		m.statusType = "success"
 		return m, nil
 		
 	case LoadBackupsMsg:
@@ -170,11 +205,72 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.backups = msg.Backups
+		m.status = "Backups refreshed"
+		m.statusType = "success"
+		return m, nil
+		
+	case TOTPUpdateMsg:
+		if msg.Error != nil {
+			m.status = fmt.Sprintf("TOTP Error: %v", msg.Error)
+			m.statusType = "error"
+			return m, nil
+		}
+		m.totpCode = msg.Code
+		m.totpRemaining = msg.Remaining
+		return m, nil
+		
+	case SecretLoadMsg:
+		if msg.Error != nil {
+			m.status = fmt.Sprintf("Error loading secret: %v", msg.Error)
+			m.statusType = "error"
+			return m, nil
+		}
+		m.password = msg.Password
+		return m, nil
+		
+	case ActionResultMsg:
+		m.status = msg.Message
+		if msg.Success {
+			m.statusType = "success"
+			// Refresh entries after successful add/edit/delete
+			if msg.Action == "add_password" || msg.Action == "add_totp" || 
+			   msg.Action == "edit_entry" || msg.Action == "delete_entry" {
+				return m, m.loadEntries()
+			}
+		} else {
+			m.statusType = "error"
+		}
+		return m, nil
+		
+	case BackupCreatedMsg:
+		if msg.Error != nil {
+			m.status = fmt.Sprintf("Backup failed: %v", msg.Error)
+			m.statusType = "error"
+		} else {
+			m.status = fmt.Sprintf("Backup created: %s", msg.Filename)
+			m.statusType = "success"
+			// Refresh backup list
+			if m.screen == BackupScreen {
+				return m, m.loadBackups()
+			}
+		}
+		return m, nil
+		
+	case BackupRestoredMsg:
+		if msg.Error != nil {
+			m.status = fmt.Sprintf("Restore failed: %v", msg.Error)
+			m.statusType = "error"
+		} else {
+			m.status = msg.Message
+			m.statusType = "success"
+			// Refresh entries after restore
+			return m, m.loadEntries()
+		}
 		return m, nil
 		
 	case TickMsg:
-		if m.screen == DetailScreen && m.detailEntry.Type == "totp" {
-			return m, m.updateTOTP()
+		if m.screen == DetailScreen && m.detailEntry.Type == "totp" && m.showSecrets {
+			return m, m.updateTOTPReal()
 		}
 		return m, nil
 	}
@@ -184,10 +280,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKeyPress handles keyboard input based on current screen
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.inputMode {
-		return m.handleInputMode(msg)
-	}
-	
 	switch m.screen {
 	case MainScreen:
 		return m.handleMainScreen(msg)
@@ -225,27 +317,59 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		
 	case "a":
-		// Add new entry
-		m.status = "Adding new entry... (not implemented in TUI yet)"
+		// Show add menu - for now just add password, could be extended
+		m.showingForm = true
+		m.form = CreateAddPasswordForm()
+		m.status = "Choose entry type: [p]assword, [t]otp"
+		m.statusType = "info"
+		return m, nil
+		
+	case "p":
+		// Add password (when 'a' pressed first, or direct)
+		if m.status == "Choose entry type: [p]assword, [t]otp" || true {
+			m.showingForm = true
+			m.form = CreateAddPasswordForm()
+			m.status = "Adding new password"
+			m.statusType = "info"
+		}
+		return m, nil
+		
+	case "t":
+		// Add TOTP (when 'a' pressed first, or direct)
+		if m.status == "Choose entry type: [p]assword, [t]otp" || true {
+			m.showingForm = true
+			m.form = CreateAddTOTPForm()
+			m.status = "Adding new TOTP secret"
+			m.statusType = "info"
+		}
 		return m, nil
 		
 	case "e":
 		// Edit entry
 		if len(m.entries) > 0 {
-			m.status = "Editing entry... (not implemented in TUI yet)"
+			m.showingForm = true
+			m.form = CreateEditEntryForm(m.entries[m.cursor])
+			m.status = "Editing entry"
+			m.statusType = "info"
 		}
 		return m, nil
 		
 	case "d":
 		// Delete entry
 		if len(m.entries) > 0 {
-			m.status = "Deleting entry... (not implemented in TUI yet)"
+			m.showingForm = true
+			m.form = CreateConfirmDeleteForm(m.entries[m.cursor])
+			m.status = "Confirm deletion"
+			m.statusType = "info"
 		}
 		return m, nil
 		
 	case "c":
 		// Create backup
-		m.status = "Creating backup... (not implemented in TUI yet)"
+		m.showingForm = true
+		m.form = CreateCreateBackupForm()
+		m.status = "Creating backup"
+		m.statusType = "info"
 		return m, nil
 		
 	case "b":
@@ -273,8 +397,18 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		// Toggle show/hide secrets
 		m.showSecrets = !m.showSecrets
-		if m.showSecrets && m.detailEntry.Type == "totp" {
-			return m, m.updateTOTP()
+		if m.showSecrets {
+			switch m.detailEntry.Type {
+			case "totp":
+				return m, m.updateTOTPReal()
+			case "password":
+				return m, m.loadPasswordReal()
+			}
+		} else {
+			// Clear sensitive data when hiding
+			m.totpCode = ""
+			m.totpRemaining = 0
+			m.password = ""
 		}
 		return m, nil
 	}
@@ -302,14 +436,14 @@ func (m Model) handleBackupScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		// Delete backup
 		if len(m.backups) > 0 {
-			m.status = "Deleting backup... (not implemented in TUI yet)"
+			return m, handleDeleteBackup(m.backups[m.backupCursor])
 		}
 		return m, nil
 		
 	case "r":
 		// Restore backup
 		if len(m.backups) > 0 {
-			m.status = "Restoring backup... (not implemented in TUI yet)"
+			return m, handleRestoreBackup(m.backups[m.backupCursor])
 		}
 		return m, nil
 		
@@ -322,36 +456,14 @@ func (m Model) handleBackupScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleInputMode handles input mode key presses
-func (m Model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		m.inputMode = false
-		m.inputValue = ""
-		return m, nil
-		
-	case tea.KeyEnter:
-		// Process input
-		m.inputMode = false
-		result := m.inputValue
-		m.inputValue = ""
-		m.status = fmt.Sprintf("Processed: %s", result)
-		return m, nil
-		
-	case tea.KeyBackspace:
-		if len(m.inputValue) > 0 {
-			m.inputValue = m.inputValue[:len(m.inputValue)-1]
-		}
-		
-	default:
-		m.inputValue += msg.String()
-	}
-	
-	return m, nil
-}
 
 // View renders the current view
 func (m Model) View() string {
+	// Show form overlay if active
+	if m.showingForm {
+		return m.form.View()
+	}
+	
 	switch m.screen {
 	case MainScreen:
 		return m.renderMainScreen()
@@ -401,13 +513,22 @@ func (m Model) renderMainScreen() string {
 	
 	// Help text
 	help := m.helpStyle.Render(
-		"Navigation: ↑/↓ or j/k • Enter: view details • a: add • e: edit • d: delete • c: create backup • b: backups • r: refresh • q: quit",
+		"Navigation: ↑/↓ or j/k • Enter: view details • a: add menu • p: add password • t: add TOTP • e: edit • d: delete • c: create backup • b: backups • r: refresh • q: quit",
 	)
 	
 	// Status
 	status := ""
 	if m.status != "" {
-		status = m.statusStyle.Render(fmt.Sprintf("Status: %s", m.status))
+		var statusStyle lipgloss.Style
+		switch m.statusType {
+		case "success":
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("34")).Bold(true)
+		case "error":
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+		default:
+			statusStyle = m.statusStyle
+		}
+		status = statusStyle.Render(fmt.Sprintf("Status: %s", m.status))
 	}
 	
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -438,7 +559,14 @@ func (m Model) renderDetailScreen() string {
 		switch m.detailEntry.Type {
 		case "password":
 			details = append(details, "")
-			details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render("••••••••••••"))) // Placeholder
+			if m.password != "" {
+				// Show actual password (masked)
+				maskedPassword := strings.Repeat("•", len(m.password))
+				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(maskedPassword)))
+				details = append(details, m.helpStyle.Render("🔒 Password loaded (use CLI to copy safely)"))
+			} else {
+				details = append(details, m.hiddenStyle.Render("Loading password..."))
+			}
 			
 		case "totp":
 			if m.totpCode != "" {
@@ -594,15 +722,9 @@ func (m Model) loadSecretDetails() tea.Cmd {
 	}
 }
 
-// updateTOTP updates the TOTP code and remaining time
+// updateTOTP updates the TOTP code and remaining time (legacy method)
 func (m Model) updateTOTP() tea.Cmd {
-	return func() tea.Msg {
-		// This would generate the actual TOTP code
-		// For now, we'll simulate it
-		m.totpCode = "123 456" // Placeholder
-		m.totpRemaining = 25   // Placeholder
-		return nil
-	}
+	return m.updateTOTPReal()
 }
 
 // StartTUI starts the TUI application
