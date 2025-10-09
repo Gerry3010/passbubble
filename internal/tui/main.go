@@ -894,10 +894,6 @@ func (m Model) loadSecretDetails() tea.Cmd {
 	}
 }
 
-// updateTOTP updates the TOTP code and remaining time (legacy method)
-func (m Model) updateTOTP() tea.Cmd {
-	return m.updateTOTPReal()
-}
 
 // PasswordGeneratedMsg represents a generated password result
 type PasswordGeneratedMsg struct {

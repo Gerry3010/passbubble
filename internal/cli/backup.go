@@ -129,7 +129,11 @@ Examples:
 			fmt.Print("Continue? [y/N]: ")
 
 			var response string
-			fmt.Scanln(&response)
+			if _, err := fmt.Scanln(&response); err != nil {
+				// If there's an error reading input, default to cancelling
+				fmt.Println("\nRestore cancelled")
+				return nil
+			}
 			if response != "y" && response != "Y" && response != "yes" {
 				fmt.Println("Restore cancelled")
 				return nil

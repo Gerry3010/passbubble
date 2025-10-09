@@ -404,7 +404,11 @@ Examples:
 		fmt.Printf("Are you sure you want to delete the TOTP secret for %s? [y/N]: ", displayName)
 
 		var response string
-		fmt.Scanln(&response)
+		if _, err := fmt.Scanln(&response); err != nil {
+			// If there's an error reading input, default to cancelling
+			fmt.Println("\nOperation cancelled")
+			return nil
+		}
 		if response != "y" && response != "Y" && response != "yes" {
 			fmt.Println("Operation cancelled")
 			return nil

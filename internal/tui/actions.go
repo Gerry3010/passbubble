@@ -477,7 +477,7 @@ func handleEditEntry(entry *Entry, fields map[string]string) tea.Cmd {
 		}
 	} else {
 		// For passwords, use new password if provided, otherwise keep existing
-			password := entry.Service // This would need to be loaded from keyring in real implementation
+			var password string
 			if newPassword != "" {
 				password = newPassword
 			} else {

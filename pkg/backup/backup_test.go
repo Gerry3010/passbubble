@@ -141,9 +141,15 @@ func TestCreateAndRestoreBackup(t *testing.T) {
 
 	// Setup mock keyring with test data
 	kr := NewMockKeyring()
-	kr.Store("gmail", "user@example.com", "password123")
-	kr.Store("github", "", "github_token_456")
-	kr.Store("bank", "john.doe", "secure_banking_789")
+	if err := kr.Store("gmail", "user@example.com", "password123"); err != nil {
+		t.Fatalf("Failed to store gmail password: %v", err)
+	}
+	if err := kr.Store("github", "", "github_token_456"); err != nil {
+		t.Fatalf("Failed to store github password: %v", err)
+	}
+	if err := kr.Store("bank", "john.doe", "secure_banking_789"); err != nil {
+		t.Fatalf("Failed to store bank password: %v", err)
+	}
 
 	// Create backup manager
 	opts := &BackupOptions{
@@ -228,7 +234,9 @@ func TestListBackups(t *testing.T) {
 	}
 
 	// Add some test data and create backups
-	kr.Store("test1", "", "password1")
+	if err := kr.Store("test1", "", "password1"); err != nil {
+		t.Fatalf("Failed to store test1 password: %v", err)
+	}
 
 	backup1, err := mgr.CreateBackup()
 	if err != nil {
@@ -237,7 +245,9 @@ func TestListBackups(t *testing.T) {
 
 	// Wait a bit and create another backup
 	time.Sleep(time.Millisecond * 100) // Small delay for different timestamp
-	kr.Store("test2", "", "password2")
+	if err := kr.Store("test2", "", "password2"); err != nil {
+		t.Fatalf("Failed to store test2 password: %v", err)
+	}
 	backup2, err := mgr.CreateBackup()
 	if err != nil {
 		t.Fatalf("Failed to create second backup: %v", err)
@@ -286,7 +296,9 @@ func TestCleanOldBackups(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	kr := NewMockKeyring()
-	kr.Store("test", "", "password")
+	if err := kr.Store("test", "", "password"); err != nil {
+		t.Fatalf("Failed to store test password: %v", err)
+	}
 
 	opts := &BackupOptions{
 		BackupDir:  tempDir,
@@ -313,7 +325,9 @@ func TestCleanOldBackups(t *testing.T) {
 		if i > 0 {
 			// Set different modification times
 			modTime := time.Now().Add(-time.Duration(3-i) * time.Hour)
-			os.Chtimes(backup, modTime, modTime)
+			if err := os.Chtimes(backup, modTime, modTime); err != nil {
+				t.Logf("Warning: Failed to set modification time for %s: %v", backup, err)
+			}
 		}
 	}
 
@@ -361,8 +375,12 @@ func TestBackupMetadata(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	kr := NewMockKeyring()
-	kr.Store("test1", "user1", "password1")
-	kr.Store("test2", "", "password2")
+	if err := kr.Store("test1", "user1", "password1"); err != nil {
+		t.Fatalf("Failed to store test1 password: %v", err)
+	}
+	if err := kr.Store("test2", "", "password2"); err != nil {
+		t.Fatalf("Failed to store test2 password: %v", err)
+	}
 
 	opts := &BackupOptions{
 		BackupDir: tempDir,

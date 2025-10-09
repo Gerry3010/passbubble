@@ -63,8 +63,12 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "quiet mode (minimal output)")
 
 	// Bind flags to viper
-	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
-	viper.BindPFlag("quiet", rootCmd.PersistentFlags().Lookup("quiet"))
+	if err := viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose")); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to bind verbose flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("quiet", rootCmd.PersistentFlags().Lookup("quiet")); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to bind quiet flag: %v\n", err)
+	}
 }
 
 // initConfig reads in config file and ENV variables if set.

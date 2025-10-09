@@ -2,10 +2,8 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/Gerry3010/passbubble/pkg/keyring"
 	"github.com/Gerry3010/passbubble/pkg/totp"
 )
@@ -106,94 +104,4 @@ func (m Model) UpdateEnhanced(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// Enhanced detail screen handler with real secret loading
-func (m Model) handleDetailScreenEnhanced(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "esc":
-		m.screen = MainScreen
-		// Clear sensitive data when leaving detail screen
-		m.totpCode = ""
-		m.totpRemaining = 0
-		return m, nil
-		
-	case "s":
-		// Toggle show/hide secrets
-		m.showSecrets = !m.showSecrets
-		if m.showSecrets {
-			switch m.detailEntry.Type {
-			case "totp":
-				return m, m.updateTOTPReal()
-			case "password":
-				return m, m.loadPasswordReal()
-			}
-		} else {
-			// Clear sensitive data when hiding
-			m.totpCode = ""
-			m.totpRemaining = 0
-		}
-		return m, nil
-	}
-	
-	return m, nil
-}
 
-// Enhanced render detail screen with real secret display
-func (m Model) renderDetailScreenEnhanced() string {
-	title := m.titleStyle.Render(fmt.Sprintf("📋 %s Details", m.detailEntry.Service))
-	
-	var details []string
-	details = append(details, fmt.Sprintf("Service: %s", m.detailEntry.Service))
-	
-	if m.detailEntry.Username != "" {
-		details = append(details, fmt.Sprintf("Username: %s", m.detailEntry.Username))
-	}
-	
-	details = append(details, fmt.Sprintf("Type: %s %s", m.getTypeIcon(m.detailEntry.Type), m.detailEntry.Type))
-	
-	// Show secrets if toggled
-	if m.showSecrets {
-		switch m.detailEntry.Type {
-		case "password":
-			details = append(details, "")
-			// In a real implementation, we'd load the actual password
-			details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render("[REDACTED - Use CLI to copy]")))
-			details = append(details, m.helpStyle.Render("Use CLI commands to safely copy passwords to clipboard"))
-			
-		case "totp":
-			if m.totpCode != "" {
-				details = append(details, "")
-				codeDisplay := m.secretStyle.Render(m.totpCode)
-				details = append(details, fmt.Sprintf("TOTP Code: %s", codeDisplay))
-				
-				// Progress bar for remaining time
-				if m.totpRemaining > 0 {
-					progress := m.renderProgressBar(m.totpRemaining, 30)
-					details = append(details, fmt.Sprintf("Valid for: %ds %s", m.totpRemaining, progress))
-				}
-			} else {
-				details = append(details, "")
-				details = append(details, m.hiddenStyle.Render("Loading TOTP code..."))
-			}
-		}
-	} else {
-		details = append(details, "")
-		details = append(details, m.hiddenStyle.Render("Press 's' to show secrets"))
-	}
-	
-	content := m.detailStyle.Render(strings.Join(details, "\n"))
-	
-	help := m.helpStyle.Render("s: toggle secrets • esc/q: back to list")
-	
-	// Security notice
-	securityNotice := m.helpStyle.Render("🔒 Passwords are not displayed in TUI for security. Use CLI commands for secure access.")
-	
-	return lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"",
-		content,
-		"",
-		help,
-		"",
-		securityNotice,
-	)
-}
