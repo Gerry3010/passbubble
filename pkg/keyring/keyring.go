@@ -197,6 +197,6 @@ func (k *Keyring) Search(pattern string) ([]Entry, error) {
 
 // IsAvailable checks if secret-tool is available
 func (k *Keyring) IsAvailable() bool {
-	cmd := exec.Command("secret-tool", "--version")
-	return cmd.Run() == nil
+	_, err := exec.LookPath("secret-tool")
+	return err == nil
 }
