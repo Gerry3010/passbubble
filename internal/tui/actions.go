@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -128,6 +129,8 @@ func handleAddTOTP(fields map[string]string) tea.Cmd {
 		username := strings.TrimSpace(fields["username"])
 		issuer := strings.TrimSpace(fields["issuer"])
 		secret := strings.TrimSpace(fields["secret"])
+		algorithm := strings.TrimSpace(fields["algorithm"])
+		lengthStr := strings.TrimSpace(fields["length"])
 		
 		if service == "" {
 			return ActionResultMsg{
@@ -154,6 +157,34 @@ func handleAddTOTP(fields map[string]string) tea.Cmd {
 			}
 		}
 		
+		// Parse and validate algorithm
+		if algorithm == "" {
+			algorithm = "SHA1" // Default
+		} else {
+			algorithm = strings.ToUpper(algorithm)
+			if algorithm != "SHA1" && algorithm != "SHA256" && algorithm != "SHA512" {
+				return ActionResultMsg{
+					Success: false,
+					Message: "Algorithm must be SHA1, SHA256, or SHA512",
+					Action:  "add_totp",
+				}
+			}
+		}
+		
+		// Parse and validate length
+		digits := 6 // Default
+		if lengthStr != "" {
+			parsedDigits, err := strconv.Atoi(lengthStr)
+			if err != nil || (parsedDigits != 6 && parsedDigits != 8) {
+				return ActionResultMsg{
+					Success: false,
+					Message: "Length must be 6 or 8",
+					Action:  "add_totp",
+				}
+			}
+			digits = parsedDigits
+		}
+		
 		// Create TOTP entry
 		entry := keyring.Entry{
 			Service:    service,
@@ -162,8 +193,8 @@ func handleAddTOTP(fields map[string]string) tea.Cmd {
 			SecretType: keyring.SecretTypeTOTP,
 			Issuer:     issuer,
 			Period:     30, // Default period
-			Digits:     6,  // Default digits
-			Algorithm:  "SHA1", // Default algorithm
+			Digits:     digits,
+			Algorithm:  algorithm,
 		}
 		
 		// Store in keyring
@@ -204,6 +235,8 @@ func handleAddTOTPToEntry(entry *Entry, fields map[string]string) tea.Cmd {
 		
 		issuer := strings.TrimSpace(fields["issuer"])
 		secret := strings.TrimSpace(fields["secret"])
+		algorithm := strings.TrimSpace(fields["algorithm"])
+		lengthStr := strings.TrimSpace(fields["length"])
 		
 		// Validate secret (now required)
 		if secret == "" {
@@ -222,6 +255,34 @@ func handleAddTOTPToEntry(entry *Entry, fields map[string]string) tea.Cmd {
 			}
 		}
 		
+		// Parse and validate algorithm
+		if algorithm == "" {
+			algorithm = "SHA1" // Default
+		} else {
+			algorithm = strings.ToUpper(algorithm)
+			if algorithm != "SHA1" && algorithm != "SHA256" && algorithm != "SHA512" {
+				return ActionResultMsg{
+					Success: false,
+					Message: "Algorithm must be SHA1, SHA256, or SHA512",
+					Action:  "add_totp_to_entry",
+				}
+			}
+		}
+		
+		// Parse and validate length
+		digits := 6 // Default
+		if lengthStr != "" {
+			parsedDigits, err := strconv.Atoi(lengthStr)
+			if err != nil || (parsedDigits != 6 && parsedDigits != 8) {
+				return ActionResultMsg{
+					Success: false,
+					Message: "Length must be 6 or 8",
+					Action:  "add_totp_to_entry",
+				}
+			}
+			digits = parsedDigits
+		}
+		
 		// Create TOTP service name to avoid conflicts with existing password
 		totpService := entry.Service + "-totp"
 		
@@ -233,8 +294,8 @@ func handleAddTOTPToEntry(entry *Entry, fields map[string]string) tea.Cmd {
 			SecretType: keyring.SecretTypeTOTP,
 			Issuer:     issuer,
 			Period:     30, // Default period
-			Digits:     6,  // Default digits
-			Algorithm:  "SHA1", // Default algorithm
+			Digits:     digits,
+			Algorithm:  algorithm,
 		}
 		
 		// Store in keyring

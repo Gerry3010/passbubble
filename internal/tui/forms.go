@@ -134,6 +134,38 @@ func CreateAddTOTPForm() FormModel {
 					return nil
 				},
 			},
+			{
+				Label:       "Algorithm",
+				Value:       "SHA1",
+				Placeholder: "SHA1, SHA256, SHA512 (default: SHA1)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty defaults to SHA1
+					}
+					s = strings.ToUpper(strings.TrimSpace(s))
+					if s != "SHA1" && s != "SHA256" && s != "SHA512" {
+						return fmt.Errorf("algorithm must be SHA1, SHA256, or SHA512")
+					}
+					return nil
+				},
+			},
+			{
+				Label:       "Length",
+				Value:       "6",
+				Placeholder: "Code length (6 or 8, default: 6)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty defaults to 6
+					}
+					s = strings.TrimSpace(s)
+					if s != "6" && s != "8" {
+						return fmt.Errorf("length must be 6 or 8")
+					}
+					return nil
+				},
+			},
 		},
 	}
 }
@@ -170,6 +202,38 @@ func CreateAddTOTPToEntryForm(entry Entry) FormModel {
 					}
 					if !totp.IsValidSecret(s) {
 						return fmt.Errorf("invalid base32 secret")
+					}
+					return nil
+				},
+			},
+			{
+				Label:       "Algorithm",
+				Value:       "SHA1",
+				Placeholder: "SHA1, SHA256, SHA512 (default: SHA1)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty defaults to SHA1
+					}
+					s = strings.ToUpper(strings.TrimSpace(s))
+					if s != "SHA1" && s != "SHA256" && s != "SHA512" {
+						return fmt.Errorf("algorithm must be SHA1, SHA256, or SHA512")
+					}
+					return nil
+				},
+			},
+			{
+				Label:       "Length",
+				Value:       "6",
+				Placeholder: "Code length (6 or 8, default: 6)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty defaults to 6
+					}
+					s = strings.TrimSpace(s)
+					if s != "6" && s != "8" {
+						return fmt.Errorf("length must be 6 or 8")
 					}
 					return nil
 				},
@@ -445,6 +509,10 @@ func (f FormModel) submitForm() (FormModel, tea.Cmd) {
 			fieldMap["backup_name"] = field.Value
 		case "Generated Password (read-only)":
 			fieldMap["password"] = field.Value
+		case "Algorithm":
+			fieldMap["algorithm"] = field.Value
+		case "Length":
+			fieldMap["length"] = field.Value
 		}
 	}
 	
