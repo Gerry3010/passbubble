@@ -7,7 +7,7 @@ import (
 
 // Build information - set via ldflags during build
 var (
-	Version    = "dev"
+	Version    = "1.0.0"
 	BuildTime  = "unknown"
 	CommitHash = "unknown"
 )

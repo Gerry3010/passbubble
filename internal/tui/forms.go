@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -166,6 +167,22 @@ func CreateAddTOTPForm() FormModel {
 					return nil
 				},
 			},
+			{
+				Label:       "Period",
+				Value:       "30",
+				Placeholder: "Time period in seconds (default: 30)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty defaults to 30
+					}
+					s = strings.TrimSpace(s)
+					if period, err := strconv.Atoi(s); err != nil || period < 10 || period > 300 {
+						return fmt.Errorf("period must be between 10 and 300 seconds")
+					}
+					return nil
+				},
+			},
 		},
 	}
 }
@@ -238,6 +255,22 @@ func CreateAddTOTPToEntryForm(entry Entry) FormModel {
 					return nil
 				},
 			},
+			{
+				Label:       "Period",
+				Value:       "30",
+				Placeholder: "Time period in seconds (default: 30)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty defaults to 30
+					}
+					s = strings.TrimSpace(s)
+					if period, err := strconv.Atoi(s); err != nil || period < 10 || period > 300 {
+						return fmt.Errorf("period must be between 10 and 300 seconds")
+					}
+					return nil
+				},
+			},
 		},
 	}
 }
@@ -262,6 +295,65 @@ func CreateEditEntryForm(entry Entry) FormModel {
 				Label:       "Issuer",
 				Value:       "", // Would need to load from keyring metadata
 				IsRequired:  false,
+			},
+			{
+				Label:       "TOTP Secret",
+				Placeholder: "Base32 TOTP secret (leave empty to keep current)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s != "" && !totp.IsValidSecret(s) {
+						return fmt.Errorf("invalid base32 secret")
+					}
+					return nil
+				},
+			},
+			{
+				Label:       "Algorithm",
+				Value:       "SHA1", // Default for edit
+				Placeholder: "SHA1, SHA256, SHA512 (leave empty to keep current)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty keeps current
+					}
+					s = strings.ToUpper(strings.TrimSpace(s))
+					if s != "SHA1" && s != "SHA256" && s != "SHA512" {
+						return fmt.Errorf("algorithm must be SHA1, SHA256, or SHA512")
+					}
+					return nil
+				},
+			},
+			{
+				Label:       "Length",
+				Value:       "6", // Default for edit
+				Placeholder: "Code length (6 or 8, leave empty to keep current)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty keeps current
+					}
+					s = strings.TrimSpace(s)
+					if s != "6" && s != "8" {
+						return fmt.Errorf("length must be 6 or 8")
+					}
+					return nil
+				},
+			},
+			{
+				Label:       "Period",
+				Value:       "30", // Default for edit
+				Placeholder: "Time period in seconds (leave empty to keep current)",
+				IsRequired:  false,
+				Validator: func(s string) error {
+					if s == "" {
+						return nil // Empty keeps current
+					}
+					s = strings.TrimSpace(s)
+					if period, err := strconv.Atoi(s); err != nil || period < 10 || period > 300 {
+						return fmt.Errorf("period must be between 10 and 300 seconds")
+					}
+					return nil
+				},
 			},
 		}
 	} else {
@@ -501,7 +593,7 @@ func (f FormModel) submitForm() (FormModel, tea.Cmd) {
 			fieldMap["username"] = field.Value
 		case "Password (leave empty to generate)", "New Password (leave empty to keep current)":
 			fieldMap["password"] = field.Value
-		case "Secret (leave empty to generate)":
+	case "Secret (leave empty to generate)", "TOTP Secret":
 			fieldMap["secret"] = field.Value
 		case "Issuer":
 			fieldMap["issuer"] = field.Value
@@ -513,6 +605,8 @@ func (f FormModel) submitForm() (FormModel, tea.Cmd) {
 			fieldMap["algorithm"] = field.Value
 		case "Length":
 			fieldMap["length"] = field.Value
+		case "Period":
+			fieldMap["period"] = field.Value
 		}
 	}
 	

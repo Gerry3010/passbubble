@@ -131,6 +131,7 @@ func handleAddTOTP(fields map[string]string) tea.Cmd {
 		secret := strings.TrimSpace(fields["secret"])
 		algorithm := strings.TrimSpace(fields["algorithm"])
 		lengthStr := strings.TrimSpace(fields["length"])
+		periodStr := strings.TrimSpace(fields["period"])
 		
 		if service == "" {
 			return ActionResultMsg{
@@ -185,6 +186,20 @@ func handleAddTOTP(fields map[string]string) tea.Cmd {
 			digits = parsedDigits
 		}
 		
+		// Parse and validate period
+		period := 30 // Default
+		if periodStr != "" {
+			parsedPeriod, err := strconv.Atoi(periodStr)
+			if err != nil || parsedPeriod < 10 || parsedPeriod > 300 {
+				return ActionResultMsg{
+					Success: false,
+					Message: "Period must be between 10 and 300 seconds",
+					Action:  "add_totp",
+				}
+			}
+			period = parsedPeriod
+		}
+		
 		// Create TOTP entry
 		entry := keyring.Entry{
 			Service:    service,
@@ -192,7 +207,7 @@ func handleAddTOTP(fields map[string]string) tea.Cmd {
 			Password:   secret,
 			SecretType: keyring.SecretTypeTOTP,
 			Issuer:     issuer,
-			Period:     30, // Default period
+			Period:     period,
 			Digits:     digits,
 			Algorithm:  algorithm,
 		}
@@ -237,6 +252,7 @@ func handleAddTOTPToEntry(entry *Entry, fields map[string]string) tea.Cmd {
 		secret := strings.TrimSpace(fields["secret"])
 		algorithm := strings.TrimSpace(fields["algorithm"])
 		lengthStr := strings.TrimSpace(fields["length"])
+		periodStr := strings.TrimSpace(fields["period"])
 		
 		// Validate secret (now required)
 		if secret == "" {
@@ -283,6 +299,20 @@ func handleAddTOTPToEntry(entry *Entry, fields map[string]string) tea.Cmd {
 			digits = parsedDigits
 		}
 		
+		// Parse and validate period
+		period := 30 // Default
+		if periodStr != "" {
+			parsedPeriod, err := strconv.Atoi(periodStr)
+			if err != nil || parsedPeriod < 10 || parsedPeriod > 300 {
+				return ActionResultMsg{
+					Success: false,
+					Message: "Period must be between 10 and 300 seconds",
+					Action:  "add_totp_to_entry",
+				}
+			}
+			period = parsedPeriod
+		}
+		
 		// Create TOTP service name to avoid conflicts with existing password
 		totpService := entry.Service + "-totp"
 		
@@ -293,7 +323,7 @@ func handleAddTOTPToEntry(entry *Entry, fields map[string]string) tea.Cmd {
 			Password:   secret,
 			SecretType: keyring.SecretTypeTOTP,
 			Issuer:     issuer,
-			Period:     30, // Default period
+			Period:     period,
 			Digits:     digits,
 			Algorithm:  algorithm,
 		}
@@ -338,6 +368,10 @@ func handleEditEntry(entry *Entry, fields map[string]string) tea.Cmd {
 		newUsername := strings.TrimSpace(fields["username"])
 		newPassword := strings.TrimSpace(fields["password"])
 		newIssuer := strings.TrimSpace(fields["issuer"])
+		newSecret := strings.TrimSpace(fields["secret"])
+		newAlgorithm := strings.TrimSpace(fields["algorithm"])
+		newLengthStr := strings.TrimSpace(fields["length"])
+		newPeriodStr := strings.TrimSpace(fields["period"])
 		
 		if newService == "" {
 			return ActionResultMsg{
@@ -365,29 +399,84 @@ func handleEditEntry(entry *Entry, fields map[string]string) tea.Cmd {
 		// Create updated entry
 		var updatedEntry keyring.Entry
 		if entry.Type == "totp" {
-			// For TOTP, keep the existing secret if no changes to core data
+			// Load existing entry for TOTP updates
 			existingEntry, err := kr.GetEntry(entry.Service, entry.Username)
 			if err != nil {
 				return ActionResultMsg{
 					Success: false,
-					Message: fmt.Sprintf("Failed to load existing TOTP secret: %v", err),
+					Message: fmt.Sprintf("Failed to load existing TOTP entry: %v", err),
 					Action:  "edit_entry",
 					Error:   err,
 				}
 			}
 			
-			updatedEntry = keyring.Entry{
-				Service:    newService,
-				Username:   newUsername,
-				Password:   existingEntry.Password, // Keep existing secret
-				SecretType: keyring.SecretTypeTOTP,
-				Issuer:     newIssuer,
-				Period:     30,
-				Digits:     6,
-				Algorithm:  "SHA1",
+			// Use new secret if provided, otherwise keep existing
+			secret := existingEntry.Password
+			if newSecret != "" {
+				// Validate new secret
+				if !totp.IsValidSecret(newSecret) {
+					return ActionResultMsg{
+						Success: false,
+						Message: "Invalid TOTP secret format",
+						Action:  "edit_entry",
+					}
+				}
+				secret = newSecret
 			}
-		} else {
-			// For passwords, use new password if provided, otherwise keep existing
+			
+			// Parse and validate algorithm
+			algorithm := existingEntry.Algorithm
+			if newAlgorithm != "" {
+				algorithm = strings.ToUpper(newAlgorithm)
+				if algorithm != "SHA1" && algorithm != "SHA256" && algorithm != "SHA512" {
+					return ActionResultMsg{
+						Success: false,
+						Message: "Algorithm must be SHA1, SHA256, or SHA512",
+						Action:  "edit_entry",
+					}
+				}
+			}
+			
+			// Parse and validate length
+			digits := existingEntry.Digits
+			if newLengthStr != "" {
+				parsedDigits, err := strconv.Atoi(newLengthStr)
+				if err != nil || (parsedDigits != 6 && parsedDigits != 8) {
+					return ActionResultMsg{
+						Success: false,
+						Message: "Length must be 6 or 8",
+						Action:  "edit_entry",
+					}
+				}
+				digits = parsedDigits
+			}
+			
+			// Parse and validate period
+			period := existingEntry.Period
+			if newPeriodStr != "" {
+				parsedPeriod, err := strconv.Atoi(newPeriodStr)
+				if err != nil || parsedPeriod < 10 || parsedPeriod > 300 {
+					return ActionResultMsg{
+						Success: false,
+						Message: "Period must be between 10 and 300 seconds",
+						Action:  "edit_entry",
+					}
+				}
+				period = parsedPeriod
+			}
+			
+		updatedEntry = keyring.Entry{
+			Service:    newService,
+			Username:   newUsername,
+			Password:   secret,
+			SecretType: keyring.SecretTypeTOTP,
+			Issuer:     newIssuer,
+			Period:     period,
+			Digits:     digits,
+			Algorithm:  algorithm,
+		}
+	} else {
+		// For passwords, use new password if provided, otherwise keep existing
 			password := entry.Service // This would need to be loaded from keyring in real implementation
 			if newPassword != "" {
 				password = newPassword

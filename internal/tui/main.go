@@ -277,10 +277,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 		
 	case TickMsg:
+		// Schedule next tick to keep timer running
+		nextTickCmd := tea.Every(time.Second, func(t time.Time) tea.Msg {
+			return TickMsg{Time: t}
+		})
+		
 		if m.screen == DetailScreen && m.detailEntry.Type == "totp" && m.showSecrets {
-			return m, m.updateTOTPReal()
+			// Decrement remaining time if we have an active TOTP code
+			if m.totpRemaining > 0 {
+				m.totpRemaining--
+				// Only regenerate TOTP code when time expires
+				if m.totpRemaining <= 0 {
+					return m, tea.Batch(m.updateTOTPReal(), nextTickCmd)
+				}
+				// Return model with updated countdown and continue timer
+				return m, nextTickCmd
+			} else {
+				// If we don't have a code or remaining time, generate one
+				return m, tea.Batch(m.updateTOTPReal(), nextTickCmd)
+			}
 		}
-		return m, nil
+		return m, nextTickCmd
 		
 	case PasswordGeneratedMsg:
 		if msg.Error != nil {
@@ -454,6 +471,14 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "Adding TOTP to entry"
 			m.statusType = "info"
 		}
+		return m, nil
+
+	case "e":
+		// Edit current entry
+		m.showingForm = true
+		m.form = CreateEditEntryForm(m.detailEntry)
+		m.status = "Editing entry"
+		m.statusType = "info"
 		return m, nil
 	}
 	
@@ -644,11 +669,13 @@ func (m Model) renderDetailScreen() string {
 				// Show password as dots when masked
 				maskedPassword := strings.Repeat("•", len(m.password))
 				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(maskedPassword)))
-				details = append(details, m.helpStyle.Render("🔒 Password hidden ("+fmt.Sprintf("%d chars", len(m.password))+") - Press 's' to reveal"))
+				details = append(details, m.helpStyle.Render("🔒 Password hidden ("+fmt.Sprintf("%d chars", len(m.password))+")"))
+				details = append(details, m.helpStyle.Render("   Press 's' to reveal"))
 			} else {
 				// Show actual password when unmasked
 				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(m.password)))
-				details = append(details, m.helpStyle.Render("🔓 Password visible - Press 's' to hide"))
+				details = append(details, m.helpStyle.Render("🔓 Password visible"))
+				details = append(details, m.helpStyle.Render("   Press 's' to hide"))
 			}
 		} else {
 			details = append(details, m.hiddenStyle.Render("Loading password..."))
@@ -681,11 +708,11 @@ func (m Model) renderDetailScreen() string {
 	var helpText string
 	switch m.detailEntry.Type {
 	case "password":
-		helpText = "s: show/hide password • t: add TOTP • esc/q: back to list"
+		helpText = "s: show/hide password • t: add TOTP • e: edit entry • esc/q: back to list"
 	case "totp":
-		helpText = "s: show/hide TOTP code • esc/q: back to list"
+		helpText = "s: show/hide TOTP code • e: edit entry • esc/q: back to list"
 	default:
-		helpText = "esc/q: back to list"
+		helpText = "e: edit entry • esc/q: back to list"
 	}
 	help := m.helpStyle.Render(helpText)
 	
