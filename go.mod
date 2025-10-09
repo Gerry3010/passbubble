@@ -1,4 +1,4 @@
-module github.com/gerry/password-manager
+module github.com/Gerry3010/passbubble
 
 go 1.25.1
 

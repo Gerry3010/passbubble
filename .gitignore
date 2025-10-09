@@ -36,6 +36,7 @@ test_results/
 # Go build artifacts
 pwmgr-go
 pwmgr-*
+passbubble-*
 *.exe
 dist/
 build/

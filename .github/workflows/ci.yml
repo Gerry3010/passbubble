@@ -65,21 +65,21 @@ jobs:
 
       - name: Build for Linux
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o pwmgr-linux-amd64 ./cmd/pwmgr
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o passbubble-linux-amd64 ./cmd/pwmgr
 
       - name: Build for Windows
         run: |
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o pwmgr-windows-amd64.exe ./cmd/pwmgr
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o passbubble-windows-amd64.exe ./cmd/pwmgr
 
       - name: Build for macOS
         run: |
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o pwmgr-darwin-amd64 ./cmd/pwmgr
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o passbubble-darwin-amd64 ./cmd/pwmgr
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
           name: build-artifacts
           path: |
-            pwmgr-linux-amd64
-            pwmgr-windows-amd64.exe
-            pwmgr-darwin-amd64
+            passbubble-linux-amd64
+            passbubble-windows-amd64.exe
+            passbubble-darwin-amd64

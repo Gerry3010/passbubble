@@ -1,8 +1,8 @@
-# Password Manager - Go Edition
+# Passbubble - Secure Password Manager
 
 > 🤖 **AI Development Notice**: This project was developed collaboratively between Gerry and Claude (Anthropic's AI assistant). The initial codebase, fixes, and documentation were created through AI assistance to ensure robust functionality and proper security practices. We believe in transparency about AI involvement in open source projects.
 
-A comprehensive command-line password manager built for multiple platforms using GNOME Keyring (Linux) and system keychains (macOS/Windows) as secure backend storage.
+Passbubble is a comprehensive command-line password manager built for multiple platforms using GNOME Keyring (Linux) and system keychains (macOS/Windows) as secure backend storage.
 
 ## 🌿 Project Evolution
 
@@ -121,7 +121,7 @@ sudo dnf install gnome-keyring libsecret
 
 ### From Releases (Recommended)
 
-1. Download the appropriate binary for your system from [Releases](https://github.com/gerry/password-manager/releases)
+1. Download the appropriate binary for your system from [Releases](https://github.com/Gerry3010/passbubble/releases)
 2. Extract the archive and copy to your PATH:
    ```bash
    # Linux/macOS/BSD
@@ -141,8 +141,8 @@ sudo dnf install gnome-keyring libsecret
 - Make (optional, for build automation)
 
 ```bash
-git clone https://github.com/gerry/password-manager.git
-cd password-manager
+git clone https://github.com/Gerry3010/passbubble.git
+cd passbubble
 
 # Using Makefile (recommended)
 make build

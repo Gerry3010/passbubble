@@ -39,22 +39,22 @@ jobs:
         include:
           - os: linux
             arch: amd64
-            name: pwmgr-linux-amd64
+            name: passbubble-linux-amd64
           - os: linux
             arch: arm64
-            name: pwmgr-linux-arm64
+            name: passbubble-linux-arm64
           - os: darwin
             arch: amd64
-            name: pwmgr-darwin-amd64
+            name: passbubble-darwin-amd64
           - os: darwin
             arch: arm64
-            name: pwmgr-darwin-arm64
+            name: passbubble-darwin-arm64
           - os: windows
             arch: amd64
-            name: pwmgr-windows-amd64.exe
+            name: passbubble-windows-amd64.exe
           - os: freebsd
             arch: amd64
-            name: pwmgr-freebsd-amd64
+            name: passbubble-freebsd-amd64
 
     steps:
       - name: Checkout code
@@ -94,7 +94,7 @@ jobs:
       - name: Create checksums
         run: |
           mkdir -p release-assets
-          for dir in pwmgr-*; do
+          for dir in passbubble-*; do
             if [ -d "$dir" ]; then
               cp "$dir"/* release-assets/ 2>/dev/null || true
             fi
@@ -110,9 +110,9 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           body: |
-            ## Password Manager CLI - ${{ github.ref_name }}
+            ## Passbubble - ${{ github.ref_name }}
             
-            A secure command-line password manager with TOTP support, built in Go.
+            Passbubble: A secure command-line password manager with TOTP support, built in Go.
             
             ### Features
             - 🔐 Secure password storage using system keyring
@@ -126,26 +126,26 @@ jobs:
             
             Download the appropriate binary for your system:
             
-            - **Linux (x64)**: `pwmgr-linux-amd64`
-            - **Linux (ARM64)**: `pwmgr-linux-arm64`  
-            - **macOS (Intel)**: `pwmgr-darwin-amd64`
-            - **macOS (Apple Silicon)**: `pwmgr-darwin-arm64`
-            - **Windows**: `pwmgr-windows-amd64.exe`
-            - **FreeBSD**: `pwmgr-freebsd-amd64`
+            - **Linux (x64)**: `passbubble-linux-amd64`
+            - **Linux (ARM64)**: `passbubble-linux-arm64`  
+            - **macOS (Intel)**: `passbubble-darwin-amd64`
+            - **macOS (Apple Silicon)**: `passbubble-darwin-arm64`
+            - **Windows**: `passbubble-windows-amd64.exe`
+            - **FreeBSD**: `passbubble-freebsd-amd64`
             
             ### Quick Start
             
             ```bash
             # Make executable (Linux/macOS)
-            chmod +x pwmgr-*
+            chmod +x passbubble-*
             
             # Run TUI mode
-            ./pwmgr-* tui
+            ./passbubble-* tui
             
             # CLI usage
-            ./pwmgr-* add myservice
-            ./pwmgr-* get myservice
-            ./pwmgr-* list
+            ./passbubble-* add myservice
+            ./passbubble-* get myservice
+            ./passbubble-* list
             ```
             
             ### System Requirements
