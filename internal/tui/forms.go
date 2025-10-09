@@ -121,11 +121,14 @@ func CreateAddTOTPForm() FormModel {
 				IsRequired:  false,
 			},
 			{
-				Label:       "Secret (leave empty to generate)",
-				Placeholder: "Base32 secret or leave blank",
-				IsRequired:  false,
+				Label:       "Secret",
+				Placeholder: "Base32 TOTP secret (required)",
+				IsRequired:  true,
 				Validator: func(s string) error {
-					if s != "" && !totp.IsValidSecret(s) {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("TOTP secret is required")
+					}
+					if !totp.IsValidSecret(s) {
 						return fmt.Errorf("invalid base32 secret")
 					}
 					return nil
@@ -158,11 +161,14 @@ func CreateAddTOTPToEntryForm(entry Entry) FormModel {
 				IsRequired:  false,
 			},
 			{
-				Label:       "TOTP Secret (leave empty to generate)",
-				Placeholder: "Base32 secret or leave blank",
-				IsRequired:  false,
+				Label:       "TOTP Secret",
+				Placeholder: "Base32 TOTP secret (required)",
+				IsRequired:  true,
 				Validator: func(s string) error {
-					if s != "" && !totp.IsValidSecret(s) {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("TOTP secret is required")
+					}
+					if !totp.IsValidSecret(s) {
 						return fmt.Errorf("invalid base32 secret")
 					}
 					return nil

@@ -370,16 +370,6 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 		
-	case "T":
-		// Add TOTP to existing entry
-		if len(m.entries) > 0 {
-			m.showingForm = true
-			m.form = CreateAddTOTPToEntryForm(m.entries[m.cursor])
-			m.status = "Adding TOTP to existing entry"
-			m.statusType = "info"
-		}
-		return m, nil
-		
 	case "e":
 		// Edit entry
 		if len(m.entries) > 0 {
@@ -453,6 +443,16 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.totpCode = ""
 				m.totpRemaining = 0
 			}
+		}
+		return m, nil
+		
+	case "t":
+		// Add TOTP to current entry (only for password entries)
+		if m.detailEntry.Type == "password" {
+			m.showingForm = true
+			m.form = CreateAddTOTPToEntryForm(m.detailEntry)
+			m.status = "Adding TOTP to entry"
+			m.statusType = "info"
 		}
 		return m, nil
 	}
@@ -681,7 +681,7 @@ func (m Model) renderDetailScreen() string {
 	var helpText string
 	switch m.detailEntry.Type {
 	case "password":
-		helpText = "s: show/hide password • esc/q: back to list"
+		helpText = "s: show/hide password • t: add TOTP • esc/q: back to list"
 	case "totp":
 		helpText = "s: show/hide TOTP code • esc/q: back to list"
 	default:

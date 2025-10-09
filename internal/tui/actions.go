@@ -137,19 +137,16 @@ func handleAddTOTP(fields map[string]string) tea.Cmd {
 			}
 		}
 		
-		// Generate secret if not provided
+		// Validate secret (now required)
 		if secret == "" {
-			var err error
-			secret, err = totp.GenerateRandomSecret()
-			if err != nil {
-				return ActionResultMsg{
-					Success: false,
-					Message: "Failed to generate TOTP secret",
-					Action:  "add_totp",
-					Error:   err,
-				}
+			return ActionResultMsg{
+				Success: false,
+				Message: "TOTP secret is required",
+				Action:  "add_totp",
 			}
-		} else if !totp.IsValidSecret(secret) {
+		}
+		
+		if !totp.IsValidSecret(secret) {
 			return ActionResultMsg{
 				Success: false,
 				Message: "Invalid TOTP secret format",
@@ -208,19 +205,16 @@ func handleAddTOTPToEntry(entry *Entry, fields map[string]string) tea.Cmd {
 		issuer := strings.TrimSpace(fields["issuer"])
 		secret := strings.TrimSpace(fields["secret"])
 		
-		// Generate secret if not provided
+		// Validate secret (now required)
 		if secret == "" {
-			var err error
-			secret, err = totp.GenerateRandomSecret()
-			if err != nil {
-				return ActionResultMsg{
-					Success: false,
-					Message: "Failed to generate TOTP secret",
-					Action:  "add_totp_to_entry",
-					Error:   err,
-				}
+			return ActionResultMsg{
+				Success: false,
+				Message: "TOTP secret is required",
+				Action:  "add_totp_to_entry",
 			}
-		} else if !totp.IsValidSecret(secret) {
+		}
+		
+		if !totp.IsValidSecret(secret) {
 			return ActionResultMsg{
 				Success: false,
 				Message: "Invalid TOTP secret format",
