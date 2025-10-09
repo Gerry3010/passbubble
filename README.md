@@ -1,13 +1,13 @@
-# Password Manager - Keychain Edition
+# Password Manager - Go Edition
 
 > 🤖 **AI Development Notice**: This project was developed collaboratively between Gerry and Claude (Anthropic's AI assistant). The initial codebase, fixes, and documentation were created through AI assistance to ensure robust functionality and proper security practices. We believe in transparency about AI involvement in open source projects.
 
-A comprehensive command-line password manager built for Linux systems using GNOME Keyring as the secure backend storage.
+A comprehensive command-line password manager built for multiple platforms using GNOME Keyring (Linux) and system keychains (macOS/Windows) as secure backend storage.
 
-## 🌿 Branches
+## 🌿 Project Evolution
 
-- **main**: Clean initial version  
-- **bash**: Current working bash implementation with fixes ⭐
+- **Go Implementation** (v2.0+): Modern, cross-platform CLI with TOTP support ⭐
+- **Legacy Bash**: Original Linux-only implementation (deprecated)
 
 ## 🔧 Recent Fixes (in bash branch)
 
@@ -29,13 +29,15 @@ A comprehensive command-line password manager built for Linux systems using GNOM
 
 ## 🌟 Features
 
-- **Secure Storage**: Uses GNOME Keyring for encrypted password storage
-- **Easy CLI Interface**: Simple commands for all password operations
-- **Advanced Password Generation**: Multiple password types with customizable options
-- **Backup & Restore**: Encrypted backup system with multiple encryption options
-- **Search & Organization**: Powerful search and listing capabilities
-- **Cross-System Compatibility**: Works with any Linux distribution using GNOME Keyring
-- **Configuration Management**: Customizable settings and preferences
+- **Secure Storage**: Uses GNOME Keyring (Linux), Keychain (macOS), or Credential Manager (Windows)
+- **TOTP Support**: Two-Factor Authentication compatible with Google Authenticator, Authy, etc.
+- **Cross-Platform**: Linux, macOS, Windows, FreeBSD, OpenBSD support
+- **Easy CLI Interface**: Modern Cobra-based CLI with help and auto-completion
+- **Advanced Password Generation**: Multiple password types with cryptographic security
+- **Backup & Restore**: JSON-based encrypted backup system with GPG support  
+- **Search & Organization**: Fast searching and categorization of all secret types
+- **Multiple Secret Types**: Passwords, TOTP keys, API keys, secure notes (planned)
+- **Version Information**: Built-in version tracking with build details
 
 ## 📋 Requirements
 
@@ -68,27 +70,218 @@ sudo dnf install gnome-keyring libsecret
 
 ## 🚀 Quick Start
 
-1. **Initialize the Password Manager**:
+1. **Build or install the password manager**:
    ```bash
-   ./bin/pwmgr init
+   # Build from source
+   make build
+   
+   # Or download from releases and extract
    ```
 
 2. **Add your first password**:
    ```bash
-   ./bin/pwmgr add gmail john.doe@gmail.com
+   ./build/pwmgr-go add gmail john.doe@gmail.com
    ```
 
-3. **Retrieve a password**:
+3. **Set up TOTP for 2FA**:
    ```bash
-   ./bin/pwmgr get gmail
+   ./build/pwmgr-go totp-add google user@gmail.com --generate --issuer "Google"
    ```
 
-4. **List all stored passwords**:
+4. **Retrieve a password**:
    ```bash
-   ./bin/pwmgr list
+   ./build/pwmgr-go get gmail john.doe@gmail.com
    ```
 
-## 📖 Usage Guide
+5. **Generate a TOTP code**:
+   ```bash
+   ./build/pwmgr-go totp-code google user@gmail.com
+   ```
+
+6. **List all stored secrets**:
+   ```bash
+   ./build/pwmgr-go list
+   ```
+
+## 📦 Installation
+
+### From Releases (Recommended)
+
+1. Download the appropriate binary for your system from [Releases](https://github.com/gerry/password-manager/releases)
+2. Extract the archive and copy to your PATH:
+   ```bash
+   # Linux/macOS/BSD
+   tar -xzf pwmgr-go-*-your-os-arch.tar.gz
+   sudo cp pwmgr-go /usr/local/bin/
+   
+   # Windows (PowerShell)
+   Expand-Archive pwmgr-go-*-windows-*.zip
+   Copy-Item pwmgr-go.exe C:\Windows\System32\
+   ```
+
+### Building from Source
+
+**Requirements:**
+- Go 1.25 or later
+- System keyring (GNOME Keyring on Linux, built-in on macOS/Windows)
+- Make (optional, for build automation)
+
+```bash
+git clone https://github.com/gerry/password-manager.git
+cd password-manager
+
+# Using Makefile (recommended)
+make build
+sudo cp build/pwmgr-go /usr/local/bin/
+
+# Or direct Go build
+go build -o pwmgr-go ./cmd/pwmgr
+```
+
+### System Dependencies
+
+The Go implementation automatically integrates with your system's keyring:
+
+**Linux:**
+```bash
+# Manjaro/Arch
+sudo pacman -S gnome-keyring libsecret
+
+# Ubuntu/Debian
+sudo apt install gnome-keyring libsecret-tools
+
+# Fedora/RHEL
+sudo dnf install gnome-keyring libsecret
+```
+
+**macOS:** Built-in Keychain (no installation needed)
+
+**Windows:** Built-in Credential Manager (no installation needed)
+
+## 📚 Usage Guide (Go Implementation)
+
+### Password Management
+
+```bash
+# Add a password
+pwmgr-go add github username
+
+# Get a password  
+pwmgr-go get github username
+
+# List all passwords
+pwmgr-go list
+
+# Update a password
+pwmgr-go update github username
+
+# Delete a password
+pwmgr-go delete github username
+
+# Search passwords
+pwmgr-go search gmail
+```
+
+### TOTP (Two-Factor Authentication)
+
+```bash
+# Generate new TOTP secret
+pwmgr-go totp-add google user@gmail.com --generate --issuer "Google"
+
+# Add from QR code URL
+pwmgr-go totp-add github --url "otpauth://totp/GitHub:user?secret=ABC..."
+
+# Add with manual secret
+pwmgr-go totp-add vpn --secret "ABCDEF123456" --issuer "Company VPN"
+
+# Generate TOTP code
+pwmgr-go totp-code google user@gmail.com
+
+# Watch codes (live updates)
+pwmgr-go totp-code google user@gmail.com --watch
+
+# List TOTP secrets
+pwmgr-go totp-list
+
+# Delete TOTP secret
+pwmgr-go totp-delete google user@gmail.com
+```
+
+### Password Generation
+
+```bash
+# Generate strong password
+pwmgr-go generate 16
+
+# Generate multiple passwords
+pwmgr-go generate -c 5
+
+# Generate passphrase
+pwmgr-go generate -t passphrase
+
+# Generate with specific options
+pwmgr-go generate -l 20 --no-ambiguous
+
+# Check password strength
+pwmgr-go generate --check
+```
+
+### Backup & Restore
+
+```bash
+# Create backup
+pwmgr-go backup create
+
+# Create encrypted backup
+pwmgr-go backup create --encrypt --gpg-recipient "user@example.com"
+
+# List backups
+pwmgr-go backup list
+
+# Restore backup
+pwmgr-go backup restore backup-20241209-143022.json
+
+# Clean old backups
+pwmgr-go backup clean --keep 5
+```
+
+### Build System
+
+```bash
+# Build for current platform
+make build
+
+# Build for all platforms
+make build-all
+
+# Create release archives
+make release
+
+# Run tests
+make test
+
+# Development workflow
+make dev  # format + vet + test + build
+```
+
+### Version Information
+
+```bash
+# Show version information
+pwmgr-go version
+
+# JSON output for scripting
+pwmgr-go version --json
+
+# Built-in version info includes:
+# - Version number
+# - Build time
+# - Git commit hash
+# - Go version used
+# - Target platform
+```
+
+## 📚 Legacy Usage Guide (Bash Implementation)
 
 ### Basic Operations
 
@@ -242,18 +435,24 @@ See `config/pwmgr.conf.example` for all available options.
 
 ```
 Password-Manager/
-├── bin/
-│   └── pwmgr              # Main password manager script
-├── config/
-│   └── pwmgr.conf.example # Configuration template
-├── utils/
-│   ├── pwgen-advanced     # Advanced password generator
-│   └── pwmgr-backup       # Backup and restore utility
-├── docs/
-│   └── ...                # Additional documentation
-├── tests/
-│   └── ...                # Test scripts
-└── README.md              # This file
+├── cmd/pwmgr/             # Main application entry point
+├── internal/
+│   ├── cli/               # CLI commands and interface
+│   └── version/           # Version information
+├── pkg/
+│   ├── backup/           # Backup and restore functionality
+│   ├── generator/        # Password generation
+│   ├── keyring/          # Keyring integration
+│   └── totp/             # TOTP implementation
+├── build/                # Build output directory
+├── dist/                 # Release archives
+├── bin/                  # Legacy bash scripts
+├── utils/                # Legacy utilities
+├── config/               # Configuration examples
+├── tests/                # Test scripts
+├── Makefile              # Build automation
+├── go.mod                # Go module definition
+└── README.md             # This documentation
 ```
 
 ## 🔐 Security Features

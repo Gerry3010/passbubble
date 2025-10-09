@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gerry/password-manager/internal/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -29,7 +30,7 @@ Features:
 - Encrypted backup and restore functionality
 - Search and organization capabilities
 - Cross-system compatibility with Linux distributions`,
-	Version: "2.0.0",
+	Version: version.GetInfo().Short(),
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
