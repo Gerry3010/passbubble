@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/gerry/password-manager/pkg/keyring"
-	"github.com/gerry/password-manager/pkg/totp"
+	"github.com/Gerry3010/passbubble/pkg/keyring"
+	"github.com/Gerry3010/passbubble/pkg/totp"
 )
 
 // TOTPUpdateMsg represents a TOTP code update

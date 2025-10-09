@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/gerry/password-manager/internal/version"
+	"github.com/Gerry3010/passbubble/internal/version"
 	"github.com/spf13/cobra"
 )
 

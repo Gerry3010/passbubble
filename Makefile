@@ -3,7 +3,7 @@
 
 # Application info
 APP_NAME = pwmgr-go
-MODULE_NAME = github.com/gerry/password-manager
+MODULE_NAME = github.com/Gerry3010/passbubble
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 COMMIT_HASH = $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")

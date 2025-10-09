@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gerry/password-manager/pkg/backup"
-	"github.com/gerry/password-manager/pkg/generator"
-	"github.com/gerry/password-manager/pkg/keyring"
-	"github.com/gerry/password-manager/pkg/totp"
+	"github.com/Gerry3010/passbubble/pkg/backup"
+	"github.com/Gerry3010/passbubble/pkg/generator"
+	"github.com/Gerry3010/passbubble/pkg/keyring"
+	"github.com/Gerry3010/passbubble/pkg/totp"
 )
 
 // ActionResultMsg represents the result of an action

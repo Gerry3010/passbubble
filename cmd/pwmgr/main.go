@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/gerry/password-manager/internal/cli"
+	"github.com/Gerry3010/passbubble/internal/cli"
 )
 
 func main() {

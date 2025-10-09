@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/gerry/password-manager/internal/tui"
+	"github.com/Gerry3010/passbubble/internal/tui"
 	"github.com/spf13/cobra"
 )
 

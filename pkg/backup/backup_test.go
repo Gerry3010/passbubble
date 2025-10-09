@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gerry/password-manager/pkg/keyring"
+	"github.com/Gerry3010/passbubble/pkg/keyring"
 )
 
 // MockKeyring provides a mock implementation for testing

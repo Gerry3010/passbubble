@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gerry/password-manager/pkg/keyring"
-	"github.com/gerry/password-manager/pkg/totp"
+	"github.com/Gerry3010/passbubble/pkg/keyring"
+	"github.com/Gerry3010/passbubble/pkg/totp"
 	"github.com/pquerna/otp"
 	"github.com/spf13/cobra"
 )

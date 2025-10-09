@@ -7,8 +7,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/gerry/password-manager/pkg/generator"
-	"github.com/gerry/password-manager/pkg/keyring"
+	"github.com/Gerry3010/passbubble/pkg/generator"
+	"github.com/Gerry3010/passbubble/pkg/keyring"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

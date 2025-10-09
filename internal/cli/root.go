@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gerry/password-manager/internal/tui"
-	"github.com/gerry/password-manager/internal/version"
+	"github.com/Gerry3010/passbubble/internal/tui"
+	"github.com/Gerry3010/passbubble/internal/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

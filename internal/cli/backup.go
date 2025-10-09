@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gerry/password-manager/pkg/backup"
-	"github.com/gerry/password-manager/pkg/keyring"
+	"github.com/Gerry3010/passbubble/pkg/backup"
+	"github.com/Gerry3010/passbubble/pkg/keyring"
 	"github.com/spf13/cobra"
 )
 

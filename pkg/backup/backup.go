@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gerry/password-manager/pkg/keyring"
+	"github.com/Gerry3010/passbubble/pkg/keyring"
 )
 
 // BackupData represents the structure of a backup file
