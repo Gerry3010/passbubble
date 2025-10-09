@@ -4,7 +4,10 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ## Project Overview
 
-This is a command-line password manager built for Linux systems using GNOME Keyring as the secure backend storage. The project is implemented in Bash and consists of multiple modular scripts for password management, generation, and backup/restore functionality.
+This is a command-line password manager built for Linux systems using GNOME Keyring as the secure backend storage. The project has been converted from Bash to Go and provides both implementations:
+
+- **Go Implementation** (primary): Modern, performant CLI tool using Cobra framework
+- **Bash Implementation** (legacy): Original shell scripts for reference
 
 **Key Branch Information:**
 - `main`: Clean initial version
@@ -12,7 +15,44 @@ This is a command-line password manager built for Linux systems using GNOME Keyr
 
 ## Development Commands
 
-### Testing
+### Building and Testing (Go Implementation)
+```bash
+# Build the Go binary
+go build -o pwmgr-go ./cmd/pwmgr
+
+# Run all tests
+go test ./...
+
+# Run tests with verbose output
+go test ./... -v
+
+# Run specific package tests
+go test ./pkg/generator -v
+
+# Build for different platforms
+GOOS=linux GOARCH=amd64 go build -o pwmgr-linux ./cmd/pwmgr
+```
+
+### Core Operations (Go Version)
+```bash
+# Test password operations
+./pwmgr-go add test-service
+./pwmgr-go get test-service
+./pwmgr-go list
+./pwmgr-go update test-service
+./pwmgr-go delete test-service
+
+# Test password generation
+./pwmgr-go generate 16
+./pwmgr-go generate -t passphrase
+./pwmgr-go generate -c 5 --no-ambiguous
+./pwmgr-go generate --check -l 20
+
+# Search functionality
+./pwmgr-go search gmail
+```
+
+### Legacy Bash Testing
 ```bash
 # Make test scripts executable (first time setup)
 chmod +x tests/*.sh
@@ -20,29 +60,10 @@ chmod +x tests/*.sh
 # Run basic functionality tests
 ./tests/test-basic.sh
 
-# Individual test categories (if they exist)
-./tests/test-generation.sh
-./tests/test-backup.sh
-```
-
-### Core Operations
-```bash
-# Initialize the password manager (creates config)
-./bin/pwmgr init
-
-# Test password operations
+# Test legacy bash scripts
 ./bin/pwmgr add test-service
-./bin/pwmgr get test-service
-./bin/pwmgr list
-./bin/pwmgr delete test-service
-
-# Test password generation
-./bin/pwmgr generate 16
 ./utils/pwgen-advanced -l 20 -c 5
-
-# Test backup functionality
 ./utils/pwmgr-backup backup
-./utils/pwmgr-backup list
 ```
 
 ### Setup & Dependencies

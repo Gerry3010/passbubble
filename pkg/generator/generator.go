@@ -179,6 +179,14 @@ func (g *Generator) generateAlphanumeric() (string, error) {
 		chars = strings.ReplaceAll(chars, "1", "")
 	}
 	
+	// Remove excluded characters
+	if g.options.ExcludeChars != "" {
+		for _, char := range g.options.ExcludeChars {
+			c := string(char)
+			chars = strings.ReplaceAll(chars, c, "")
+		}
+	}
+	
 	return randomString(chars, g.options.Length)
 }
 

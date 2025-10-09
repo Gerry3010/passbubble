@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+// KeyringInterface defines the interface for keyring operations
+type KeyringInterface interface {
+	Store(service, username, password string) error
+	Get(service, username string) (string, error)
+	Delete(service, username string) error
+	List() ([]Entry, error)
+	Search(pattern string) ([]Entry, error)
+	IsAvailable() bool
+}
+
 // Entry represents a password entry
 type Entry struct {
 	Service  string `json:"service"`
