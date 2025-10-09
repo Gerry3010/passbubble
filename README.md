@@ -2,6 +2,29 @@
 
 A comprehensive command-line password manager built for Linux systems using GNOME Keyring as the secure backend storage.
 
+## 🌿 Branches
+
+- **main**: Clean initial version  
+- **bash**: Current working bash implementation with fixes ⭐
+
+## 🔧 Recent Fixes (in bash branch)
+
+### ✅ Fixed: "No passwords found or error accessing keyring" Error
+
+**Problem**: The original `secret-tool search service ''` command with empty strings didn't work properly to enumerate keyring entries.
+
+**Solution**: Implemented a robust Python-based approach that:
+- Uses `busctl` to enumerate all keyring entries via D-Bus API
+- Checks each entry's attributes for `service` attribute presence
+- Extracts service names and usernames correctly
+- Provides clean, sorted output
+
+**Result**: 
+- ✅ Now properly lists all passwords with `service` attribute
+- ✅ Correct exit codes (0 for success)
+- ✅ Shows usernames when available  
+- ✅ Full compatibility maintained with all existing features
+
 ## 🌟 Features
 
 - **Secure Storage**: Uses GNOME Keyring for encrypted password storage
