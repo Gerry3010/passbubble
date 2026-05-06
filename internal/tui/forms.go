@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -9,6 +10,29 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/Gerry3010/passbubble/pkg/totp"
 )
+
+// readClipboard reads text from the system clipboard.
+// It tries wl-paste (Wayland), xclip, and xsel (X11) in order.
+func readClipboard() (string, error) {
+	commands := []struct {
+		name string
+		args []string
+	}{
+		{"wl-paste", []string{"--no-newline"}},
+		{"xclip", []string{"-selection", "clipboard", "-o"}},
+		{"xsel", []string{"--clipboard", "--output"}},
+	}
+
+	for _, cmd := range commands {
+		if _, err := exec.LookPath(cmd.name); err == nil {
+			out, err := exec.Command(cmd.name, cmd.args...).Output()
+			if err == nil {
+				return string(out), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no clipboard tool found (install xclip, xsel, or wl-paste)")
+}
 
 // FormType represents different form types
 type FormType int
@@ -499,6 +523,18 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 				}
 			}
 			
+		case "ctrl+v":
+			// Paste from clipboard
+			if f.Type != ConfirmDeleteForm && f.CurrentField < len(f.Fields) {
+				if clip, err := readClipboard(); err == nil && clip != "" {
+					field := &f.Fields[f.CurrentField]
+					field.Value += strings.TrimRight(clip, "\n\r")
+					f.Error = ""
+				} else if err != nil {
+					f.Error = err.Error()
+				}
+			}
+
 		case "backspace":
 			if f.Type == ConfirmDeleteForm {
 				return f, nil
@@ -726,7 +762,7 @@ func (f FormModel) View() string {
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
 		Italic(true).
-		Render("Tab/↑↓: navigate • Enter: submit/next • Esc: cancel")
+		Render("Tab/↑↓: navigate • Enter: submit/next • Ctrl+V: paste • Esc: cancel")
 	
 	b.WriteString(help)
 	

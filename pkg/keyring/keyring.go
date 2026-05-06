@@ -242,6 +242,8 @@ func (k *Keyring) List() ([]Entry, error) {
 
 		service := serviceMatch[1]
 
+		// TODO: Trim Enter Keys from Secrets, Passwords, etc.
+
 		// Parse all attributes
 		entry := Entry{
 			Service: service,
