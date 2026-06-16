@@ -42,12 +42,16 @@ func (s *Server) buildRouter() http.Handler {
 	// Health check (no auth)
 	r.Get("/health", handlers.Health)
 
-	// Flutter web app at /web/* and /admin/*
+	// Flutter web app at /web/* and /admin/*. The SPA shell itself is public
+	// (it contains no secrets) — it shows its own login screen when the user
+	// isn't authenticated. The actual authorization boundary is the
+	// /api/v1/admin/* routes below, gated by JWTAuth + AdminOnly.
 	webHandler := http.FileServer(static.WebFS())
+	adminHandler := http.FileServer(static.AdminFS())
 	r.Handle("/web", http.RedirectHandler("/web/", http.StatusMovedPermanently))
 	r.Handle("/web/*", http.StripPrefix("/web", spaHandler(webHandler)))
-	r.With(mw.AdminJWT(s.cfg.JWTSecret)).Handle("/admin", http.RedirectHandler("/admin/", http.StatusMovedPermanently))
-	r.With(mw.AdminJWT(s.cfg.JWTSecret)).Handle("/admin/*", http.StripPrefix("/admin", spaHandler(webHandler)))
+	r.Handle("/admin", http.RedirectHandler("/admin/", http.StatusMovedPermanently))
+	r.Handle("/admin/*", http.StripPrefix("/admin", spaHandler(adminHandler)))
 
 	// API v1
 	h := handlers.New(s.pool, s.rdb, s.cfg.JWTSecret)

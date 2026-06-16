@@ -1,13 +1,17 @@
 # ─── Flutter web build stage ─────────────────────────────────────────────────
-# Builds the Flutter web app (serves both the user UI at /web/* and the
-# admin panel at /admin/* — same app, gated by JWT role on the server side).
+# Builds the Flutter web app twice — once assuming it's mounted at /web/ and
+# once at /admin/ — since asset URLs are resolved relative to --base-href and
+# the app is served at two different paths (same app; the admin panel is
+# route-guarded client-side, with the real authorization boundary enforced
+# server-side on /api/v1/admin/*).
 FROM ghcr.io/cirruslabs/flutter:stable AS flutter-builder
 
 WORKDIR /build
 COPY flutter_app/pubspec.yaml flutter_app/pubspec.lock ./
 RUN flutter pub get
 COPY flutter_app/ .
-RUN flutter build web --release
+RUN flutter build web --release --base-href "/web/" && cp -r build/web /web-build
+RUN flutter build web --release --base-href "/admin/" && cp -r build/web /admin-build
 
 # ─── Go build stage ───────────────────────────────────────────────────────────
 FROM golang:1.26-alpine AS builder
@@ -20,7 +24,8 @@ RUN go mod download
 
 # Copy source and embed the Flutter web build before compiling
 COPY backend/ .
-COPY --from=flutter-builder /build/build/web ./internal/static/web
+COPY --from=flutter-builder /web-build ./internal/static/web
+COPY --from=flutter-builder /admin-build ./internal/static/admin
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /passbubble-server ./cmd/server
 
 # ─── Runtime image ───────────────────────────────────────────────────────────

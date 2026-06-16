@@ -21,12 +21,30 @@ import (
 	"net/http"
 )
 
+// The same Flutter app is built twice with different --base-href values
+// (one assumes it's mounted at /web/, the other at /admin/) so that
+// asset URLs (JS, CSS, icons) resolve correctly under either mount path.
+
 //go:embed web
 var webFiles embed.FS
 
-// WebFS returns an HTTP filesystem serving the embedded Flutter web build.
+//go:embed admin
+var adminFiles embed.FS
+
+// WebFS returns an HTTP filesystem serving the embedded Flutter web build
+// built for the /web/ mount path.
 func WebFS() http.FileSystem {
-	sub, err := fs.Sub(webFiles, "web")
+	return subFS(webFiles, "web")
+}
+
+// AdminFS returns an HTTP filesystem serving the embedded Flutter web build
+// built for the /admin/ mount path.
+func AdminFS() http.FileSystem {
+	return subFS(adminFiles, "admin")
+}
+
+func subFS(f embed.FS, dir string) http.FileSystem {
+	sub, err := fs.Sub(f, dir)
 	if err != nil {
 		panic("static: sub fs failed: " + err.Error())
 	}
