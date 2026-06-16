@@ -75,8 +75,9 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         Uint8List.fromList(dataKey),
       );
       setState(() => _decrypted = data);
-      if (entry.type == 'totp' && data['totp_secret'] != null) {
-        _startTOTP(data['totp_secret'] as String);
+      final totpSecret = data['totp_secret'];
+      if (totpSecret is String && totpSecret.isNotEmpty) {
+        _startTOTP(totpSecret);
       }
     } catch (e) {
       if (mounted) {
@@ -193,8 +194,8 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         if (entry.url.isNotEmpty) _infoRow('URL', entry.url),
         const Divider(),
 
-        // TOTP display
-        if (entry.type == 'totp' && _totpCode != null) ...[
+        // TOTP display (shown whenever an entry has a totp_secret, not just type=='totp')
+        if (_totpCode != null) ...[
           _totpWidget(),
           const Divider(),
         ],
@@ -250,6 +251,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       'password' || 'api-key' => [
           if (str('username') != null) _copyRow('Username', str('username')!),
           if (str('password') != null) _secretRow('Password', str('password')!),
+          if (str('totp_secret') != null) _secretRow('TOTP Secret', str('totp_secret')!),
           ...common,
         ],
       'totp' => [

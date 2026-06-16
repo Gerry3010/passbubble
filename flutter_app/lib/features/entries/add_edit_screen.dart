@@ -249,6 +249,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   List<Widget> _passwordFields() => [
     _field('username', 'Username', Icons.person_outline),
     _passwordField(),
+    _field('totp_secret', 'TOTP Secret (optional, base32)', Icons.schedule),
     _field('notes', 'Notes', Icons.notes, maxLines: 3),
   ];
 

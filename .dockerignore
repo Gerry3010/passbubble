@@ -17,6 +17,3 @@ flutter_app/test/
 backend/internal/static/web/*
 !backend/internal/static/web/.keep
 !backend/internal/static/web/index.html
-backend/internal/static/admin/*
-!backend/internal/static/admin/.keep
-!backend/internal/static/admin/index.html

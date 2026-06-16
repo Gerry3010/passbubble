@@ -26,20 +26,12 @@ import '../../features/entries/entry_detail_screen.dart';
 import '../../features/entries/add_edit_screen.dart';
 import '../../features/generate/generate_screen.dart';
 import '../../features/folders/folders_screen.dart';
-import '../../features/admin/admin_screen.dart';
 import '../../features/settings/settings_screen.dart';
-
-// Built twice (see backend/Dockerfile): the regular --dart-define=APP_MODE=web
-// build starts at /entries, the --dart-define=APP_MODE=admin build (served at
-// /admin/*) starts at /admin instead, so visiting the server's /admin path
-// directly drops you into the admin panel rather than the vault.
-const _isAdminApp = String.fromEnvironment('APP_MODE', defaultValue: 'web') == 'admin';
-const _homeRoute = _isAdminApp ? '/admin' : '/entries';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authStateProvider);
   return GoRouter(
-    initialLocation: _homeRoute,
+    initialLocation: '/entries',
     redirect: (context, state) {
       final path = state.matchedLocation;
       final isSetup = path.startsWith('/setup');
@@ -55,10 +47,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
       if (auth.isLoggedIn && auth.isUnlocked &&
           (isLogin || path.startsWith('/unlock'))) {
-        return _homeRoute;
-      }
-      if (path.startsWith('/admin') && auth.isLoggedIn && auth.isUnlocked &&
-          !auth.isAdmin) {
         return '/entries';
       }
       return null;
@@ -90,7 +78,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/generate', builder: (_, _) => const GenerateScreen()),
       GoRoute(path: '/folders', builder: (_, _) => const FoldersScreen()),
-      GoRoute(path: '/admin', builder: (_, _) => const AdminScreen()),
       GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
     ],
   );

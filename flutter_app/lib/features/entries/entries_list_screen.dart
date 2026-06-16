@@ -19,7 +19,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
-import '../../core/auth/auth_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 
@@ -54,19 +53,12 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authStateProvider);
     final entries = ref.watch(_filteredEntriesProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('> VAULT'),
         actions: [
-          if (auth.isAdmin)
-            IconButton(
-              icon: const Icon(Icons.admin_panel_settings_outlined),
-              tooltip: 'Admin',
-              onPressed: () => context.go('/admin'),
-            ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.go('/settings'),

@@ -116,14 +116,16 @@ class ApiClient {
     return EntryResponse.fromJson(resp.data as Map<String, dynamic>);
   }
 
-  Future<EntryResponse> createEntry(CreateEntryRequest req) async {
+  /// Creates an entry. The backend only returns `{"id": "..."}` on create,
+  /// not a full entry — so that's all we parse here.
+  Future<String> createEntry(CreateEntryRequest req) async {
     final resp = await _post('/api/v1/entries', req.toJson());
-    return EntryResponse.fromJson(resp.data as Map<String, dynamic>);
+    return (resp.data as Map<String, dynamic>)['id'] as String;
   }
 
-  Future<EntryResponse> updateEntry(String id, UpdateEntryRequest req) async {
-    final resp = await _put('/api/v1/entries/$id', req.toJson());
-    return EntryResponse.fromJson(resp.data as Map<String, dynamic>);
+  /// Updates an entry. The backend returns 204 No Content on success.
+  Future<void> updateEntry(String id, UpdateEntryRequest req) async {
+    await _put('/api/v1/entries/$id', req.toJson());
   }
 
   Future<void> deleteEntry(String id) => _delete('/api/v1/entries/$id');
