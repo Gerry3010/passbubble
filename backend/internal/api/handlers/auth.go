@@ -98,7 +98,20 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusInternalServerError, "failed to issue tokens")
 		return
 	}
-	respond(w, http.StatusCreated, tokens)
+	// Clients need user_id to address entry_keys to themselves when creating
+	// entries — without it, every entry they create silently ends up with no
+	// entry_keys row for the owner (the server-side insert fails on an empty
+	// UUID, and that error path discards the failure).
+	respond(w, http.StatusCreated, map[string]any{
+		"access_token":  tokens.AccessToken,
+		"refresh_token": tokens.RefreshToken,
+		"expires_in":    tokens.ExpiresIn,
+		"token_type":    "Bearer",
+		"user_id":       userID,
+		"email":         req.Email,
+		"name":          req.Name,
+		"role":          role,
+	})
 }
 
 // Login handles POST /api/v1/auth/login
@@ -111,6 +124,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	var (
 		userID          string
+		name            string
 		role            string
 		passwordHash    string
 		pubX25519       string
@@ -122,10 +136,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		kdfMemory       uint32
 	)
 	err = h.pool.QueryRow(r.Context(), `
-		SELECT id, role, password_hash, pub_x25519, pub_mlkem768,
+		SELECT id, name, role, password_hash, pub_x25519, pub_mlkem768,
 			enc_priv_x25519, enc_priv_mlkem768, kdf_salt, kdf_time, kdf_memory
 		FROM users WHERE email = $1 AND status = 'active'`, req.Email,
-	).Scan(&userID, &role, &passwordHash,
+	).Scan(&userID, &name, &role, &passwordHash,
 		&pubX25519, &pubMLKEM768,
 		&encPrivX25519, &encPrivMLKEM768,
 		&kdfSalt, &kdfTime, &kdfMemory)
@@ -145,12 +159,18 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return tokens + encrypted private keys so client can decrypt them locally
+	// Return tokens + encrypted private keys so client can decrypt them locally.
+	// user_id/email/name/role are required so the client can address
+	// entry_keys to itself when creating entries.
 	respond(w, http.StatusOK, map[string]any{
 		"access_token":      tokens.AccessToken,
 		"refresh_token":     tokens.RefreshToken,
 		"expires_in":        tokens.ExpiresIn,
 		"token_type":        "Bearer",
+		"user_id":           userID,
+		"email":             req.Email,
+		"name":              name,
+		"role":              role,
 		"enc_priv_x25519":   encPrivX25519,
 		"enc_priv_mlkem768": encPrivMLKEM768,
 		"pub_x25519":        pubX25519,
