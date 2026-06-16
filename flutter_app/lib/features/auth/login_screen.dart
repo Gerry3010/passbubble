@@ -33,6 +33,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _form = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _passFocus = FocusNode();
   bool _loading = false;
   bool _obscure = true;
   String? _error;
@@ -41,6 +42,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void dispose() {
     _emailCtrl.dispose();
     _passCtrl.dispose();
+    _passFocus.dispose();
     super.dispose();
   }
 
@@ -87,11 +89,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     keyboardType: TextInputType.emailAddress,
                     prefixIcon: Icons.alternate_email,
                     validator: (v) => v!.isEmpty ? 'Required' : null,
+                    textInputAction: TextInputAction.next,
+                    onSubmitted: (_) => _passFocus.requestFocus(),
                   ),
                   const SizedBox(height: 16),
                   PbTextField(
                     label: 'Master Password',
                     controller: _passCtrl,
+                    focusNode: _passFocus,
                     obscureText: _obscure,
                     prefixIcon: Icons.lock_outline,
                     suffixIcon: IconButton(
@@ -102,6 +107,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       onPressed: () => setState(() => _obscure = !_obscure),
                     ),
                     validator: (v) => v!.isEmpty ? 'Required' : null,
+                    onSubmitted: (_) => _login(),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),

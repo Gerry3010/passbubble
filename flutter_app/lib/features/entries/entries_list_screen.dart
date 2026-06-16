@@ -22,7 +22,7 @@ import '../../core/api/models.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 
-final _entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
+final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
   return ref.watch(apiClientProvider).listEntries();
 });
 
@@ -31,7 +31,7 @@ final _searchQueryProvider = StateProvider<String>((ref) => '');
 final _filteredEntriesProvider =
     FutureProvider<List<EntryResponse>>((ref) async {
   final q = ref.watch(_searchQueryProvider);
-  if (q.isEmpty) return ref.watch(_entriesProvider.future);
+  if (q.isEmpty) return ref.watch(entriesProvider.future);
   return ref.watch(apiClientProvider).searchEntries(q);
 });
 
@@ -103,7 +103,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
           }
           return RefreshIndicator(
             color: AppTheme.green,
-            onRefresh: () async => ref.invalidate(_entriesProvider),
+            onRefresh: () async => ref.invalidate(entriesProvider),
             child: ListView.separated(
               itemCount: list.length,
               separatorBuilder: (_, _) => const Divider(height: 1),

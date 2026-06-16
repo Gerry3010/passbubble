@@ -28,6 +28,9 @@ class PbTextField extends StatelessWidget {
   final bool readOnly;
   final int? maxLines;
   final void Function(String)? onChanged;
+  final void Function(String)? onSubmitted;
+  final TextInputAction? textInputAction;
+  final FocusNode? focusNode;
 
   const PbTextField({
     super.key,
@@ -42,18 +45,24 @@ class PbTextField extends StatelessWidget {
     this.readOnly = false,
     this.maxLines = 1,
     this.onChanged,
+    this.onSubmitted,
+    this.textInputAction,
+    this.focusNode,
   });
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
+      focusNode: focusNode,
       obscureText: obscureText,
       keyboardType: keyboardType,
       validator: validator,
       readOnly: readOnly,
       maxLines: maxLines,
       onChanged: onChanged,
+      onFieldSubmitted: onSubmitted,
+      textInputAction: textInputAction ?? (onSubmitted != null ? TextInputAction.done : null),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,

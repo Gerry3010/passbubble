@@ -26,6 +26,7 @@ import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import 'entries_list_screen.dart' show entriesProvider;
 
 final _entryDetailProvider =
     FutureProvider.family<EntryResponse, String>((ref, id) async {
@@ -137,6 +138,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     );
     if (ok != true) return;
     await ref.read(apiClientProvider).deleteEntry(id);
+    ref.invalidate(entriesProvider);
     if (mounted) context.go('/entries');
   }
 

@@ -26,6 +26,7 @@ import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
+import 'entries_list_screen.dart' show entriesProvider;
 
 // ─── Entry type metadata ──────────────────────────────────────────────────────
 
@@ -221,6 +222,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
           ),
         );
       }
+      ref.invalidate(entriesProvider);
       if (mounted) context.go('/entries');
     } catch (e) {
       setState(() => _error = e.toString());
