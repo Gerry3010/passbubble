@@ -29,10 +29,17 @@ import '../../features/folders/folders_screen.dart';
 import '../../features/admin/admin_screen.dart';
 import '../../features/settings/settings_screen.dart';
 
+// Built twice (see backend/Dockerfile): the regular --dart-define=APP_MODE=web
+// build starts at /entries, the --dart-define=APP_MODE=admin build (served at
+// /admin/*) starts at /admin instead, so visiting the server's /admin path
+// directly drops you into the admin panel rather than the vault.
+const _isAdminApp = String.fromEnvironment('APP_MODE', defaultValue: 'web') == 'admin';
+const _homeRoute = _isAdminApp ? '/admin' : '/entries';
+
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authStateProvider);
   return GoRouter(
-    initialLocation: '/entries',
+    initialLocation: _homeRoute,
     redirect: (context, state) {
       final path = state.matchedLocation;
       final isSetup = path.startsWith('/setup');
@@ -48,6 +55,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
       if (auth.isLoggedIn && auth.isUnlocked &&
           (isLogin || path.startsWith('/unlock'))) {
+        return _homeRoute;
+      }
+      if (path.startsWith('/admin') && auth.isLoggedIn && auth.isUnlocked &&
+          !auth.isAdmin) {
         return '/entries';
       }
       return null;
@@ -62,11 +73,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const EntriesListScreen(),
         routes: [
           GoRoute(
-            path: ':id',
-            builder: (_, state) =>
-                EntryDetailScreen(id: state.pathParameters['id']!),
-          ),
-          GoRoute(
             path: 'new',
             builder: (_, _) => const AddEditScreen(),
           ),
@@ -74,6 +80,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: ':id/edit',
             builder: (_, state) =>
                 AddEditScreen(editId: state.pathParameters['id']),
+          ),
+          GoRoute(
+            path: ':id',
+            builder: (_, state) =>
+                EntryDetailScreen(id: state.pathParameters['id']!),
           ),
         ],
       ),

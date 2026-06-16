@@ -10,8 +10,8 @@ WORKDIR /build
 COPY flutter_app/pubspec.yaml flutter_app/pubspec.lock ./
 RUN flutter pub get
 COPY flutter_app/ .
-RUN flutter build web --release --base-href "/web/" && cp -r build/web /web-build
-RUN flutter build web --release --base-href "/admin/" && cp -r build/web /admin-build
+RUN flutter build web --release --base-href "/web/" --dart-define=APP_MODE=web && cp -r build/web /web-build
+RUN flutter build web --release --base-href "/admin/" --dart-define=APP_MODE=admin && cp -r build/web /admin-build
 
 # ─── Go build stage ───────────────────────────────────────────────────────────
 FROM golang:1.26-alpine AS builder

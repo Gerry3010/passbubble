@@ -16,6 +16,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
@@ -289,9 +290,9 @@ class _BottomNavBase extends StatelessWidget {
       onDestinationSelected: (i) {
         switch (i) {
           case 0:
-            Navigator.of(context).pushReplacementNamed('/entries');
+            context.go('/entries');
           case 1:
-            Navigator.of(context).pushReplacementNamed('/folders');
+            context.go('/folders');
           case 2:
             break; // already here
         }
