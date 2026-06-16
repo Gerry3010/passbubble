@@ -93,6 +93,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   controller: _urlCtrl,
                   keyboardType: TextInputType.url,
                   prefixIcon: Icons.dns_outlined,
+                  onSubmitted: (_) => _connect(),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 8),

@@ -114,6 +114,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                     ),
                     onPressed: () => setState(() => _obscure = !_obscure),
                   ),
+                  onSubmitted: (_) => _unlock(),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 8),

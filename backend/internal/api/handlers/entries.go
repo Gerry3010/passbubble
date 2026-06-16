@@ -17,6 +17,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strings"
@@ -65,29 +66,38 @@ func (h *Handler) GetEntry(w http.ResponseWriter, r *http.Request) {
 
 	var e models.EntryResponse
 	var folderID *string
+	var encryptedData, dataNonce []byte
 	err := h.pool.QueryRow(r.Context(), `
 		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url,
-			encode(e.encrypted_data,'base64'), encode(e.data_nonce,'base64'),
+			e.encrypted_data, e.data_nonce,
 			e.created_at::text, e.updated_at::text
 		FROM entries e
 		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$2
 		WHERE e.id=$1 AND (e.owner_id=$2 OR ep.user_id=$2)`,
 		entryID, claims.UserID,
 	).Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL,
-		&e.EncryptedData, &e.DataNonce, &e.CreatedAt, &e.UpdatedAt)
+		&encryptedData, &dataNonce, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		respondErr(w, http.StatusNotFound, "entry not found")
 		return
 	}
 	e.FolderID = folderID
+	// Encode in Go, not via Postgres's encode(...,'base64') — that wraps
+	// output every 76 chars with a newline (RFC 2045 style), which strict
+	// base64 decoders (e.g. Dart's base64.decode) reject outright.
+	e.EncryptedData = base64.StdEncoding.EncodeToString(encryptedData)
+	e.DataNonce = base64.StdEncoding.EncodeToString(dataNonce)
 
-	var encKey string
+	var rawEncKey []byte
 	_ = h.pool.QueryRow(r.Context(), `
-		SELECT encode(encrypted_key,'base64') FROM entry_keys
+		SELECT encrypted_key FROM entry_keys
 		WHERE entry_id=$1 AND user_id=$2`, entryID, claims.UserID,
-	).Scan(&encKey)
-	if encKey != "" {
-		e.EntryKey = &models.EntryKey{UserID: claims.UserID, EncryptedKey: encKey}
+	).Scan(&rawEncKey)
+	if len(rawEncKey) > 0 {
+		e.EntryKey = &models.EntryKey{
+			UserID:       claims.UserID,
+			EncryptedKey: base64.StdEncoding.EncodeToString(rawEncKey),
+		}
 	}
 	respond(w, http.StatusOK, e)
 }

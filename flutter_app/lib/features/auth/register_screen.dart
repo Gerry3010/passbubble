@@ -135,6 +135,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     obscureText: _obscure,
                     prefixIcon: Icons.lock_outline,
                     validator: (v) => v!.isEmpty ? 'Required' : null,
+                    onSubmitted: (_) => _register(),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),
