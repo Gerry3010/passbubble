@@ -3,170 +3,306 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (e.g., v1.0.0)'
-        required: true
-        type: string
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
+  # ── Run all tests before release ──────────────────────────────────────────────
   test:
+    name: Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pwmgr_test
+          POSTGRES_USER: pwmgr
+          POSTGRES_PASSWORD: testpassword
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+        ports:
+          - 6379:6379
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
-
-      - name: Run tests
-        run: go test ./...
-
-      - name: Run linting
-        uses: golangci/golangci-lint-action@v6
+          go-version: "1.24"
+      - name: Backend tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://pwmgr:testpassword@localhost:5432/pwmgr_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ci-test-secret
+        run: go test -race -count=1 ./...
+      - name: CLI tests
+        working-directory: cli
+        run: go test -race -count=1 ./...
+      - uses: subosito/flutter-action@v2
         with:
-          version: latest
+          flutter-version: "3.32.x"
+          channel: stable
+          cache: true
+      - name: Flutter tests
+        working-directory: flutter_app
+        run: flutter test
 
-  build:
-    needs: test
+  # ── Build CLI binaries ────────────────────────────────────────────────────────
+  build-cli:
+    name: Build CLI (${{ matrix.name }})
     runs-on: ubuntu-latest
+    needs: test
     strategy:
       matrix:
         include:
-          - os: linux
-            arch: amd64
-            name: passbubble-linux-amd64
-          - os: linux
-            arch: arm64
-            name: passbubble-linux-arm64
-          - os: darwin
-            arch: amd64
-            name: passbubble-darwin-amd64
-          - os: darwin
-            arch: arm64
-            name: passbubble-darwin-arm64
-          - os: windows
-            arch: amd64
-            name: passbubble-windows-amd64.exe
-          - os: freebsd
-            arch: amd64
-            name: passbubble-freebsd-amd64
-
+          - goos: linux
+            goarch: amd64
+            name: pwmgr-linux-amd64
+          - goos: linux
+            goarch: arm64
+            name: pwmgr-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            name: pwmgr-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            name: pwmgr-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            name: pwmgr-windows-amd64.exe
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
-
-      - name: Build binary
+          go-version: "1.24"
+          cache-dependency-path: cli/go.sum
+      - name: Build
+        working-directory: cli
         env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o ${{ matrix.name }} ./cmd/pwmgr
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          go build \
+            -ldflags="-s -w -X main.Version=${{ github.ref_name }}" \
+            -o ../${{ matrix.name }} \
+            ./cmd/pwmgr
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
+          name: cli-${{ matrix.name }}
           path: ${{ matrix.name }}
 
-  release:
-    needs: build
+  # ── Build Flutter apps ────────────────────────────────────────────────────────
+  build-flutter-linux:
+    name: Build Flutter Linux
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    needs: test
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libblkid-dev liblzma-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.x"
+          channel: stable
+          cache: true
+      - name: Build Linux
+        working-directory: flutter_app
+        run: flutter build linux --release
+      - name: Package
+        run: |
+          cd flutter_app/build/linux/x64/release/bundle
+          tar -czf passbubble-linux-x64.tar.gz *
+          mv passbubble-linux-x64.tar.gz ../../../../..
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flutter-linux
+          path: flutter_app/passbubble-linux-x64.tar.gz
+
+  build-flutter-windows:
+    name: Build Flutter Windows
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.x"
+          channel: stable
+          cache: true
+      - name: Build Windows
+        working-directory: flutter_app
+        run: flutter build windows --release
+      - name: Package
+        run: |
+          cd flutter_app/build/windows/x64/runner/Release
+          Compress-Archive -Path * -DestinationPath ../../../../../passbubble-windows-x64.zip
+        shell: powershell
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flutter-windows
+          path: flutter_app/passbubble-windows-x64.zip
+
+  build-flutter-macos:
+    name: Build Flutter macOS
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.x"
+          channel: stable
+          cache: true
+      - name: Build macOS
+        working-directory: flutter_app
+        run: flutter build macos --release
+      - name: Package
+        run: |
+          cd flutter_app/build/macos/Build/Products/Release
+          zip -r passbubble-macos.zip passbubble.app
+          mv passbubble-macos.zip ../../../../..
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flutter-macos
+          path: flutter_app/passbubble-macos.zip
+
+  build-flutter-web:
+    name: Build Flutter Web
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.x"
+          channel: stable
+          cache: true
+      - name: Build Web
+        working-directory: flutter_app
+        run: flutter build web --release --base-href /
+      - name: Package
+        run: |
+          cd flutter_app/build/web
+          tar -czf passbubble-web.tar.gz *
+          mv passbubble-web.tar.gz ../..
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flutter-web
+          path: flutter_app/passbubble-web.tar.gz
+
+  # ── Build & push Docker image ─────────────────────────────────────────────────
+  docker:
+    name: Docker Hub
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: gerry3010/passbubble-server
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Create GitHub Release ─────────────────────────────────────────────────────
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-cli
+      - build-flutter-linux
+      - build-flutter-windows
+      - build-flutter-macos
+      - build-flutter-web
+      - docker
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-          path: artifacts
+          path: release-assets
 
       - name: Create checksums
         run: |
-          mkdir -p release-assets
-          cp artifacts/* release-assets/ 2>/dev/null || true
           cd release-assets
           sha256sum * > checksums.txt
+          cat checksums.txt
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           body: |
-            ## Passbubble - ${{ github.ref_name }}
-            
-            Passbubble: A secure command-line password manager with TOTP support, built in Go.
-            
-            ### Features
-            - 🔐 Secure password storage using system keyring
-            - 🔑 TOTP (Time-based One-Time Password) support
-            - 🎨 Beautiful Terminal User Interface (TUI)
-            - 🌐 Cross-platform support
-            - 🛡️ Strong password generation
-            - 💾 Backup and restore functionality
-            
-            ### Installation
-            
-            Download the appropriate binary for your system:
-            
-            - **Linux (x64)**: `passbubble-linux-amd64`
-            - **Linux (ARM64)**: `passbubble-linux-arm64`  
-            - **macOS (Intel)**: `passbubble-darwin-amd64`
-            - **macOS (Apple Silicon)**: `passbubble-darwin-arm64`
-            - **Windows**: `passbubble-windows-amd64.exe`
-            - **FreeBSD**: `passbubble-freebsd-amd64`
-            
-            ### Quick Start
-            
+            ## Passbubble ${{ github.ref_name }}
+
+            Open-source, self-hosted password manager with E2E encryption and post-quantum security.
+
+            ### Quick start
+
             ```bash
-            # Make executable (Linux/macOS)
-            chmod +x passbubble-*
-            
-            # Run TUI mode
-            ./passbubble-* tui
-            
-            # CLI usage
-            ./passbubble-* add myservice
-            ./passbubble-* get myservice
-            ./passbubble-* list
+            # Pull the server
+            docker pull gerry3010/passbubble-server:${{ github.ref_name }}
+
+            # Start the stack
+            curl -O https://raw.githubusercontent.com/Gerry3010/passbubble/main/docker-compose.yml
+            curl -O https://raw.githubusercontent.com/Gerry3010/passbubble/main/.env.example
+            cp .env.example .env   # set POSTGRES_PASSWORD, JWT_SECRET, REDIS_PASSWORD
+            docker compose up -d
             ```
-            
-            ### System Requirements
-            
-            **Linux**: Requires GNOME Keyring or compatible keyring service
-            ```bash
-            # Ubuntu/Debian
-            sudo apt install gnome-keyring libsecret-tools
-            
-            # Arch/Manjaro
-            sudo pacman -S gnome-keyring libsecret
-            ```
-            
-            **macOS**: Uses system keychain (no additional setup required)
-            
-            **Windows**: Uses Windows Credential Manager (no additional setup required)
-            
-            ### Verification
-            
-            Verify download integrity using the provided checksums:
-            ```bash
-            sha256sum -c checksums.txt
-            ```
+
+            ### Downloads
+
+            | Platform | File |
+            |----------|------|
+            | CLI — Linux x64 | `pwmgr-linux-amd64` |
+            | CLI — Linux arm64 | `pwmgr-linux-arm64` |
+            | CLI — macOS Intel | `pwmgr-darwin-amd64` |
+            | CLI — macOS Apple Silicon | `pwmgr-darwin-arm64` |
+            | CLI — Windows | `pwmgr-windows-amd64.exe` |
+            | App — Linux | `passbubble-linux-x64.tar.gz` |
+            | App — Windows | `passbubble-windows-x64.zip` |
+            | App — macOS | `passbubble-macos.zip` |
+            | Web build | `passbubble-web.tar.gz` |
+
+            Verify integrity with `checksums.txt` (SHA-256).
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

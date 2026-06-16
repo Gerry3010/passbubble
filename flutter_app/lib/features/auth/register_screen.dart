@@ -1,0 +1,171 @@
+// Copyright (C) 2026 Gerald Hofbauer <info@geraldhofbauer.net>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as
+// published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../core/auth/auth_service.dart';
+import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/pb_button.dart';
+import '../../shared/widgets/pb_text_field.dart';
+
+class RegisterScreen extends ConsumerStatefulWidget {
+  const RegisterScreen({super.key});
+
+  @override
+  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends ConsumerState<RegisterScreen> {
+  final _form = GlobalKey<FormState>();
+  final _emailCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  final _pass2Ctrl = TextEditingController();
+  final _tokenCtrl = TextEditingController();
+  bool _loading = false;
+  bool _obscure = true;
+  String? _error;
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _nameCtrl.dispose();
+    _passCtrl.dispose();
+    _pass2Ctrl.dispose();
+    _tokenCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _register() async {
+    if (!_form.currentState!.validate()) return;
+    if (_passCtrl.text != _pass2Ctrl.text) {
+      setState(() => _error = 'Passwords do not match');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await ref.read(authStateProvider.notifier).register(
+            _emailCtrl.text.trim(),
+            _nameCtrl.text.trim(),
+            _passCtrl.text,
+            _tokenCtrl.text.trim(),
+          );
+    } catch (e) {
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('> REGISTER'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go('/login'),
+        ),
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(32),
+            child: Form(
+              key: _form,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  PbTextField(
+                    label: 'Invitation Token',
+                    controller: _tokenCtrl,
+                    prefixIcon: Icons.vpn_key_outlined,
+                    validator: (v) => null, // optional for first user
+                  ),
+                  const SizedBox(height: 16),
+                  PbTextField(
+                    label: 'Email',
+                    controller: _emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    prefixIcon: Icons.alternate_email,
+                    validator: (v) => v!.isEmpty ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  PbTextField(
+                    label: 'Display Name',
+                    controller: _nameCtrl,
+                    prefixIcon: Icons.person_outline,
+                    validator: (v) => v!.isEmpty ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  PbTextField(
+                    label: 'Master Password',
+                    controller: _passCtrl,
+                    obscureText: _obscure,
+                    prefixIcon: Icons.lock_outline,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscure ? Icons.visibility_off : Icons.visibility,
+                        color: AppTheme.onBgDim,
+                      ),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
+                    validator: (v) =>
+                        v!.length < 8 ? 'Min 8 characters' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  PbTextField(
+                    label: 'Confirm Master Password',
+                    controller: _pass2Ctrl,
+                    obscureText: _obscure,
+                    prefixIcon: Icons.lock_outline,
+                    validator: (v) => v!.isEmpty ? 'Required' : null,
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.error),
+                        color: AppTheme.error.withAlpha(25),
+                      ),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: AppTheme.error),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: PbButton(
+                      label: 'Create Account',
+                      onPressed: _loading ? null : _register,
+                      loading: _loading,
+                      icon: Icons.person_add_outlined,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

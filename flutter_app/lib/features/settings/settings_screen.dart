@@ -1,0 +1,160 @@
+// Copyright (C) 2026 Gerald Hofbauer <info@geraldhofbauer.net>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as
+// published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../core/auth/auth_service.dart';
+import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/pb_button.dart';
+
+class SettingsScreen extends ConsumerWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authStateProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('> SETTINGS'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go('/entries'),
+        ),
+      ),
+      body: ListView(
+        children: [
+          // Account
+          _SectionHeader(title: 'ACCOUNT'),
+          ListTile(
+            leading: const Icon(Icons.person_outline),
+            title: Text(auth.name ?? ''),
+            subtitle: Text(auth.email ?? ''),
+          ),
+          ListTile(
+            leading: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppTheme.green),
+              ),
+              child: Text(
+                (auth.role ?? 'user').toUpperCase(),
+                style: const TextStyle(
+                    color: AppTheme.green, fontSize: 11),
+              ),
+            ),
+            title: const Text('Role'),
+          ),
+
+          const Divider(),
+
+          // Security
+          _SectionHeader(title: 'SECURITY'),
+          ListTile(
+            leading: const Icon(Icons.lock_outline),
+            title: const Text('Lock vault'),
+            subtitle: const Text('Clears private keys from memory'),
+            onTap: () {
+              // TODO: implement lock-only (clear in-memory keys without full logout)
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Vault locked')),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.fingerprint),
+            title: const Text('Biometric unlock'),
+            subtitle: const Text('Use biometrics instead of master password'),
+            trailing: Switch(
+              value: false, // TODO: persist preference
+              onChanged: (_) {},
+              activeThumbColor: AppTheme.green,
+            ),
+          ),
+
+          const Divider(),
+
+          // Server
+          _SectionHeader(title: 'SERVER'),
+          ListTile(
+            leading: const Icon(Icons.dns_outlined),
+            title: const Text('Change server'),
+            onTap: () => context.go('/setup'),
+          ),
+
+          const Divider(),
+
+          // Danger zone
+          _SectionHeader(title: 'DANGER ZONE'),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: PbButton(
+              label: 'Sign Out',
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Sign out?'),
+                    content: const Text(
+                        'Your encrypted keys will be removed from this device.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => ctx.pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => ctx.pop(true),
+                        child: const Text('Sign Out',
+                            style: TextStyle(color: AppTheme.error)),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true) {
+                  await ref.read(authStateProvider.notifier).logout();
+                }
+              },
+              icon: Icons.logout,
+              outlined: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  const _SectionHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: AppTheme.green,
+          fontSize: 11,
+          letterSpacing: 2,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}

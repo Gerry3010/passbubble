@@ -1,0 +1,65 @@
+name: passbubble
+description: "Passbubble — E2E encrypted, self-hosted password manager"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Navigation
+  go_router: ^15.1.2
+
+  # HTTP
+  dio: ^5.8.0+1
+
+  # Secure storage (JWT + encrypted keys)
+  flutter_secure_storage: ^9.2.4
+
+  # Biometrics
+  local_auth: ^2.3.0
+
+  # Crypto
+  cryptography: ^2.7.0
+  pointycastle: ^3.9.1
+
+  # TOTP
+  otp: ^3.1.5
+
+  # Import / Export
+  file_picker: ^10.1.9
+  share_plus: ^10.1.4
+
+  # UI
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.2.1
+
+  # Utilities
+  intl: ^0.20.2
+  uuid: ^4.5.1
+  json_annotation: ^4.9.0
+  freezed_annotation: ^2.4.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.14
+  json_serializable: ^6.9.5
+  freezed: ^2.5.7
+  riverpod_generator: ^2.6.4
+  mockito: ^5.4.6
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/

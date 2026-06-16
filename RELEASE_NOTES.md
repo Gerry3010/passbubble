@@ -1,3 +1,19 @@
+# Passbubble 2.0.0 Release Notes
+
+## 🚀 Monorepo Rewrite: Self-Hosted, Multi-User, End-to-End Encrypted
+
+Passbubble 2.0 replaces the single-binary, system-keyring-backed CLI with a self-hosted client/server architecture:
+
+- **`backend/`** — Go REST API server (PostgreSQL + Redis) behind Docker Compose. End-to-end encryption (X25519 + ML-KEM-768 hybrid KEM, AES-256-GCM, Argon2id) means the server only ever stores encrypted blobs.
+- **`cli/`** — Go CLI/TUI (`pwmgr`), now an API client with all crypto performed locally.
+- **`flutter_app/`** — Flutter web app, embedded into the backend and served at `/web/*` (users) and `/admin/*` (admin panel).
+- **Multi-user**: invitations, sharing, folders, admin roles. The first account registered on a fresh server is automatically promoted to admin.
+- **One-command deploy**: `./setup.sh` generates secrets, builds everything, and walks you through registering the bootstrap admin account.
+
+See [README.md](README.md) for the full quickstart and architecture overview.
+
+---
+
 # Password Manager 1.0.0 Release Notes
 
 ## 🎉 First Stable Release

@@ -1,0 +1,133 @@
+// Copyright (C) 2026 Gerald Hofbauer <info@geraldhofbauer.net>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as
+// published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+package api
+
+import (
+	"net/http"
+	"strings"
+
+	chi "github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"golang.org/x/time/rate"
+
+	"github.com/Gerry3010/passbubble/backend/internal/api/handlers"
+	mw "github.com/Gerry3010/passbubble/backend/internal/api/middleware"
+	"github.com/Gerry3010/passbubble/backend/internal/static"
+)
+
+func (s *Server) buildRouter() http.Handler {
+	r := chi.NewRouter()
+
+	// Global middleware
+	r.Use(chimiddleware.RealIP)
+	r.Use(chimiddleware.RequestID)
+	r.Use(mw.Logger)
+	r.Use(chimiddleware.Recoverer)
+	r.Use(mw.SecurityHeaders)
+	r.Use(mw.CORS(corsOrigins(s.cfg)))
+
+	// Health check (no auth)
+	r.Get("/health", handlers.Health)
+
+	// Flutter web app at /web/* and /admin/*
+	webHandler := http.FileServer(static.WebFS())
+	r.Handle("/web", http.RedirectHandler("/web/", http.StatusMovedPermanently))
+	r.Handle("/web/*", http.StripPrefix("/web", spaHandler(webHandler)))
+	r.With(mw.AdminJWT(s.cfg.JWTSecret)).Handle("/admin", http.RedirectHandler("/admin/", http.StatusMovedPermanently))
+	r.With(mw.AdminJWT(s.cfg.JWTSecret)).Handle("/admin/*", http.StripPrefix("/admin", spaHandler(webHandler)))
+
+	// API v1
+	h := handlers.New(s.pool, s.rdb, s.cfg.JWTSecret)
+	r.Route("/api/v1", func(r chi.Router) {
+		// Auth (rate-limited, no JWT required)
+		r.Group(func(r chi.Router) {
+			r.Use(mw.PerIPRateLimiter(rate.Limit(5.0/60.0), 5)) // 5 req/min
+			r.Post("/auth/register", h.Register)
+			r.Post("/auth/login", h.Login)
+			r.Post("/auth/refresh", h.Refresh)
+		})
+
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(mw.JWTAuth(s.cfg.JWTSecret))
+
+			r.Post("/auth/logout", h.Logout)
+			r.Get("/auth/me", h.Me)
+
+			// Entries
+			r.Get("/entries", h.ListEntries)
+			r.Post("/entries", h.CreateEntry)
+			r.Get("/entries/search", h.SearchEntries)
+			r.Get("/entries/{id}", h.GetEntry)
+			r.Put("/entries/{id}", h.UpdateEntry)
+			r.Delete("/entries/{id}", h.DeleteEntry)
+			r.Post("/entries/{id}/share", h.ShareEntry)
+
+			// Folders
+			r.Get("/folders", h.ListFolders)
+			r.Post("/folders", h.CreateFolder)
+			r.Put("/folders/{id}", h.UpdateFolder)
+			r.Delete("/folders/{id}", h.DeleteFolder)
+			r.Post("/folders/{id}/share", h.ShareFolder)
+
+			// User public keys (for sharing)
+			r.Get("/users/{id}/keys", h.GetUserKeys)
+			r.Get("/users/search", h.SearchUsers)
+
+			// Password generator
+			r.Post("/generate", h.Generate)
+
+			// Backups
+			r.Get("/backup", h.ListBackups)
+			r.Post("/backup", h.CreateBackup)
+			r.Post("/backup/restore", h.RestoreBackup)
+			r.Get("/backup/{name}/verify", h.VerifyBackup)
+
+			// Admin (additional admin-only check inside handlers)
+			r.Group(func(r chi.Router) {
+				r.Use(mw.AdminOnly)
+				r.Post("/admin/invite", h.InviteUser)
+				r.Get("/admin/users", h.ListUsers)
+				r.Put("/admin/users/{id}", h.UpdateUser)
+				r.Get("/admin/invitations", h.ListInvitations)
+			})
+		})
+	})
+
+	return r
+}
+
+// spaHandler returns a handler that serves index.html for unknown paths
+// (Single Page Application routing).
+func spaHandler(fs http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// If the path has a file extension (JS, CSS, etc.), serve directly
+		if strings.Contains(r.URL.Path, ".") {
+			fs.ServeHTTP(w, r)
+			return
+		}
+		// Otherwise serve index.html (let the Flutter router handle it)
+		r.URL.Path = "/"
+		fs.ServeHTTP(w, r)
+	})
+}
+
+func corsOrigins(cfg *Config) []string {
+	if cfg.IsDevelopment() {
+		return []string{"http://localhost:*", "http://127.0.0.1:*"}
+	}
+	return []string{"https://*"}
+}

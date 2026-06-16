@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-06-16
+
+### Changed
+- **Breaking: full architecture rewrite to a self-hosted client/server monorepo.** The single-binary, system-keyring-backed CLI is replaced by:
+  - `backend/` — Go REST API server (PostgreSQL + Redis), with end-to-end encryption (X25519 + ML-KEM-768 hybrid KEM, AES-256-GCM, Argon2id) so the server never sees plaintext
+  - `cli/` — Go CLI/TUI (`pwmgr`) acting as an API client, with all crypto performed client-side
+  - `flutter_app/` — Flutter app serving the web UI (`/web/*`) and admin panel (`/admin/*`), embedded into the backend binary at build time
+- Added multi-user support: invitations, sharing, folders, admin roles
+- Added Docker Compose deployment (`./setup.sh`) with first-run bootstrap admin registration
+- Removed the old GNOME-Keyring/system-keychain storage backend, the standalone single-binary CLI source (`cmd/`, `internal/`, `pkg/`), and associated build artifacts (`build/`, `dist/`) — superseded by the new monorepo layout
+
 ## [1.0.0] - 2025-10-09
 
 ### Added
