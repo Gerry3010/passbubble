@@ -7,6 +7,7 @@ LDFLAGS   = -ldflags="-s -w"
         build-backend build-cli build-all \
         test test-backend test-cli test-flutter test-all \
         lint migrate migrate-down migrate-create sqlc \
+        build-extension test-extension \
         clean
 
 help:
@@ -24,6 +25,8 @@ help:
 	@echo "  make migrate-down    Rollback last migration"
 	@echo "  make migrate-create  Create new migration"
 	@echo "  make sqlc            Regenerate sqlc models"
+	@echo "  make build-extension Build Chrome + Firefox extension"
+	@echo "  make test-extension  Run extension tests"
 	@echo "  make clean           Remove build artifacts"
 
 # ── Docker ────────────────────────────────────────────────────────────────────
@@ -93,6 +96,16 @@ migrate-create:
 
 sqlc:
 	cd backend && sqlc generate
+
+# ── Browser Extension ─────────────────────────────────────────────────────────
+
+build-extension:
+	cd packages/shared-ts && npm run build
+	cd extension && npm run build:chrome && npm run build:firefox
+
+test-extension:
+	cd packages/shared-ts && npm ci && npm test
+	cd extension && npm ci && npm test
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

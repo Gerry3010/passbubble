@@ -8,7 +8,7 @@ import { decryptDataKey, encryptDataKey } from '../crypto/hybrid-kem.js';
 import type { EntryResponse } from '../types/api.js';
 import type { EntryData, KDFParams, UnlockedSession } from '../types/vault.js';
 
-export { EntryData } from '../types/vault.js';
+export type { EntryData } from '../types/vault.js';
 
 export function b64Enc(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes));
