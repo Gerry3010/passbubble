@@ -48,8 +48,13 @@ type EntryRecord struct {
 	CustomFields []CustomField
 }
 
-// CustomField is a generic key-value extra field on an entry.
+// CustomField is a user-defined field on an entry.
+// Type is one of: text, password, totp, url, email, phone, note, ssh, file.
+// Omitting Type is equivalent to "text" for backward compatibility.
 type CustomField struct {
-	Label string
-	Value string
+	Label    string
+	Value    string
+	Type     string // text|password|totp|url|email|phone|note|ssh|file
+	Filename string // only for type=file
+	MimeType string // only for type=file
 }

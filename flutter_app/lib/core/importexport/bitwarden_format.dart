@@ -38,13 +38,16 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
   final type = m['type'] as int? ?? 1;
 
   final fieldsList = (m['fields'] as List? ?? [])
+      .whereType<Map<String, dynamic>>()
+      .where((f) => (f['name'] as String? ?? '').isNotEmpty)
       .map((f) {
-        final fm = f as Map<String, dynamic>;
-        final label = fm['name'] as String? ?? '';
-        final value = fm['value'] as String? ?? '';
-        return (label: label, value: value);
+        final bwType = f['type'] as int? ?? 0;
+        return CustomFieldRecord(
+          label: f['name'] as String? ?? '',
+          value: f['value'] as String? ?? '',
+          type: bwType == 1 ? CustomFieldType.password : CustomFieldType.text,
+        );
       })
-      .where((f) => f.label.isNotEmpty)
       .toList();
 
   switch (type) {
@@ -105,8 +108,14 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
   }
 }
 
+class BitwardenExportOptions {
+  final bool includeFiles;
+  final bool filesAsBase64;
+  const BitwardenExportOptions({this.includeFiles = false, this.filesAsBase64 = false});
+}
+
 /// Exports entries to Bitwarden JSON format.
-String exportBitwarden(List<EntryRecord> records) {
+String exportBitwarden(List<EntryRecord> records, [BitwardenExportOptions opts = const BitwardenExportOptions()]) {
   final items = records.map((r) {
     final item = <String, dynamic>{
       'name': r.name,
@@ -142,10 +151,29 @@ String exportBitwarden(List<EntryRecord> records) {
         item['login'] = {'username': r.username, 'password': r.password};
     }
 
-    if (r.customFields.isNotEmpty) {
-      item['fields'] = r.customFields
-          .map((f) => {'name': f.label, 'value': f.value, 'type': 0})
-          .toList();
+    final exportedFields = <Map<String, dynamic>>[];
+    for (final f in r.customFields) {
+      if (f.type == CustomFieldType.file) {
+        if (!opts.includeFiles) continue;
+        if (opts.filesAsBase64) {
+          final mime = f.mimeType ?? 'application/octet-stream';
+          exportedFields.add({
+            'name': f.filename ?? f.label,
+            'value': 'data:$mime;base64,${f.value}',
+            'type': 1,
+          });
+        }
+        continue;
+      }
+      final bwType = (f.type == CustomFieldType.password ||
+              f.type == CustomFieldType.ssh ||
+              f.type == CustomFieldType.totp)
+          ? 1
+          : 0;
+      exportedFields.add({'name': f.label, 'value': f.value, 'type': bwType});
+    }
+    if (exportedFields.isNotEmpty) {
+      item['fields'] = exportedFields;
     }
 
     return item;

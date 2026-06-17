@@ -13,8 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -23,10 +25,52 @@ import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
+import '../../core/importexport/entry_record.dart' show CustomFieldType, CustomFieldTypeX;
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
 import 'entries_list_screen.dart' show entriesProvider;
+
+// ─── Custom field state ───────────────────────────────────────────────────────
+
+class _CustomFieldState {
+  final TextEditingController label;
+  final TextEditingController value;
+  CustomFieldType type;
+  String? filename;
+  String? mimeType;
+  Uint8List? fileBytes;
+  bool obscured;
+
+  _CustomFieldState({
+    String labelText = '',
+    String valueText = '',
+    this.type = CustomFieldType.text,
+    this.filename,
+    this.mimeType,
+  })  : label = TextEditingController(text: labelText),
+        value = TextEditingController(text: valueText),
+        obscured = type == CustomFieldType.password || type == CustomFieldType.ssh;
+
+  void dispose() {
+    label.dispose();
+    value.dispose();
+  }
+}
+
+// ─── Custom field type picker metadata ───────────────────────────────────────
+
+const _cfTypes = [
+  (CustomFieldType.text,     'Text',      Icons.text_fields),
+  (CustomFieldType.password, 'Password',  Icons.lock_outline),
+  (CustomFieldType.totp,     'TOTP',      Icons.schedule),
+  (CustomFieldType.url,      'URL',       Icons.link),
+  (CustomFieldType.email,    'Email',     Icons.email_outlined),
+  (CustomFieldType.phone,    'Phone',     Icons.phone_outlined),
+  (CustomFieldType.note,     'Note',      Icons.notes),
+  (CustomFieldType.ssh,      'SSH Key',   Icons.terminal),
+  (CustomFieldType.file,     'File',      Icons.attach_file),
+];
 
 // ─── Entry type metadata ──────────────────────────────────────────────────────
 
@@ -56,8 +100,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   // All text controllers keyed by field name
   late final Map<String, TextEditingController> _ctrl;
 
-  // Custom fields: list of (label, value) controller pairs
-  final List<(TextEditingController, TextEditingController)> _customFields = [];
+  final List<_CustomFieldState> _customFields = [];
 
   String _type = 'password';
   bool _loading = false;
@@ -91,7 +134,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   @override
   void dispose() {
     for (final c in _ctrl.values) { c.dispose(); }
-    for (final (l, v) in _customFields) { l.dispose(); v.dispose(); }
+    for (final cf in _customFields) { cf.dispose(); }
     super.dispose();
   }
 
@@ -132,9 +175,13 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         if (raw is List) {
           for (final cf in raw) {
             if (cf is Map<String, dynamic>) {
-              _customFields.add((
-                TextEditingController(text: cf['label'] as String? ?? ''),
-                TextEditingController(text: cf['value'] as String? ?? ''),
+              final cfType = CustomFieldTypeX.fromApi(cf['type'] as String?);
+              _customFields.add(_CustomFieldState(
+                labelText: cf['label'] as String? ?? '',
+                valueText: cf['value'] as String? ?? '',
+                type: cfType,
+                filename: cf['filename'] as String?,
+                mimeType: cf['mime_type'] as String?,
               ));
             }
           }
@@ -158,13 +205,38 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     if (_type == 'bank-account' && _accountType.isNotEmpty) {
       data['account_type'] = _accountType;
     }
-    if (_customFields.isNotEmpty) {
-      data['custom_fields'] = [
-        for (final (l, v) in _customFields)
-          if (l.text.trim().isNotEmpty)
-            {'label': l.text.trim(), 'value': v.text.trim()},
-      ];
+    final cfList = <Map<String, dynamic>>[];
+    for (final cf in _customFields) {
+      final lbl = cf.label.text.trim();
+      if (lbl.isEmpty) continue;
+      if (cf.type == CustomFieldType.file) {
+        if (cf.fileBytes != null) {
+          cfList.add({
+            'label': lbl,
+            'value': base64Encode(cf.fileBytes!),
+            'type': cf.type.apiValue,
+            if (cf.filename != null) 'filename': cf.filename,
+            if (cf.mimeType != null) 'mime_type': cf.mimeType,
+          });
+        } else if (cf.value.text.isNotEmpty) {
+          // Existing file (loaded from vault, no new file picked)
+          cfList.add({
+            'label': lbl,
+            'value': cf.value.text,
+            'type': cf.type.apiValue,
+            if (cf.filename != null) 'filename': cf.filename,
+            if (cf.mimeType != null) 'mime_type': cf.mimeType,
+          });
+        }
+        continue;
+      }
+      cfList.add({
+        'label': lbl,
+        'value': cf.value.text.trim(),
+        'type': cf.type.apiValue,
+      });
     }
+    if (cfList.isNotEmpty) data['custom_fields'] = cfList;
     return data;
   }
 
@@ -492,44 +564,230 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       ),
       for (int i = 0; i < _customFields.length; i++) ...[
         const SizedBox(height: 8),
-        Row(children: [
-          Expanded(
-            child: PbTextField(
-              label: 'Label',
-              controller: _customFields[i].$1,
-              prefixIcon: Icons.label_outline,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: PbTextField(
-              label: 'Value',
-              controller: _customFields[i].$2,
-              prefixIcon: Icons.edit_outlined,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.remove_circle_outline,
-                color: AppTheme.error, size: 20),
-            onPressed: () {
-              _customFields[i].$1.dispose();
-              _customFields[i].$2.dispose();
-              setState(() => _customFields.removeAt(i));
-            },
-          ),
-        ]),
+        _buildCustomField(i),
       ],
       const SizedBox(height: 8),
       TextButton.icon(
         icon: const Icon(Icons.add, size: 16),
-        label: const Text('Add custom field'),
+        label: const Text('Add field'),
         style: TextButton.styleFrom(foregroundColor: AppTheme.green),
-        onPressed: () => setState(() =>
-            _customFields.add((TextEditingController(), TextEditingController()))),
+        onPressed: () => _showFieldTypePicker(),
       ),
     ],
   );
+
+  Widget _buildCustomField(int i) {
+    final cf = _customFields[i];
+    final removeBtn = IconButton(
+      icon: const Icon(Icons.remove_circle_outline, color: AppTheme.error, size: 20),
+      onPressed: () { cf.dispose(); setState(() => _customFields.removeAt(i)); },
+    );
+
+    // Type badge chip
+    final typeMeta = _cfTypes.firstWhere((t) => t.$1 == cf.type);
+    final typeBadge = GestureDetector(
+      onTap: () => _changeFieldType(i),
+      child: Chip(
+        avatar: Icon(typeMeta.$3, size: 14, color: AppTheme.green),
+        label: Text(typeMeta.$2, style: const TextStyle(fontSize: 11, color: AppTheme.green)),
+        side: const BorderSide(color: AppTheme.green),
+        backgroundColor: AppTheme.greenFaint,
+        padding: EdgeInsets.zero,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+
+    if (cf.type == CustomFieldType.file) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(
+              child: PbTextField(
+                label: 'Label',
+                controller: cf.label,
+                prefixIcon: Icons.label_outline,
+              ),
+            ),
+            const SizedBox(width: 8),
+            removeBtn,
+          ]),
+          const SizedBox(height: 6),
+          Row(children: [
+            typeBadge,
+            const SizedBox(width: 8),
+            Expanded(
+              child: cf.fileBytes != null || cf.filename != null
+                  ? Row(children: [
+                      const Icon(Icons.insert_drive_file_outlined, size: 16, color: AppTheme.onBgDim),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          cf.filename ?? 'file',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ])
+                  : const Text('No file selected', style: TextStyle(color: AppTheme.onBgDim, fontSize: 13)),
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.attach_file, size: 16),
+              label: const Text('Pick file'),
+              style: TextButton.styleFrom(foregroundColor: AppTheme.green),
+              onPressed: () => _pickFile(i),
+            ),
+          ]),
+        ],
+      );
+    }
+
+    final isObscured = cf.type == CustomFieldType.password || cf.type == CustomFieldType.ssh;
+    final isMultiline = cf.type == CustomFieldType.note || cf.type == CustomFieldType.ssh;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Expanded(
+            child: PbTextField(
+              label: 'Label',
+              controller: cf.label,
+              prefixIcon: Icons.label_outline,
+            ),
+          ),
+          const SizedBox(width: 8),
+          removeBtn,
+        ]),
+        const SizedBox(height: 6),
+        Row(children: [
+          typeBadge,
+          const SizedBox(width: 8),
+          Expanded(
+            child: PbTextField(
+              label: 'Value',
+              controller: cf.value,
+              prefixIcon: Icons.edit_outlined,
+              obscureText: isObscured ? cf.obscured : false,
+              maxLines: isMultiline ? 4 : 1,
+              suffixIcon: isObscured
+                  ? IconButton(
+                      icon: Icon(
+                        cf.obscured ? Icons.visibility_off : Icons.visibility,
+                        size: 18,
+                        color: AppTheme.onBgDim,
+                      ),
+                      onPressed: () => setState(() => cf.obscured = !cf.obscured),
+                    )
+                  : null,
+            ),
+          ),
+        ]),
+      ],
+    );
+  }
+
+  void _showFieldTypePicker() {
+    showModalBottomSheet<CustomFieldType>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Add field',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final (type, label, icon) in _cfTypes)
+                    ActionChip(
+                      avatar: Icon(icon, size: 16),
+                      label: Text(label),
+                      onPressed: () => Navigator.pop(ctx, type),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((type) {
+      if (type == null) return;
+      setState(() => _customFields.add(_CustomFieldState(type: type)));
+    });
+  }
+
+  void _changeFieldType(int i) {
+    showModalBottomSheet<CustomFieldType>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Change field type',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final (type, label, icon) in _cfTypes)
+                    ActionChip(
+                      avatar: Icon(icon, size: 16),
+                      label: Text(label),
+                      onPressed: () => Navigator.pop(ctx, type),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((type) {
+      if (type == null) return;
+      setState(() {
+        _customFields[i].type = type;
+        _customFields[i].obscured = type == CustomFieldType.password || type == CustomFieldType.ssh;
+        if (type != CustomFieldType.file) {
+          _customFields[i].fileBytes = null;
+          _customFields[i].filename = null;
+        }
+      });
+    });
+  }
+
+  Future<void> _pickFile(int i) async {
+    final result = await FilePicker.platform.pickFiles(withData: true);
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) return;
+
+    const maxBytes = 10 * 1024 * 1024; // 10 MB
+    if (bytes.length > maxBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('File exceeds the 10 MB limit')),
+        );
+      }
+      return;
+    }
+    setState(() {
+      _customFields[i].fileBytes = Uint8List.fromList(bytes);
+      _customFields[i].filename = file.name;
+      _customFields[i].mimeType = file.extension != null
+          ? 'application/${file.extension}'
+          : 'application/octet-stream';
+    });
+  }
 
   // ── Build ─────────────────────────────────────────────────────────────────
 

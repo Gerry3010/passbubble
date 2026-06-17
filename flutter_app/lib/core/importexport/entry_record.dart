@@ -13,6 +13,71 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+/// Field types for custom fields, mirroring the backend CustomField.Type values.
+enum CustomFieldType {
+  text,
+  password,
+  totp,
+  url,
+  email,
+  phone,
+  note,
+  ssh,
+  file,
+}
+
+extension CustomFieldTypeX on CustomFieldType {
+  String get apiValue => name; // "text", "password", ...
+
+  static CustomFieldType fromApi(String? v) => switch (v) {
+        'password' => CustomFieldType.password,
+        'totp' => CustomFieldType.totp,
+        'url' => CustomFieldType.url,
+        'email' => CustomFieldType.email,
+        'phone' => CustomFieldType.phone,
+        'note' => CustomFieldType.note,
+        'ssh' => CustomFieldType.ssh,
+        'file' => CustomFieldType.file,
+        _ => CustomFieldType.text,
+      };
+}
+
+/// A typed custom field. [value] holds Base64 content for [CustomFieldType.file].
+class CustomFieldRecord {
+  final String label;
+  final String value;
+  final CustomFieldType type;
+  final String? filename; // only for file type
+  final String? mimeType; // only for file type
+
+  const CustomFieldRecord({
+    required this.label,
+    required this.value,
+    this.type = CustomFieldType.text,
+    this.filename,
+    this.mimeType,
+  });
+
+  /// Build from the encrypted-data JSON map stored in the vault.
+  factory CustomFieldRecord.fromJson(Map<String, dynamic> m) {
+    return CustomFieldRecord(
+      label: m['label'] as String? ?? '',
+      value: m['value'] as String? ?? '',
+      type: CustomFieldTypeX.fromApi(m['type'] as String?),
+      filename: m['filename'] as String?,
+      mimeType: m['mime_type'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'value': value,
+        'type': type.apiValue,
+        if (filename != null) 'filename': filename,
+        if (mimeType != null) 'mime_type': mimeType,
+      };
+}
+
 /// Plaintext intermediate format for import/export operations.
 class EntryRecord {
   final String name;
@@ -39,7 +104,7 @@ class EntryRecord {
   final String country;
   final String licenseKey;
   final String productName;
-  final List<({String label, String value})> customFields;
+  final List<CustomFieldRecord> customFields;
 
   const EntryRecord({
     required this.name,
@@ -71,7 +136,7 @@ class EntryRecord {
 
   /// Duplicate detection: same name AND username (case-insensitive, trimmed).
   bool isDuplicateOf(String otherName, String otherUsername) {
-    final norm = (String s) => s.trim().toLowerCase();
+    String norm(String s) => s.trim().toLowerCase();
     return norm(name) == norm(otherName) && norm(username) == norm(otherUsername);
   }
 }

@@ -143,11 +143,11 @@ void _convertItem(
   records.add(rec);
 }
 
-List<({String label, String value})> _parseCustomFields(Map<String, dynamic> item) {
+List<CustomFieldRecord> _parseCustomFields(Map<String, dynamic> item) {
   final raw = item['custom_fields'] as List? ?? [];
   return raw
       .whereType<Map<String, dynamic>>()
-      .map((cf) => (
+      .map((cf) => CustomFieldRecord(
             label: cf['name'] as String? ?? '',
             value: cf['value'] as String? ?? '',
           ))

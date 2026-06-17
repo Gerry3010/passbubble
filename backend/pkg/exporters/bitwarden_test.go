@@ -52,7 +52,7 @@ func TestExportBitwarden(t *testing.T) {
 		},
 	}
 
-	data, err := exporters.ExportBitwarden(records)
+	data, err := exporters.ExportBitwarden(records, exporters.BitwardenExportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestExportBitwarden(t *testing.T) {
 }
 
 func TestExportBitwardenEmpty(t *testing.T) {
-	data, err := exporters.ExportBitwarden(nil)
+	data, err := exporters.ExportBitwarden(nil, exporters.BitwardenExportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

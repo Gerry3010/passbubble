@@ -82,11 +82,18 @@ type bwIdentity struct {
 type bwField struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
-	Type  int    `json:"type"` // 0=text
+	Type  int    `json:"type"` // 0=text, 1=hidden
+}
+
+// BitwardenExportOptions controls how the Bitwarden export is generated.
+type BitwardenExportOptions struct {
+	IncludeFiles  bool // include file custom fields in export
+	FilesAsBase64 bool // encode file content as data: URI in a hidden field
 }
 
 // ExportBitwarden serialises records into a Bitwarden-compatible JSON export.
-func ExportBitwarden(records []EntryRecord) ([]byte, error) {
+// Pass a zero-value BitwardenExportOptions for default behaviour (no files).
+func ExportBitwarden(records []EntryRecord, opts BitwardenExportOptions) ([]byte, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	export := bwExport{
 		Encrypted: false,
@@ -103,7 +110,32 @@ func ExportBitwarden(records []EntryRecord) ([]byte, error) {
 		}
 
 		for _, cf := range rec.CustomFields {
-			item.Fields = append(item.Fields, bwField{Name: cf.Label, Value: cf.Value})
+			cfType := cf.Type
+			if cfType == "" {
+				cfType = "text"
+			}
+			if cfType == "file" {
+				if !opts.IncludeFiles {
+					continue
+				}
+				if opts.FilesAsBase64 {
+					mime := cf.MimeType
+					if mime == "" {
+						mime = "application/octet-stream"
+					}
+					item.Fields = append(item.Fields, bwField{
+						Name:  cf.Filename,
+						Value: "data:" + mime + ";base64," + cf.Value,
+						Type:  1,
+					})
+				}
+				continue
+			}
+			bwType := 0
+			if cfType == "password" || cfType == "ssh" || cfType == "totp" {
+				bwType = 1
+			}
+			item.Fields = append(item.Fields, bwField{Name: cf.Label, Value: cf.Value, Type: bwType})
 		}
 
 		switch rec.Type {

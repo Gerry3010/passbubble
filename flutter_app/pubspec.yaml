@@ -37,6 +37,7 @@ dependencies:
   # Import / Export
   file_picker: ^10.1.9
   share_plus: ^10.1.4
+  archive: ^3.6.1
 
   # UI
   cupertino_icons: ^1.0.8

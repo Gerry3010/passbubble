@@ -112,6 +112,26 @@ String exportCsv(List<EntryRecord> records) {
   return buf.toString();
 }
 
+/// Exports entries to 1Password CSV format (Title, Username, Password, URL, Notes, Type).
+/// File attachments are skipped; CSV cannot carry binary data.
+String export1PasswordCsv(List<EntryRecord> records) {
+  final buf = StringBuffer();
+  buf.writeln('Title,Username,Password,URL,Notes,Type');
+  for (final r in records) {
+    buf.writeln([r.name, r.username, r.password, r.url, r.notes, _to1PType(r.type)]
+        .map(_csvEscape)
+        .join(','));
+  }
+  return buf.toString();
+}
+
+String _to1PType(String t) => switch (t) {
+      'note' => 'Secure Note',
+      'credit-card' => 'Credit Card',
+      'identity' => 'Identity',
+      _ => 'Login',
+    };
+
 String _csvEscape(String s) {
   if (s.contains(',') || s.contains('"') || s.contains('\n')) {
     return '"${s.replaceAll('"', '""')}"';

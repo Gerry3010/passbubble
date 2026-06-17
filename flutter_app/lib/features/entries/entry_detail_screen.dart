@@ -14,12 +14,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:otp/otp.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
@@ -244,7 +246,22 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         if (cf is Map<String, dynamic>) {
           final label = cf['label'] as String? ?? '';
           final value = cf['value'] as String? ?? '';
-          if (label.isNotEmpty) common.add(_copyRow(label, value));
+          final cfType = cf['type'] as String? ?? 'text';
+          if (label.isEmpty) continue;
+          switch (cfType) {
+            case 'password':
+            case 'ssh':
+              common.add(_secretRow(label, value));
+            case 'totp':
+              if (value.isNotEmpty && _totpCode == null) _startTOTP(value);
+              common.add(_copyRow(label, value));
+            case 'file':
+              final filename = cf['filename'] as String? ?? label;
+              final mime = cf['mime_type'] as String? ?? 'application/octet-stream';
+              common.add(_fileRow(label, value, filename, mime));
+            default:
+              common.add(_copyRow(label, value));
+          }
         }
       }
     }
@@ -406,6 +423,33 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
   String _formatTOTP(String code) {
     if (code.length == 6) return '${code.substring(0, 3)} ${code.substring(3)}';
     return code;
+  }
+
+  Widget _fileRow(String label, String base64Value, String filename, String mime) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.insert_drive_file_outlined, color: AppTheme.onBgDim),
+      title: Text(label, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
+      subtitle: Text(filename, style: const TextStyle(fontSize: 14)),
+      trailing: IconButton(
+        icon: const Icon(Icons.download_outlined, color: AppTheme.onBgDim),
+        tooltip: 'Save file',
+        onPressed: () async {
+          try {
+            final bytes = base64Decode(base64Value);
+            await Share.shareXFiles(
+              [XFile.fromData(Uint8List.fromList(bytes), name: filename, mimeType: mime)],
+              subject: filename,
+            );
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text('Cannot save file: $e')));
+            }
+          }
+        },
+      ),
+    );
   }
 
   Widget _infoRow(String label, String value) {

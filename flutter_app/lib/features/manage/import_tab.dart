@@ -28,6 +28,7 @@ import '../../core/crypto/vault_crypto.dart';
 import '../../core/importexport/bitwarden_format.dart';
 import '../../core/importexport/csv_format.dart';
 import '../../core/importexport/entry_record.dart';
+import '../../core/importexport/onepassword_format.dart';
 import '../../core/importexport/psono_format.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
@@ -39,6 +40,7 @@ enum _ImportFormat {
   csv1Password,
   bitwarden,
   psono,
+  onepassword1pux,
 }
 
 enum _DupStrategy { skip, overwrite }
@@ -51,15 +53,7 @@ extension on _ImportFormat {
         _ImportFormat.csv1Password => 'CSV (1Password)',
         _ImportFormat.bitwarden => 'Bitwarden JSON',
         _ImportFormat.psono => 'Psono JSON',
-      };
-
-  String get apiFormat => switch (this) {
-        _ImportFormat.csvGeneric => 'csv-generic',
-        _ImportFormat.csvChrome => 'csv-chrome',
-        _ImportFormat.csvLastPass => 'csv-lastpass',
-        _ImportFormat.csv1Password => 'csv-1password',
-        _ImportFormat.bitwarden => 'bitwarden',
-        _ImportFormat.psono => 'psono',
+        _ImportFormat.onepassword1pux => '1Password (1PUX)',
       };
 }
 
@@ -138,18 +132,6 @@ class _ImportTabState extends ConsumerState<ImportTab> {
       final api = ref.read(apiClientProvider);
       final auth = ref.read(authServiceProvider);
 
-      // Create job ledger entry
-      JobResponse? job;
-      try {
-        job = await api.createJob(CreateJobRequest(
-          type: 'import',
-          format: _format.apiFormat,
-          dupStrategy: _dupStrategy == _DupStrategy.skip ? 'skip' : 'overwrite',
-          totalItems: records.length,
-          clientName: 'flutter',
-        ));
-      } catch (_) {}
-
       if (!mounted) return;
 
       // Fetch+decrypt all existing entries for duplicate detection
@@ -190,33 +172,6 @@ class _ImportTabState extends ConsumerState<ImportTab> {
         }
 
         if (!mounted) return;
-
-        // Report progress every 10 records
-        if (job != null && i % 10 == 0) {
-          try {
-            await api.patchJob(job.id, UpdateJobRequest(
-              processedItems: i,
-              createdItems: _created,
-              updatedItems: _updated,
-              skippedItems: _skipped,
-              failedItems: _failed,
-            ));
-          } catch (_) {}
-        }
-      }
-
-      // Finalize job
-      if (job != null) {
-        try {
-          await api.patchJob(job.id, UpdateJobRequest(
-            status: _failed > 0 && _created + _updated == 0 ? 'failed' : 'completed',
-            processedItems: records.length,
-            createdItems: _created,
-            updatedItems: _updated,
-            skippedItems: _skipped,
-            failedItems: _failed,
-          ));
-        } catch (_) {}
       }
 
       if (!mounted) return;
@@ -273,6 +228,9 @@ class _ImportTabState extends ConsumerState<ImportTab> {
       case _ImportFormat.psono:
         final r = parsePsono(utf8.decode(bytes));
         return (records: r.records, warnings: r.warnings);
+      case _ImportFormat.onepassword1pux:
+        final r = parseOnePux(Uint8List.fromList(bytes));
+        return (records: r.records, warnings: r.warnings);
     }
   }
 
@@ -310,7 +268,7 @@ class _ImportTabState extends ConsumerState<ImportTab> {
     EntryRecord rec,
     List<({String id, String name, String username})> existing,
   ) {
-    final norm = (String s) => s.trim().toLowerCase();
+    String norm(String s) => s.trim().toLowerCase();
     for (final e in existing) {
       if (norm(e.name) == norm(rec.name) && norm(e.username) == norm(rec.username)) {
         return e.id;
@@ -319,15 +277,40 @@ class _ImportTabState extends ConsumerState<ImportTab> {
     return null;
   }
 
+  Map<String, dynamic> _recordToPayload(EntryRecord rec) {
+    final m = <String, dynamic>{};
+    void set(String k, String v) { if (v.isNotEmpty) m[k] = v; }
+    set('username', rec.username);
+    set('password', rec.password);
+    set('totp_secret', rec.totpSecret);
+    set('notes', rec.notes);
+    set('card_number', rec.cardNumber);
+    set('holder_name', rec.holderName);
+    set('expiry_month', rec.expiryMonth);
+    set('expiry_year', rec.expiryYear);
+    set('cvv', rec.cvv);
+    set('first_name', rec.firstName);
+    set('last_name', rec.lastName);
+    set('company', rec.company);
+    set('email', rec.email);
+    set('phone', rec.phone);
+    set('street', rec.street);
+    set('city', rec.city);
+    set('state', rec.state);
+    set('postal_code', rec.postalCode);
+    set('country', rec.country);
+    set('license_key', rec.licenseKey);
+    set('product_name', rec.productName);
+    if (rec.customFields.isNotEmpty) {
+      m['custom_fields'] = rec.customFields.map((cf) => cf.toJson()).toList();
+    }
+    return m;
+  }
+
   Future<String> _createEntry(
       ApiClient api, AuthService auth, EntryRecord rec) async {
     final dataKey = VaultCrypto.randomKey();
-    final plaintext = utf8.encode(jsonEncode({
-      'username': rec.username,
-      'password': rec.password,
-      if (rec.totpSecret.isNotEmpty) 'totp_secret': rec.totpSecret,
-      if (rec.notes.isNotEmpty) 'notes': rec.notes,
-    }));
+    final plaintext = utf8.encode(jsonEncode(_recordToPayload(rec)));
     final ciphertext =
         await VaultCrypto.encrypt(SecretKey(dataKey), Uint8List.fromList(plaintext));
     final pubKey = await auth.getPubX25519();
@@ -351,12 +334,7 @@ class _ImportTabState extends ConsumerState<ImportTab> {
     if (full.entryKey == null) return;
     final dataKey = await VaultCrypto.decryptDataKey(
         full.entryKey!.encryptedKey, auth.privX25519!);
-    final plaintext = utf8.encode(jsonEncode({
-      'username': rec.username,
-      'password': rec.password,
-      if (rec.totpSecret.isNotEmpty) 'totp_secret': rec.totpSecret,
-      if (rec.notes.isNotEmpty) 'notes': rec.notes,
-    }));
+    final plaintext = utf8.encode(jsonEncode(_recordToPayload(rec)));
     final ciphertext =
         await VaultCrypto.encrypt(SecretKey(dataKey), Uint8List.fromList(plaintext));
     await api.updateEntry(
