@@ -203,7 +203,7 @@ var exportCmd = &cobra.Command{
 		var outData []byte
 		switch format {
 		case "bitwarden":
-			outData, err = exporters.ExportBitwarden(records)
+			outData, err = exporters.ExportBitwarden(records, exporters.BitwardenExportOptions{})
 		default: // csv
 			outData, err = exporters.ExportCSV(records)
 		}
