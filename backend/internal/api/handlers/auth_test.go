@@ -30,7 +30,7 @@ import (
 // Only usable for tests that mock DB behaviour.
 func newTestHandler(t *testing.T) *handlers.Handler {
 	t.Helper()
-	return handlers.New(nil, nil, []byte("test-secret-minimum-32-bytes-long!!"))
+	return handlers.New(nil, nil, []byte("test-secret-minimum-32-bytes-long!!"), "")
 }
 
 func TestHealth(t *testing.T) {

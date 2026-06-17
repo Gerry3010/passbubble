@@ -297,6 +297,9 @@ func (h *Handler) getValidInvitation(ctx context.Context, token, email string) (
 		var count int
 		_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
 		if count == 0 {
+			if h.adminEmail != "" && h.adminEmail != email {
+				return nil, errInvalidToken
+			}
 			return &invitationRow{}, nil
 		}
 		return nil, errInvalidToken

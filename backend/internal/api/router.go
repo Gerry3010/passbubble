@@ -54,7 +54,7 @@ func (s *Server) buildRouter() http.Handler {
 	r.Handle("/admin/*", http.StripPrefix("/admin", spaHandler(adminHandler)))
 
 	// API v1
-	h := handlers.New(s.pool, s.rdb, s.cfg.JWTSecret)
+	h := handlers.New(s.pool, s.rdb, s.cfg.JWTSecret, s.cfg.AdminEmail)
 	r.Route("/api/v1", func(r chi.Router) {
 		// Auth (rate-limited, no JWT required)
 		r.Group(func(r chi.Router) {

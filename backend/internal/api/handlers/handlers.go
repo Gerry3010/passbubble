@@ -25,13 +25,14 @@ import (
 
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
-	pool      *pgxpool.Pool
-	rdb       *redis.Client
-	jwtSecret []byte
+	pool       *pgxpool.Pool
+	rdb        *redis.Client
+	jwtSecret  []byte
+	adminEmail string // if non-empty, only this email may bootstrap the first admin
 }
 
-func New(pool *pgxpool.Pool, rdb *redis.Client, jwtSecret []byte) *Handler {
-	return &Handler{pool: pool, rdb: rdb, jwtSecret: jwtSecret}
+func New(pool *pgxpool.Pool, rdb *redis.Client, jwtSecret []byte, adminEmail string) *Handler {
+	return &Handler{pool: pool, rdb: rdb, jwtSecret: jwtSecret, adminEmail: adminEmail}
 }
 
 // Health handles GET /health
