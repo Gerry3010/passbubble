@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/Gerry3010/passbubble/backend/internal/version"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -39,7 +40,7 @@ func New(pool *pgxpool.Pool, rdb *redis.Client, jwtSecret []byte, adminEmail str
 func Health(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, map[string]string{
 		"status":  "ok",
-		"version": "1.0.0",
+		"version": version.Version,
 	})
 }
 

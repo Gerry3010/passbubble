@@ -71,6 +71,15 @@ class ApiClient {
 
   Future<String?> getRefreshToken() => _storage.read(key: _kRefreshTokenKey);
 
+  // ── Health ────────────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> health() async {
+    final resp = await _dio.get(_url('/health'));
+    return resp.data as Map<String, dynamic>;
+  }
+
+  String? get baseUrl => _baseUrl;
+
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   Future<LoginResponse> login(String email, String password) async {

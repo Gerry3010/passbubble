@@ -70,3 +70,43 @@ make test-extension  # Run extension + shared-ts tests
 - DB migrations live in `backend/internal/db/migrations/` (golang-migrate format)
 - The backend binary embeds the Flutter web app (`backend/internal/static/web/`) and admin panel at build time via `//go:embed`
 - Browser extension CSP boundary: all crypto runs in the background service worker, never in content scripts
+
+## Conventional Commits
+
+All commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+feat:      new feature (bumps minor version)
+fix:       bug fix (bumps patch version)
+chore:     maintenance, deps, tooling
+docs:      documentation only
+test:      tests only
+refactor:  no behavior change
+ci:        CI/CD pipeline changes
+```
+
+Breaking change: use `feat!:` / `fix!:` or add a `BREAKING CHANGE:` footer.
+
+## Changelog
+
+`CHANGELOG.md` at the repo root follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
+
+- Keep an `[Unreleased]` section for in-progress work
+- On release: rename `[Unreleased]` → `[vX.Y.Z] - YYYY-MM-DD`
+- GitHub Releases use the same content (the `release.yml` workflow generates the release notes)
+
+## Version Management
+
+The backend version is injected at build time via Go ldflags into `backend/internal/version/version.go`:
+
+```
+-X github.com/Gerry3010/passbubble/backend/internal/version.Version=$(VERSION)
+```
+
+The `VERSION` variable in the Makefile defaults to `git describe --tags --always --dirty`.
+
+**To cut a release:** tag with `vX.Y.Z` → GH Actions `release.yml` handles everything automatically:
+tests → CLI binaries → Flutter apps → Docker image (DockerHub: `gerry3010/passbubble-server`) → GitHub Release.
+
+The Flutter app's **Version & Updates** screen (Settings → Check for updates) fetches the server version from
+`GET /health` and the latest release from the GitHub Releases API, then shows the update command.

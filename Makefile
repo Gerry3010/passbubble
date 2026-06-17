@@ -1,7 +1,13 @@
 # Passbubble Monorepo Makefile
 
-VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS   = -ldflags="-s -w"
+VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+_VER_PKG    = github.com/Gerry3010/passbubble/backend/internal/version
+LDFLAGS     = -ldflags="-s -w \
+  -X $(_VER_PKG).Version=$(VERSION) \
+  -X $(_VER_PKG).Commit=$(COMMIT) \
+  -X $(_VER_PKG).BuildTime=$(BUILD_TIME)"
 
 .PHONY: help up down up-prod dev \
         build-backend build-cli build-all \

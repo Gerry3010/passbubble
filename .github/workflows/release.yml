@@ -119,6 +119,11 @@ jobs:
           flutter-version: "3.32.x"
           channel: stable
           cache: true
+      - name: Sync version from tag
+        run: |
+          VER="${{ github.ref_name }}"
+          VER="${VER#v}"
+          sed -i "s/^version:.*/version: ${VER}+1/" flutter_app/pubspec.yaml
       - name: Build Linux
         working-directory: flutter_app
         run: flutter build linux --release
@@ -143,6 +148,11 @@ jobs:
           flutter-version: "3.32.x"
           channel: stable
           cache: true
+      - name: Sync version from tag
+        shell: powershell
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart("v")
+          (Get-Content flutter_app/pubspec.yaml) -replace '^version:.*', "version: ${ver}+1" | Set-Content flutter_app/pubspec.yaml
       - name: Build Windows
         working-directory: flutter_app
         run: flutter build windows --release
@@ -167,6 +177,11 @@ jobs:
           flutter-version: "3.32.x"
           channel: stable
           cache: true
+      - name: Sync version from tag
+        run: |
+          VER="${{ github.ref_name }}"
+          VER="${VER#v}"
+          sed -i '' "s/^version:.*/version: ${VER}+1/" flutter_app/pubspec.yaml
       - name: Build macOS
         working-directory: flutter_app
         run: flutter build macos --release
@@ -191,6 +206,11 @@ jobs:
           flutter-version: "3.32.x"
           channel: stable
           cache: true
+      - name: Sync version from tag
+        run: |
+          VER="${{ github.ref_name }}"
+          VER="${VER#v}"
+          sed -i "s/^version:.*/version: ${VER}+1/" flutter_app/pubspec.yaml
       - name: Build Web
         working-directory: flutter_app
         run: flutter build web --release --base-href /
@@ -230,11 +250,16 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: backend
+          context: .
+          file: backend/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.event.repository.updated_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

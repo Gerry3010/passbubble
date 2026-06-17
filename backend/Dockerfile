@@ -13,6 +13,10 @@ RUN flutter build web --release --base-href "/web/"
 # ─── Go build stage ───────────────────────────────────────────────────────────
 FROM golang:1.26-alpine AS builder
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+
 WORKDIR /build
 
 # Download dependencies first (better caching)
@@ -23,7 +27,13 @@ RUN go mod download
 # build before compiling
 COPY backend/ .
 COPY --from=flutter-builder /build/build/web ./internal/static/web
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /passbubble-server ./cmd/server
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w \
+      -X github.com/Gerry3010/passbubble/backend/internal/version.Version=${VERSION} \
+      -X github.com/Gerry3010/passbubble/backend/internal/version.Commit=${COMMIT} \
+      -X github.com/Gerry3010/passbubble/backend/internal/version.BuildTime=${BUILD_TIME}" \
+    -o /passbubble-server ./cmd/server
 
 # ─── Runtime image ───────────────────────────────────────────────────────────
 FROM alpine:3.21

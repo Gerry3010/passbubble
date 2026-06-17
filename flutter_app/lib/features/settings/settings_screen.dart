@@ -20,6 +20,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
+import 'providers/version_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -95,6 +96,28 @@ class SettingsScreen extends ConsumerWidget {
             title: const Text('Change server'),
             onTap: () => context.go('/setup'),
           ),
+
+          const Divider(),
+
+          // Version & Updates
+          _SectionHeader(title: 'VERSION & UPDATES'),
+          Consumer(builder: (context, ref, _) {
+            final versionAsync = ref.watch(versionInfoProvider);
+            final badge = versionAsync.whenOrNull(
+              data: (info) => info.isUpToDate ? null : const Icon(Icons.circle, color: Colors.amber, size: 10),
+            );
+            return ListTile(
+              leading: const Icon(Icons.system_update_outlined),
+              title: const Text('Check for updates'),
+              subtitle: versionAsync.when(
+                loading: () => const Text('Checking…'),
+                error: (_, _) => const Text('Tap to check'),
+                data: (info) => Text('Server: ${info.serverVersion}'),
+              ),
+              trailing: badge,
+              onTap: () => context.push('/settings/update'),
+            );
+          }),
 
           const Divider(),
 
