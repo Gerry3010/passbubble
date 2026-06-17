@@ -64,6 +64,14 @@ func (s *Server) buildRouter() http.Handler {
 			r.Post("/auth/refresh", h.Refresh)
 		})
 
+		// Public, unauthenticated share-link retrieval (zero-knowledge: the
+		// decryption key lives only in the URL fragment, never sent to the
+		// server). Rate-limited to slow down token/password brute-forcing.
+		r.Group(func(r chi.Router) {
+			r.Use(mw.PerIPRateLimiter(rate.Limit(10.0/60.0), 10)) // 10 req/min
+			r.Get("/share/{token}", h.GetShareLink)
+		})
+
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(mw.JWTAuth(s.cfg.JWTSecret))
@@ -79,6 +87,7 @@ func (s *Server) buildRouter() http.Handler {
 			r.Put("/entries/{id}", h.UpdateEntry)
 			r.Delete("/entries/{id}", h.DeleteEntry)
 			r.Post("/entries/{id}/share", h.ShareEntry)
+			r.Post("/entries/{id}/share-link", h.CreateEntryShareLink)
 
 			// Folders
 			r.Get("/folders", h.ListFolders)
@@ -86,6 +95,22 @@ func (s *Server) buildRouter() http.Handler {
 			r.Put("/folders/{id}", h.UpdateFolder)
 			r.Delete("/folders/{id}", h.DeleteFolder)
 			r.Post("/folders/{id}/share", h.ShareFolder)
+			r.Post("/folders/{id}/share-link", h.CreateFolderShareLink)
+
+			// Share links (owner management)
+			r.Get("/share-links", h.ListShareLinks)
+			r.Delete("/share-links/{id}", h.RevokeShareLink)
+
+			// Shares aggregation + revoke
+			r.Get("/shares", h.ListMyShares)
+			r.Delete("/entries/{id}/share/{userId}", h.RevokeEntryShare)
+			r.Delete("/folders/{id}/share/{userId}", h.RevokeFolderShare)
+
+			// Job ledger
+			r.Post("/jobs", h.CreateJob)
+			r.Get("/jobs", h.ListJobs)
+			r.Get("/jobs/{id}", h.GetJob)
+			r.Patch("/jobs/{id}", h.UpdateJob)
 
 			// User public keys (for sharing)
 			r.Get("/users/{id}/keys", h.GetUserKeys)
@@ -131,7 +156,12 @@ func spaHandler(fs http.Handler) http.Handler {
 
 func corsOrigins(cfg *Config) []string {
 	if cfg.IsDevelopment() {
-		return []string{"http://localhost:*", "http://127.0.0.1:*"}
+		return []string{
+			"http://localhost:*",
+			"http://127.0.0.1:*",
+			"chrome-extension://*",
+			"moz-extension://*",
+		}
 	}
-	return []string{"https://*"}
+	return []string{"https://*", "chrome-extension://*", "moz-extension://*"}
 }
