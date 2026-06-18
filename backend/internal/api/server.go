@@ -19,19 +19,25 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/Gerry3010/passbubble/backend/internal/mailer"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 type Server struct {
-	cfg    *Config
-	pool   *pgxpool.Pool
-	rdb    *redis.Client
+	cfg     *Config
+	pool    *pgxpool.Pool
+	rdb     *redis.Client
+	mailer  *mailer.Mailer
 	httpSrv *http.Server
 }
 
 func NewServer(cfg *Config, pool *pgxpool.Pool, rdb *redis.Client) *Server {
-	s := &Server{cfg: cfg, pool: pool, rdb: rdb}
+	var m *mailer.Mailer
+	if cfg.SMTPEnabled() {
+		m = mailer.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom, cfg.AppBaseURL)
+	}
+	s := &Server{cfg: cfg, pool: pool, rdb: rdb, mailer: m}
 	s.httpSrv = &http.Server{
 		Addr:    cfg.Addr(),
 		Handler: s.buildRouter(),

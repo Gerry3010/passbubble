@@ -41,7 +41,7 @@ help:
 
 up:
 	@if [ ! -f .env ]; then cp .env.example .env && echo "Created .env - please edit passwords before continuing!"; exit 1; fi
-	docker compose up -d postgres redis backend
+	docker compose up -d postgres redis mailpit backend
 
 down:
 	docker compose down

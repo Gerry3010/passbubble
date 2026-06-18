@@ -28,6 +28,14 @@ type Config struct {
 	JWTSecret   []byte
 	AdminEmail  string
 	Environment string
+
+	// SMTP (all optional — empty SMTPHost disables email verification)
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
+	AppBaseURL   string
 }
 
 func LoadConfig() (*Config, error) {
@@ -47,8 +55,17 @@ func LoadConfig() (*Config, error) {
 		JWTSecret:   []byte(jwtSecret),
 		AdminEmail:  os.Getenv("ADMIN_EMAIL"),
 		Environment: getEnv("ENVIRONMENT", "production"),
+
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     getEnv("SMTP_PORT", "587"),
+		SMTPUser:     os.Getenv("SMTP_USER"),
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:     getEnv("SMTP_FROM", "noreply@passbubble.local"),
+		AppBaseURL:   os.Getenv("APP_BASE_URL"),
 	}, nil
 }
+
+func (c *Config) SMTPEnabled() bool { return c.SMTPHost != "" }
 
 func (c *Config) Addr() string {
 	return fmt.Sprintf("%s:%s", c.Host, c.Port)

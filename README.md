@@ -80,6 +80,41 @@ Admin panel: `https://pwmgr.example.com/admin/`
 
 > For the full setup guide including updates, backups, and pitfalls see [`docs/server-deployment.md`](docs/server-deployment.md).
 
+## Email verification (optional)
+
+By default, accounts are activated immediately after registration. If you set `SMTP_HOST`, the server will instead send a one-time verification link and hold the account in `pending` state until the user clicks it.
+
+Add these variables to your `.env`:
+
+```env
+# Required to enable email verification
+SMTP_HOST=smtp.example.com
+APP_BASE_URL=https://pwmgr.example.com
+
+# Optional — defaults shown
+SMTP_PORT=587
+SMTP_USER=noreply@example.com
+SMTP_PASSWORD=your-smtp-password
+SMTP_FROM=noreply@example.com
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `SMTP_HOST` | *(empty — disabled)* | SMTP server hostname. Leave empty to disable email verification. |
+| `SMTP_PORT` | `587` | SMTP port. Uses STARTTLS. |
+| `SMTP_USER` | *(empty)* | SMTP username. Leave empty for unauthenticated relay. |
+| `SMTP_PASSWORD` | *(empty)* | SMTP password. |
+| `SMTP_FROM` | `noreply@passbubble.local` | Sender address shown in the email. |
+| `APP_BASE_URL` | *(empty)* | Public URL of your server (e.g. `https://pwmgr.example.com`). Used to build the verification link. |
+
+When `SMTP_HOST` is set:
+- Registration returns HTTP 202 and no tokens — the client must verify email first.
+- Login with an unverified account returns HTTP 403 with `"email not verified — check your inbox"`.
+- Verification links expire after **24 hours** and are one-time use.
+- The verification endpoint is `GET /api/v1/auth/verify-email?token=…` and returns a browser-friendly HTML confirmation page.
+
+The development stack (`make up`) includes [Mailpit](https://github.com/axllent/mailpit) pre-wired — no extra configuration needed. Open `http://localhost:8025` after `make up` to see outgoing emails.
+
 ## Updating
 
 ```bash

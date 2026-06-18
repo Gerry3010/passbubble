@@ -26,11 +26,11 @@ import (
 	"github.com/Gerry3010/passbubble/backend/internal/api/models"
 )
 
-// newTestHandler creates a Handler with nil pool/rdb for unit tests.
+// newTestHandler creates a Handler with nil pool/rdb/mailer for unit tests.
 // Only usable for tests that mock DB behaviour.
 func newTestHandler(t *testing.T) *handlers.Handler {
 	t.Helper()
-	return handlers.New(nil, nil, []byte("test-secret-minimum-32-bytes-long!!"), "")
+	return handlers.New(nil, nil, []byte("test-secret-minimum-32-bytes-long!!"), "", nil)
 }
 
 func TestHealth(t *testing.T) {

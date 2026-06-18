@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.13] - 2026-06-18
+
+### Added
+- Email verification on registration: set `SMTP_HOST` (+ optional `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `APP_BASE_URL`) to require users to click a one-time link before their account is activated. Omitting `SMTP_HOST` preserves the previous auto-activate behaviour.
+- New endpoint `GET /api/v1/auth/verify-email?token=…` — validates token, activates account, returns a browser-friendly HTML confirmation page.
+- Login now returns HTTP 403 with `"email not verified — check your inbox"` when the account is still in `pending` state.
+- DB migration `000002_email_verification` adds the `email_verification_tokens` table.
+- [Mailpit](https://github.com/axllent/mailpit) added to the dev Docker Compose stack (`make up`) — pre-wired as SMTP backend so email verification works out of the box. Web UI at `http://localhost:8025`.
+
 ## [2.0.12] - 2026-06-18
 
 ### Fixed

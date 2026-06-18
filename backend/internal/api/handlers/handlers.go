@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/Gerry3010/passbubble/backend/internal/mailer"
 	"github.com/Gerry3010/passbubble/backend/internal/version"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -30,10 +31,11 @@ type Handler struct {
 	rdb        *redis.Client
 	jwtSecret  []byte
 	adminEmail string // if non-empty, only this email may bootstrap the first admin
+	mailer     *mailer.Mailer // nil when SMTP is not configured
 }
 
-func New(pool *pgxpool.Pool, rdb *redis.Client, jwtSecret []byte, adminEmail string) *Handler {
-	return &Handler{pool: pool, rdb: rdb, jwtSecret: jwtSecret, adminEmail: adminEmail}
+func New(pool *pgxpool.Pool, rdb *redis.Client, jwtSecret []byte, adminEmail string, m *mailer.Mailer) *Handler {
+	return &Handler{pool: pool, rdb: rdb, jwtSecret: jwtSecret, adminEmail: adminEmail, mailer: m}
 }
 
 // Health handles GET /health

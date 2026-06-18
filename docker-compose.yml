@@ -21,6 +21,13 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"   # web UI  → http://localhost:8025
+      - "1025:1025"   # SMTP (only exposed for host-side tooling; backend uses internal network)
+    restart: unless-stopped
+
   backend:
     build:
       # Context is the repo root so the build can pull in flutter_app/ as well
@@ -36,11 +43,19 @@ services:
       SERVER_PORT: ${SERVER_PORT:-8765}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Email verification — pre-wired to Mailpit for local dev.
+      # Override APP_BASE_URL in .env if you use a different port or hostname.
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_FROM: noreply@passbubble.local
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8765}
     ports:
       - "${SERVER_PORT:-8765}:${SERVER_PORT:-8765}"
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     volumes:
       - backups:/data/backups
     restart: unless-stopped

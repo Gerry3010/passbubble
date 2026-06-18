@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -31,6 +32,22 @@ import (
 	mw "github.com/Gerry3010/passbubble/backend/internal/api/middleware"
 	"github.com/Gerry3010/passbubble/backend/internal/api/models"
 )
+
+const verifySuccessHTML = `<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center;color:#222">
+  <h2 style="color:#16a34a">&#10003; Email verified!</h2>
+  <p>Your Passbubble account is now active. You can close this tab and log in.</p>
+</body>
+</html>`
+
+const verifyErrHTML = `<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center;color:#222">
+  <h2 style="color:#dc2626">&#10007; Verification failed</h2>
+  <p>This link is invalid or has expired. Please register again or contact your administrator.</p>
+</body>
+</html>`
 
 const (
 	accessTokenTTL  = 15 * time.Minute
@@ -73,13 +90,19 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		role = "admin" // First user bootstrap
 	}
 
+	// When SMTP is configured the account starts as pending until email is verified.
+	status := "active"
+	if h.mailer != nil {
+		status = "pending"
+	}
+
 	userID := uuid.New().String()
 	_, err = h.pool.Exec(r.Context(), `
 		INSERT INTO users (id, email, name, role, status, password_hash, invited_by,
 			pub_x25519, pub_mlkem768, enc_priv_x25519, enc_priv_mlkem768,
 			kdf_salt, kdf_time, kdf_memory)
-		VALUES ($1,$2,$3,$4,'active',$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		userID, req.Email, req.Name, role, string(pwHash), nullableStr(inv.InvitedByID),
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		userID, req.Email, req.Name, role, status, string(pwHash), nullableStr(inv.InvitedByID),
 		req.PubX25519, req.PubMLKEM768, req.EncPrivX25519, req.EncPrivMLKEM768,
 		req.KDFSalt, 3, 65536,
 	)
@@ -93,15 +116,40 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			`UPDATE invitations SET accepted_at = NOW() WHERE id = $1`, inv.ID)
 	}
 
+	if h.mailer != nil {
+		token, err := randURLSafeToken()
+		if err != nil {
+			respondErr(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		_, err = h.pool.Exec(r.Context(), `
+			INSERT INTO email_verification_tokens (user_id, token, expires_at)
+			VALUES ($1, $2, NOW() + INTERVAL '24 hours')`, userID, token)
+		if err != nil {
+			respondErr(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if err := h.mailer.SendVerificationEmail(req.Email, token); err != nil {
+			// Account is created but email delivery failed — admin can activate manually.
+			respondErr(w, http.StatusCreated, "account created but verification email could not be sent — contact your administrator")
+			return
+		}
+		respond(w, http.StatusAccepted, map[string]string{
+			"message": "registration successful — check your email to verify your account",
+		})
+		return
+	}
+
+	// SMTP not configured: activate immediately.
+	// Clients need user_id to address entry_keys to themselves when creating
+	// entries — without it, every entry they create silently ends up with no
+	// entry_keys row for the owner (the server-side insert fails on an empty
+	// UUID, and that error path discards the failure).
 	tokens, err := h.issueTokens(r.Context(), userID, role)
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to issue tokens")
 		return
 	}
-	// Clients need user_id to address entry_keys to themselves when creating
-	// entries — without it, every entry they create silently ends up with no
-	// entry_keys row for the owner (the server-side insert fails on an empty
-	// UUID, and that error path discards the failure).
 	respond(w, http.StatusCreated, map[string]any{
 		"access_token":  tokens.AccessToken,
 		"refresh_token": tokens.RefreshToken,
@@ -126,6 +174,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		userID          string
 		name            string
 		role            string
+		status          string
 		passwordHash    string
 		pubX25519       string
 		pubMLKEM768     string
@@ -136,15 +185,23 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		kdfMemory       uint32
 	)
 	err = h.pool.QueryRow(r.Context(), `
-		SELECT id, name, role, password_hash, pub_x25519, pub_mlkem768,
+		SELECT id, name, role, status, password_hash, pub_x25519, pub_mlkem768,
 			enc_priv_x25519, enc_priv_mlkem768, kdf_salt, kdf_time, kdf_memory
-		FROM users WHERE email = $1 AND status = 'active'`, req.Email,
-	).Scan(&userID, &name, &role, &passwordHash,
+		FROM users WHERE email = $1`, req.Email,
+	).Scan(&userID, &name, &role, &status, &passwordHash,
 		&pubX25519, &pubMLKEM768,
 		&encPrivX25519, &encPrivMLKEM768,
 		&kdfSalt, &kdfTime, &kdfMemory)
 	if err != nil {
 		respondErr(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+	if status == "pending" {
+		respondErr(w, http.StatusForbidden, "email not verified — check your inbox")
+		return
+	}
+	if status != "active" {
+		respondErr(w, http.StatusForbidden, "account disabled")
 		return
 	}
 
@@ -241,6 +298,41 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, user)
+}
+
+// VerifyEmail handles GET /api/v1/auth/verify-email?token=...
+func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, verifyErrHTML)
+		return
+	}
+
+	var userID string
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT user_id FROM email_verification_tokens
+		WHERE token = $1 AND expires_at > NOW()`, token,
+	).Scan(&userID)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, verifyErrHTML)
+		return
+	}
+
+	_, err = h.pool.Exec(r.Context(),
+		`UPDATE users SET status = 'active', updated_at = NOW() WHERE id = $1`, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	_, _ = h.pool.Exec(r.Context(),
+		`DELETE FROM email_verification_tokens WHERE token = $1`, token)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, verifySuccessHTML)
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────
