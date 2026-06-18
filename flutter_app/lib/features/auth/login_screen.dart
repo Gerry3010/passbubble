@@ -56,7 +56,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _passCtrl.text,
           );
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = e is Exception
+          ? e.toString().replaceFirst('Exception: ', '')
+          : 'An unexpected error occurred.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

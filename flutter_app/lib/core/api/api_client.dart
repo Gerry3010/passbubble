@@ -99,17 +99,18 @@ class ApiClient {
   Future<({LoginResponse? session, String? pendingMessage})> register(
       RegisterRequest req) async {
     final resp = await _post('/api/v1/auth/register', req.toJson());
+    final body = resp.data as Map<String, dynamic>;
     if (resp.statusCode == 202) {
-      final msg = (resp.data as Map<String, dynamic>)['message'] as String?;
+      final msg = body['message'] as String?;
       return (
         session: null,
         pendingMessage: msg ?? 'Check your email to verify your account',
       );
     }
-    return (
-      session: LoginResponse.fromJson(resp.data as Map<String, dynamic>),
-      pendingMessage: null,
-    );
+    // 201 but with an error body (e.g. email delivery failed)
+    final errMsg = body['error'] as String?;
+    if (errMsg != null) throw Exception(errMsg);
+    return (session: LoginResponse.fromJson(body), pendingMessage: null);
   }
 
   Future<RefreshResponse> refresh(String refreshToken) async {
@@ -256,18 +257,45 @@ class ApiClient {
 
   // ── HTTP helpers ──────────────────────────────────────────────────────────
 
+  /// Runs [fn] and converts [DioException] into user-readable [Exception]s.
+  /// - JSON `{"error": "..."}` body → that message
+  /// - Timeout / no-connection → generic connectivity message
+  Future<T> _apiCall<T>(Future<T> Function() fn) async {
+    try {
+      return await fn();
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      if (data is Map<String, dynamic>) {
+        final msg = data['error'] as String?;
+        if (msg != null && msg.isNotEmpty) throw Exception(msg);
+      }
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.receiveTimeout:
+        case DioExceptionType.sendTimeout:
+          throw Exception('Connection timed out. Check your network.');
+        case DioExceptionType.connectionError:
+          throw Exception('Cannot reach the server. Check your connection.');
+        default:
+          rethrow;
+      }
+    }
+  }
+
   Future<Response<dynamic>> _get(String path) =>
-      _dio.get(_url(path));
+      _apiCall(() => _dio.get(_url(path)));
 
   Future<Response<dynamic>> _post(String path, Map<String, dynamic> data,
-      {bool skipAuth = false}) =>
-      _dio.post(_url(path), data: data,
-          options: skipAuth ? Options(extra: {'skipAuth': true}) : null);
+          {bool skipAuth = false}) =>
+      _apiCall(() => _dio.post(_url(path),
+          data: data,
+          options: skipAuth ? Options(extra: {'skipAuth': true}) : null));
 
   Future<Response<dynamic>> _put(String path, Map<String, dynamic> data) =>
-      _dio.put(_url(path), data: data);
+      _apiCall(() => _dio.put(_url(path), data: data));
 
-  Future<Response<dynamic>> _delete(String path) => _dio.delete(_url(path));
+  Future<Response<dynamic>> _delete(String path) =>
+      _apiCall(() => _dio.delete(_url(path)));
 
   String _url(String path) => '${_baseUrl ?? ''}$path';
 

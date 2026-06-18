@@ -80,7 +80,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       }
       // If pending == null, router auto-navigates because isLoggedIn flipped.
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = e is Exception
+          ? e.toString().replaceFirst('Exception: ', '')
+          : 'An unexpected error occurred.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
