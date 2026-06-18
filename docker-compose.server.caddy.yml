@@ -58,6 +58,13 @@ services:
       SERVER_PORT: ${SERVER_PORT:-8765}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ENVIRONMENT: production
+      # Email verification (optional — leave SMTP_HOST empty to disable)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      APP_BASE_URL: ${APP_BASE_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
