@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.10] - 2026-06-18
+
+### Added
+- `deploy.sh` — fully automated server deployment script: pulls compose file, generates secrets, starts Docker stack, configures nginx vhost, obtains Let's Encrypt cert via certbot, downloads CLI binary
+- `nginx/passbubble.conf` — nginx vhost template (TLS, HSTS, proxy_pass, SSE support)
+- `docker-compose.server.caddy.yml` — preserved Caddy variant for fresh servers without existing reverse proxy
+
+### Changed
+- `docker-compose.server.yml`: remove Caddy service, bind backend to `127.0.0.1:8765` only (nginx handles TLS on the host)
+
+### Fixed
+- `deploy.sh`: use `maybe_sudo` helper — works as both root and sudoer
+- `deploy.sh`: gracefully skip CLI download if GitHub release binary not yet available
+- `deploy.sh`: read `DOMAIN`/`ADMIN_EMAIL` from existing `.env` on re-runs (no re-prompt)
+
 ## [2.0.9] - 2026-06-18
 
 ### Fixed

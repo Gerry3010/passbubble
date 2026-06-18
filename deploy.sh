@@ -186,10 +186,14 @@ esac
 
 if [[ -n "$CLI_BIN" ]]; then
   info "Downloading CLI ($CLI_BIN) …"
-  curl -fsSL "https://github.com/Gerry3010/passbubble/releases/latest/download/$CLI_BIN" \
-    -o "$INSTALL_DIR/pwmgr"
-  chmod +x "$INSTALL_DIR/pwmgr"
-  info "CLI saved to $INSTALL_DIR/pwmgr"
+  if curl -fsSL "https://github.com/Gerry3010/passbubble/releases/latest/download/$CLI_BIN" \
+      -o "$INSTALL_DIR/pwmgr"; then
+    chmod +x "$INSTALL_DIR/pwmgr"
+    info "CLI saved to $INSTALL_DIR/pwmgr"
+  else
+    info "CLI download failed (no release yet?) — skipping. Download manually from:"
+    info "  https://github.com/Gerry3010/passbubble/releases/latest"
+  fi
 fi
 
 # ── done ──────────────────────────────────────────────────────────────────────
