@@ -180,7 +180,7 @@ func GetTimeRemaining(period uint) int {
 		period = 30
 	}
 	now := time.Now().Unix()
-	return int(period - (uint(now) % period))
+	return int((period - uint(now)%period) % period)
 }
 
 // FormatCode formats a TOTP code with spaces for better readability

@@ -95,6 +95,18 @@ Breaking change: use `feat!:` / `fix!:` or add a `BREAKING CHANGE:` footer.
 - On release: rename `[Unreleased]` → `[vX.Y.Z] - YYYY-MM-DD`
 - GitHub Releases use the same content (the `release.yml` workflow generates the release notes)
 
+## Pre-Commit / Pre-Tag Checklist
+
+**Always run the full test suite before committing or tagging — no exceptions:**
+
+```bash
+cd backend && go build ./... && go vet ./... && go test ./...
+cd cli     && go build ./... && go vet ./... && go test -race ./...
+cd flutter_app && flutter analyze && flutter test
+```
+
+Failures in any of these block the commit/tag. CI mirrors these exact checks — a local green run prevents wasted pipeline cycles.
+
 ## Version Management
 
 The backend version is injected at build time via Go ldflags into `backend/internal/version/version.go`:
