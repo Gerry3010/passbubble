@@ -356,7 +356,7 @@ class _ImportTabState extends ConsumerState<ImportTab> {
         const Text('Format', style: TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
         const SizedBox(height: 8),
         DropdownButtonFormField<_ImportFormat>(
-          value: _format,
+          initialValue: _format,
           decoration: const InputDecoration(border: OutlineInputBorder()),
           items: _ImportFormat.values
               .map((f) => DropdownMenuItem(value: f, child: Text(f.label)))
@@ -375,7 +375,9 @@ class _ImportTabState extends ConsumerState<ImportTab> {
                   title: Text(s == _DupStrategy.skip ? 'Skip' : 'Overwrite',
                       style: const TextStyle(fontSize: 14)),
                   value: s,
+                  // ignore: deprecated_member_use
                   groupValue: _dupStrategy,
+                  // ignore: deprecated_member_use
                   onChanged: _running ? null : (v) => setState(() => _dupStrategy = v!),
                   activeColor: AppTheme.green,
                   contentPadding: EdgeInsets.zero,
@@ -458,9 +460,9 @@ class _StatChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.4)),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(label, style: TextStyle(fontSize: 11, color: color)),
     );

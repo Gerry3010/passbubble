@@ -186,7 +186,7 @@ class _ExportTabState extends ConsumerState<ExportTab> {
         const Text('Format', style: TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
         const SizedBox(height: 8),
         DropdownButtonFormField<_ExportFormat>(
-          value: _format,
+          initialValue: _format,
           decoration: const InputDecoration(border: OutlineInputBorder()),
           items: _ExportFormat.values
               .map((f) => DropdownMenuItem(value: f, child: Text(f.label)))
@@ -205,7 +205,7 @@ class _ExportTabState extends ConsumerState<ExportTab> {
               style: TextStyle(fontSize: 12, color: AppTheme.onBgDim),
             ),
             value: _includeFiles,
-            activeColor: AppTheme.green,
+            activeThumbColor: AppTheme.green,
             onChanged: _running ? null : (v) => setState(() => _includeFiles = v),
           ),
           if (_includeFiles && _format == _ExportFormat.bitwarden)
@@ -217,7 +217,7 @@ class _ExportTabState extends ConsumerState<ExportTab> {
                 style: TextStyle(fontSize: 12, color: AppTheme.onBgDim),
               ),
               value: _filesAsBase64,
-              activeColor: AppTheme.green,
+              activeThumbColor: AppTheme.green,
               onChanged: _running ? null : (v) => setState(() => _filesAsBase64 = v),
             ),
           const SizedBox(height: 8),
