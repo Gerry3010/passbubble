@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.11] - 2026-06-18
+
+### Fixed
+- CLI: `GetTimeRemaining` off-by-one — returned `period` (30) instead of 0 when `now % period == 0`, causing `TestGetTimeRemaining` to fail
+
+### Changed
+- `CLAUDE.md`: add mandatory pre-commit/pre-tag checklist (backend + CLI `-race` + flutter)
+
 ## [2.0.10] - 2026-06-18
 
 ### Added
