@@ -786,6 +786,9 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       _customFields[i].mimeType = file.extension != null
           ? 'application/${file.extension}'
           : 'application/octet-stream';
+      if (_customFields[i].label.text.trim().isEmpty) {
+        _customFields[i].label.text = file.name;
+      }
     });
   }
 

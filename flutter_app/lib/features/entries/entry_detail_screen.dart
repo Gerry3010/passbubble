@@ -31,7 +31,7 @@ import '../../core/theme/app_theme.dart';
 import 'entries_list_screen.dart' show entriesProvider;
 
 final _entryDetailProvider =
-    FutureProvider.family<EntryResponse, String>((ref, id) async {
+    FutureProvider.autoDispose.family<EntryResponse, String>((ref, id) async {
   return ref.watch(apiClientProvider).getEntry(id);
 });
 
@@ -232,17 +232,15 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       return null;
     }
 
-    final common = <Widget>[];
-    if (str('notes') != null) common.add(_infoRow('Notes', str('notes')!));
-
-    final customFields = d['custom_fields'];
-    if (customFields is List && customFields.isNotEmpty) {
-      common.add(const Padding(
+    final customFieldWidgets = <Widget>[];
+    final rawCf = d['custom_fields'];
+    if (rawCf is List && rawCf.isNotEmpty) {
+      customFieldWidgets.add(const Padding(
         padding: EdgeInsets.only(top: 16, bottom: 4),
         child: Text('CUSTOM FIELDS',
             style: TextStyle(color: AppTheme.green, fontSize: 11, letterSpacing: 2)),
       ));
-      for (final cf in customFields) {
+      for (final cf in rawCf) {
         if (cf is Map<String, dynamic>) {
           final label = cf['label'] as String? ?? '';
           final value = cf['value'] as String? ?? '';
@@ -251,20 +249,25 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
           switch (cfType) {
             case 'password':
             case 'ssh':
-              common.add(_secretRow(label, value));
+              customFieldWidgets.add(_secretRow(label, value));
             case 'totp':
               if (value.isNotEmpty && _totpCode == null) _startTOTP(value);
-              common.add(_copyRow(label, value));
+              customFieldWidgets.add(_copyRow(label, value));
             case 'file':
               final filename = cf['filename'] as String? ?? label;
               final mime = cf['mime_type'] as String? ?? 'application/octet-stream';
-              common.add(_fileRow(label, value, filename, mime));
+              customFieldWidgets.add(_fileRow(label, value, filename, mime));
             default:
-              common.add(_copyRow(label, value));
+              customFieldWidgets.add(_copyRow(label, value));
           }
         }
       }
     }
+
+    final common = <Widget>[
+      if (str('notes') != null) _infoRow('Notes', str('notes')!),
+      ...customFieldWidgets,
+    ];
 
     return switch (type) {
       'password' || 'api-key' => [
@@ -280,6 +283,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ],
       'note' => [
           if (str('notes') != null) _infoRow('Content', str('notes')!),
+          ...customFieldWidgets,
         ],
       'ssh-key' => [
           if (str('username') != null) _copyRow('User', str('username')!),
