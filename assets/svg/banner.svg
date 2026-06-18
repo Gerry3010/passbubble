@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Copyright (C) 2026 Gerald Hofbauer <info@geraldhofbauer.net>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 1200 300"
+     width="1200" height="300"
+     overflow="hidden">
+  <defs>
+    <!-- Glow filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Subtle glow for foreground text -->
+    <filter id="glow-strong" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Scanlines -->
+    <pattern id="scanlines" x="0" y="0" width="1" height="4" patternUnits="userSpaceOnUse">
+      <rect y="0" width="1200" height="1" fill="#00ff41" opacity="0.025"/>
+    </pattern>
+    <!-- Dot grid background -->
+    <pattern id="dots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r="0.9" fill="#00ff41" opacity="0.10"/>
+    </pattern>
+  </defs>
+
+  <!-- ── Background ──────────────────────────────────────────────── -->
+  <rect width="1200" height="300" fill="#0a0a0a"/>
+  <rect width="1200" height="300" fill="url(#dots)"/>
+  <rect width="1200" height="300" fill="url(#scanlines)"/>
+
+  <!-- Terminal window border (dashed) -->
+  <rect x="5" y="5" width="1190" height="290"
+        fill="none" stroke="#00ff41" stroke-width="1"
+        stroke-dasharray="6 3" opacity="0.22"/>
+
+  <!-- ── Background bubble cluster ──────────────────────────────── -->
+  <!-- Each bubble: same path M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z
+       transform="translate(tx,ty) scale(s)" in banner coordinate space -->
+
+  <!-- Bubble A: large, left-top -->
+  <g transform="translate(-15,-7) scale(0.9)" opacity="0.11">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.05)" stroke="#00ff41" stroke-width="2.5"/>
+    <text x="128" y="120" font-family="'Courier New', Courier, monospace" font-size="54"
+          font-weight="bold" fill="#00ff41" text-anchor="middle">&gt;&#32;<tspan>_<animate attributeName="opacity" values="1;0;1" keyTimes="0;0.5;1" dur="1.3s" repeatCount="indefinite" calcMode="discrete"/></tspan></text>
+  </g>
+
+  <!-- Bubble B: medium, left-bottom (partially off-screen) -->
+  <g transform="translate(10,164) scale(0.55)" opacity="0.08">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.05)" stroke="#00ff41" stroke-width="2.5"/>
+    <text x="128" y="120" font-family="'Courier New', Courier, monospace" font-size="54"
+          font-weight="bold" fill="#00ff41" text-anchor="middle">&gt; ·</text>
+  </g>
+
+  <!-- Bubble C: large, right-top (partially off-screen right) -->
+  <g transform="translate(986,-11) scale(0.85)" opacity="0.10">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.05)" stroke="#00ff41" stroke-width="2.5"/>
+    <text x="128" y="120" font-family="'Courier New', Courier, monospace" font-size="54"
+          font-weight="bold" fill="#00ff41" text-anchor="middle">&gt; //</text>
+  </g>
+
+  <!-- Bubble D: medium, right-bottom (partially off-screen) -->
+  <g transform="translate(1020,194) scale(0.55)" opacity="0.07">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.04)" stroke="#00ff41" stroke-width="2.5"/>
+  </g>
+
+  <!-- Bubble E: small, top-center (partially above fold) -->
+  <g transform="translate(463,-61) scale(0.60)" opacity="0.06">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.04)" stroke="#00ff41" stroke-width="2.5"/>
+  </g>
+
+  <!-- Bubble F: small, far left -->
+  <g transform="translate(2,119) scale(0.45)" opacity="0.09">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.05)" stroke="#00ff41" stroke-width="2.5"/>
+    <text x="128" y="120" font-family="'Courier New', Courier, monospace" font-size="54"
+          font-weight="bold" fill="#00ff41" text-anchor="middle">&gt; ●</text>
+  </g>
+
+  <!-- Bubble G: tiny, bottom-right center (partially off-screen bottom) -->
+  <g transform="translate(686,214) scale(0.50)" opacity="0.06">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.04)" stroke="#00ff41" stroke-width="2.5"/>
+  </g>
+
+  <!-- Bubble H: small, right-center -->
+  <g transform="translate(951,91) scale(0.38)" opacity="0.08">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.05)" stroke="#00ff41" stroke-width="2.5"/>
+    <text x="128" y="120" font-family="'Courier New', Courier, monospace" font-size="54"
+          font-weight="bold" fill="#00ff41" text-anchor="middle">&gt;&#32;<tspan>_<animate attributeName="opacity" values="1;0;1" keyTimes="0;0.5;1" dur="0.9s" repeatCount="indefinite" calcMode="discrete"/></tspan></text>
+  </g>
+
+  <!-- Bubble I: tiny extra, upper-right area -->
+  <g transform="translate(1026,37) scale(0.42)" opacity="0.07">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.04)" stroke="#00ff41" stroke-width="2.5"/>
+    <text x="128" y="120" font-family="'Courier New', Courier, monospace" font-size="54"
+          font-weight="bold" fill="#00ff41" text-anchor="middle">&gt; ·</text>
+  </g>
+
+  <!-- ── Foreground content (centered at x≈600) ──────────────────── -->
+  <!-- Icon bubble: scale=0.375, positioned left of wordmark -->
+  <!-- transform places bubble TL at (316,125), body center at (353,150) -->
+  <g transform="translate(305.5,112) scale(0.375)" filter="url(#glow)">
+    <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+          fill="rgba(0,255,65,0.10)" stroke="#00ff41" stroke-width="3"
+          stroke-linejoin="miter"/>
+    <text x="128" y="120"
+          font-family="'Courier New', Courier, 'Lucida Console', monospace"
+          font-size="54" font-weight="bold" fill="#00ff41"
+          text-anchor="middle">&gt;&#32;<tspan>_<animate attributeName="opacity" values="1;0;1" keyTimes="0;0.5;1" dur="1s" repeatCount="indefinite" calcMode="discrete"/></tspan></text>
+  </g>
+
+  <!-- "PASSBUBBLE" wordmark -->
+  <!-- x=396, y=172 places visual center at y≈150 for 70px font (cap-height≈49px) -->
+  <text x="396" y="172"
+        font-family="'Courier New', Courier, 'Lucida Console', monospace"
+        font-size="70"
+        font-weight="bold"
+        fill="#00ff41"
+        letter-spacing="6"
+        filter="url(#glow-strong)">PASSBUBBLE</text>
+
+  <!-- Separator line -->
+  <line x1="316" y1="200" x2="874" y2="200"
+        stroke="#00ff41" stroke-width="0.6" opacity="0.30"/>
+
+  <!-- Tagline -->
+  <text x="595" y="225"
+        font-family="'Courier New', Courier, 'Lucida Console', monospace"
+        font-size="14"
+        fill="#00ff41"
+        text-anchor="middle"
+        opacity="0.55">// e2e encrypted · self-hosted · post-quantum</text>
+</svg>

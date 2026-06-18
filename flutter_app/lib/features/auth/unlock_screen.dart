@@ -21,6 +21,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
+import '../../widgets/app_logo.dart';
 
 /// Unlock screen: decrypt private keys with master password (or biometrics if cached).
 class UnlockScreen extends ConsumerStatefulWidget {
@@ -92,7 +93,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.lock_outline, color: AppTheme.green, size: 48),
+                const AppLogo(size: 56),
                 const SizedBox(height: 24),
                 Text(
                   '> UNLOCK VAULT',

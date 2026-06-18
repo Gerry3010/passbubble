@@ -21,6 +21,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
+import '../../widgets/app_logo.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -75,6 +76,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const AppLogo(size: 64),
+                  const SizedBox(height: 24),
                   Text(
                     '> LOGIN',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(

@@ -42,6 +42,7 @@ dependencies:
   # UI
   cupertino_icons: ^1.0.8
   google_fonts: ^6.2.1
+  flutter_svg: ^2.0.0+1
 
   # Update system
   url_launcher: ^6.3.1
@@ -65,3 +66,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/svg/

@@ -144,6 +144,9 @@ only manages users/invitations via plain JWT-authenticated requests.
     font-size: 14px;
     letter-spacing: 2px;
     margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
   #app-view header .who {
     color: var(--text-dim);
@@ -229,7 +232,7 @@ only manages users/invitations via plain JWT-authenticated requests.
 
 <div id="login-view">
   <div class="login-box">
-    <h1>&gt; PASSBUBBLE ADMIN</h1>
+    <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="22" height="22" style="flex-shrink:0"><rect width="256" height="256" fill="#0a0a0a"/><path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z" fill="rgba(0,255,65,0.08)" stroke="var(--primary)" stroke-width="14"/><text x="128" y="120" font-family="monospace" font-size="54" font-weight="bold" fill="var(--primary)" text-anchor="middle">&gt; _</text></svg>&gt; PASSBUBBLE ADMIN</h1>
     <p class="sub">Sign in with your admin account</p>
     <form id="login-form">
       <label for="login-email">Email</label>
@@ -244,7 +247,7 @@ only manages users/invitations via plain JWT-authenticated requests.
 
 <div id="app-view" class="hidden">
   <header>
-    <h1>&gt; PASSBUBBLE ADMIN</h1>
+    <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="22" height="22" style="flex-shrink:0"><rect width="256" height="256" fill="#0a0a0a"/><path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z" fill="rgba(0,255,65,0.08)" stroke="var(--primary)" stroke-width="14"/><text x="128" y="120" font-family="monospace" font-size="54" font-weight="bold" fill="var(--primary)" text-anchor="middle">&gt; _</text></svg>&gt; PASSBUBBLE ADMIN</h1>
     <div class="who">
       <span id="who-text"></span>
       &nbsp;·&nbsp;

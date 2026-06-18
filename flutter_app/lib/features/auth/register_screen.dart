@@ -21,6 +21,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
+import '../../widgets/app_logo.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -91,6 +92,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const AppLogo(size: 56),
+                  const SizedBox(height: 24),
                   PbTextField(
                     label: 'Invitation Token',
                     controller: _tokenCtrl,

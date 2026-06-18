@@ -13,7 +13,7 @@ LDFLAGS     = -ldflags="-s -w \
         build-backend build-cli build-all \
         test test-backend test-cli test-flutter test-all \
         lint migrate migrate-down migrate-create sqlc \
-        build-extension test-extension \
+        build-extension test-extension icons \
         clean
 
 help:
@@ -33,6 +33,7 @@ help:
 	@echo "  make sqlc            Regenerate sqlc models"
 	@echo "  make build-extension Build Chrome + Firefox extension"
 	@echo "  make test-extension  Run extension tests"
+	@echo "  make icons           Rasterize SVG → extension PNGs (needs rsvg-convert)"
 	@echo "  make clean           Remove build artifacts"
 
 # ── Docker ────────────────────────────────────────────────────────────────────
@@ -112,6 +113,13 @@ build-extension:
 test-extension:
 	cd packages/shared-ts && npm ci && npm test
 	cd extension && npm ci && npm test
+
+# ── SVG Icons ─────────────────────────────────────────────────────────────────
+
+icons: ## Rasterize SVG → extension PNG icons (requires rsvg-convert or inkscape)
+	rsvg-convert -w 16  -h 16  flutter_app/assets/svg/icon.svg -o extension/icons/icon16.png
+	rsvg-convert -w 48  -h 48  flutter_app/assets/svg/icon.svg -o extension/icons/icon48.png
+	rsvg-convert -w 128 -h 128 flutter_app/assets/svg/icon.svg -o extension/icons/icon128.png
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

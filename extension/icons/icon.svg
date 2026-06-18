@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Copyright (C) 2026 Gerald Hofbauer <info@geraldhofbauer.net>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <filter id="glow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <pattern id="scanlines" x="0" y="0" width="1" height="4" patternUnits="userSpaceOnUse">
+      <rect y="0" width="256" height="1" fill="#00ff41" opacity="0.03"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="256" height="256" fill="#0a0a0a"/>
+  <rect width="256" height="256" fill="url(#scanlines)"/>
+
+  <!-- Terminal bubble: sharp-corner rect + bottom-left pointer tail -->
+  <!-- Body: x 28–228, y 36–168 | Tail: (78,168)→(42,218)→(28,168) -->
+  <path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z"
+        fill="rgba(0,255,65,0.07)"
+        stroke="#00ff41"
+        stroke-width="2.5"
+        stroke-linejoin="miter"
+        filter="url(#glow)"/>
+
+  <!-- Circuit trace: top-left corner — left, then up -->
+  <line x1="28" y1="36" x2="8" y2="36" stroke="#00ff41" stroke-width="1.5" opacity="0.70"/>
+  <line x1="8"  y1="36" x2="8" y2="16" stroke="#00ff41" stroke-width="1.5" opacity="0.50"/>
+  <rect x="4"  y="32" width="8" height="8" fill="#00ff41" opacity="0.90"/>
+  <rect x="4"  y="12" width="8" height="8" fill="#00ff41" opacity="0.50"/>
+
+  <!-- Circuit trace: top-right corner — right, then up -->
+  <line x1="228" y1="36" x2="248" y2="36" stroke="#00ff41" stroke-width="1.5" opacity="0.70"/>
+  <line x1="248" y1="36" x2="248" y2="16" stroke="#00ff41" stroke-width="1.5" opacity="0.50"/>
+  <rect x="244" y="32" width="8" height="8" fill="#00ff41" opacity="0.90"/>
+  <rect x="244" y="12" width="8" height="8" fill="#00ff41" opacity="0.50"/>
+
+  <!-- Circuit trace: bottom-right corner — right, then down -->
+  <line x1="228" y1="168" x2="248" y2="168" stroke="#00ff41" stroke-width="1.5" opacity="0.70"/>
+  <line x1="248" y1="168" x2="248" y2="190" stroke="#00ff41" stroke-width="1.5" opacity="0.50"/>
+  <rect x="244" y="164" width="8" height="8" fill="#00ff41" opacity="0.90"/>
+  <rect x="244" y="186" width="8" height="8" fill="#00ff41" opacity="0.50"/>
+
+  <!-- Circuit trace: tail tip — left, then down -->
+  <line x1="42" y1="218" x2="18" y2="218" stroke="#00ff41" stroke-width="1.5" opacity="0.70"/>
+  <line x1="18" y1="218" x2="18" y2="240" stroke="#00ff41" stroke-width="1.5" opacity="0.50"/>
+  <rect x="14" y="214" width="8" height="8" fill="#00ff41" opacity="0.90"/>
+  <rect x="14" y="236" width="8" height="8" fill="#00ff41" opacity="0.50"/>
+
+  <!-- Terminal prompt "> _" centered in bubble body (center: 128, 102) -->
+  <text x="128" y="120"
+        font-family="'Courier New', Courier, 'Lucida Console', monospace"
+        font-size="54"
+        font-weight="bold"
+        fill="#00ff41"
+        text-anchor="middle"
+        filter="url(#glow)">&gt;&#32;<tspan>_<animate attributeName="opacity" values="1;0;1" keyTimes="0;0.5;1" dur="1s" repeatCount="indefinite" calcMode="discrete"/></tspan></text>
+</svg>

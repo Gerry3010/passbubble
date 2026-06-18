@@ -1,4 +1,6 @@
-# Passbubble
+<p align="center">
+  <img src="assets/svg/banner.svg" alt="Passbubble" width="800"/>
+</p>
 
 > 🤖 **AI Development Notice**: This project was developed collaboratively between Gerry and Claude (Anthropic's AI assistant). The codebase, fixes, and documentation were created through AI assistance to ensure robust functionality and proper security practices. We believe in transparency about AI involvement in open source projects.
 
