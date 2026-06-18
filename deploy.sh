@@ -19,6 +19,9 @@ error() { echo -e "\033[1;31m[error]\033[0m $*" >&2; exit 1; }
 
 require() { command -v "$1" &>/dev/null || error "'$1' not found — install it first."; }
 
+# Use sudo only when not already root
+maybe_sudo() { if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo "$@"; fi; }
+
 ask() {
   local var="$1" prompt="$2" default="${3:-}"
   local val
@@ -43,8 +46,8 @@ echo ""
 
 # ── install dir ───────────────────────────────────────────────────────────────
 info "Creating install directory $INSTALL_DIR …"
-sudo mkdir -p "$INSTALL_DIR"
-sudo chown "$USER":"$USER" "$INSTALL_DIR"
+maybe_sudo mkdir -p "$INSTALL_DIR"
+maybe_sudo chown "$USER":"$USER" "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 # Read DOMAIN/ADMIN_EMAIL from existing .env before prompting
@@ -104,7 +107,7 @@ fi
 if command -v nginx &>/dev/null; then
   info "Installing nginx vhost for $DOMAIN …"
 
-  sudo tee "$NGINX_AVAILABLE" > /dev/null <<NGINX
+  maybe_sudo tee "$NGINX_AVAILABLE" > /dev/null <<NGINX
 server {
     listen 80;
     listen [::]:80;
@@ -147,25 +150,25 @@ server {
 }
 NGINX
 
-  [[ -L "$NGINX_ENABLED" ]] || sudo ln -s "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+  [[ -L "$NGINX_ENABLED" ]] || maybe_sudo ln -s "$NGINX_AVAILABLE" "$NGINX_ENABLED"
 
   # ── TLS via certbot ─────────────────────────────────────────────────────────
   if command -v certbot &>/dev/null; then
     info "Running certbot for $DOMAIN (email: $ADMIN_EMAIL) …"
-    sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"
-    sudo nginx -t && sudo systemctl reload nginx
+    maybe_sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"
+    maybe_sudo nginx -t && maybe_sudo systemctl reload nginx
     info "TLS configured."
   else
     info "certbot not found — installing …"
     if command -v apt-get &>/dev/null; then
-      sudo apt-get install -y certbot python3-certbot-nginx
+      maybe_sudo apt-get install -y certbot python3-certbot-nginx
     elif command -v dnf &>/dev/null; then
-      sudo dnf install -y certbot python3-certbot-nginx
+      maybe_sudo dnf install -y certbot python3-certbot-nginx
     else
-      error "Cannot install certbot automatically. Install it manually and run: sudo certbot --nginx -d $DOMAIN"
+      error "Cannot install certbot automatically. Install it manually and run: certbot --nginx -d $DOMAIN"
     fi
-    sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"
-    sudo nginx -t && sudo systemctl reload nginx
+    maybe_sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"
+    maybe_sudo nginx -t && maybe_sudo systemctl reload nginx
     info "TLS configured."
   fi
 else
