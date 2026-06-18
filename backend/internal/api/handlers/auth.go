@@ -303,10 +303,14 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 // VerifyEmail handles GET /api/v1/auth/verify-email?token=...
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
-	if token == "" {
+	writeVerifyHTML := func(code int, body string) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, verifyErrHTML)
+		w.WriteHeader(code)
+		_, _ = fmt.Fprint(w, body)
+	}
+
+	if token == "" {
+		writeVerifyHTML(http.StatusBadRequest, verifyErrHTML)
 		return
 	}
 
@@ -316,9 +320,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		WHERE token = $1 AND expires_at > NOW()`, token,
 	).Scan(&userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, verifyErrHTML)
+		writeVerifyHTML(http.StatusBadRequest, verifyErrHTML)
 		return
 	}
 
@@ -331,8 +333,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.pool.Exec(r.Context(),
 		`DELETE FROM email_verification_tokens WHERE token = $1`, token)
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, verifySuccessHTML)
+	writeVerifyHTML(http.StatusOK, verifySuccessHTML)
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────
