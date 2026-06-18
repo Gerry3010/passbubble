@@ -340,3 +340,123 @@ class InvitationResponse {
         used: j['accepted_at'] != null,
       );
 }
+
+class JobResponse {
+  final String id;
+  final String status;
+  final String type;
+  final String format;
+  final int processedItems;
+  final int totalItems;
+  final int createdItems;
+  final int updatedItems;
+  final int skippedItems;
+  final int failedItems;
+  final String? clientName;
+  final String? errorMessage;
+  final String createdAt;
+
+  const JobResponse({
+    required this.id,
+    required this.status,
+    required this.type,
+    required this.format,
+    required this.processedItems,
+    required this.totalItems,
+    required this.createdItems,
+    required this.updatedItems,
+    required this.skippedItems,
+    required this.failedItems,
+    this.clientName,
+    this.errorMessage,
+    required this.createdAt,
+  });
+
+  double get progressFraction =>
+      totalItems > 0 ? processedItems / totalItems : 0.0;
+
+  factory JobResponse.fromJson(Map<String, dynamic> j) => JobResponse(
+        id: j['id'] as String,
+        status: j['status'] as String? ?? 'pending',
+        type: j['type'] as String? ?? 'import',
+        format: j['format'] as String? ?? '',
+        processedItems: j['processed_items'] as int? ?? 0,
+        totalItems: j['total_items'] as int? ?? 0,
+        createdItems: j['created_items'] as int? ?? 0,
+        updatedItems: j['updated_items'] as int? ?? 0,
+        skippedItems: j['skipped_items'] as int? ?? 0,
+        failedItems: j['failed_items'] as int? ?? 0,
+        clientName: j['client_name'] as String?,
+        errorMessage: j['error_message'] as String?,
+        createdAt: j['created_at'] as String? ?? '',
+      );
+}
+
+class ShareLinkResponse {
+  final String id;
+  final String expiresAt;
+  final String? revokedAt;
+
+  const ShareLinkResponse({
+    required this.id,
+    required this.expiresAt,
+    this.revokedAt,
+  });
+
+  factory ShareLinkResponse.fromJson(Map<String, dynamic> j) =>
+      ShareLinkResponse(
+        id: j['id'] as String,
+        expiresAt: j['expires_at'] as String? ?? '',
+        revokedAt: j['revoked_at'] as String?,
+      );
+}
+
+class DirectShareResponse {
+  final String resourceId;
+  final String resourceName;
+  final String userId;
+  final String userEmail;
+  final String permission;
+
+  const DirectShareResponse({
+    required this.resourceId,
+    required this.resourceName,
+    required this.userId,
+    required this.userEmail,
+    required this.permission,
+  });
+
+  factory DirectShareResponse.fromJson(Map<String, dynamic> j) =>
+      DirectShareResponse(
+        resourceId: j['resource_id'] as String,
+        resourceName: j['resource_name'] as String? ?? '',
+        userId: j['user_id'] as String,
+        userEmail: j['user_email'] as String? ?? '',
+        permission: j['permission'] as String? ?? 'read',
+      );
+}
+
+class MySharesResponse {
+  final List<ShareLinkResponse> shareLinks;
+  final List<DirectShareResponse> entryShares;
+  final List<DirectShareResponse> folderShares;
+
+  const MySharesResponse({
+    required this.shareLinks,
+    required this.entryShares,
+    required this.folderShares,
+  });
+
+  factory MySharesResponse.fromJson(Map<String, dynamic> j) =>
+      MySharesResponse(
+        shareLinks: (j['share_links'] as List? ?? [])
+            .map((e) => ShareLinkResponse.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        entryShares: (j['entry_shares'] as List? ?? [])
+            .map((e) => DirectShareResponse.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        folderShares: (j['folder_shares'] as List? ?? [])
+            .map((e) => DirectShareResponse.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
+}

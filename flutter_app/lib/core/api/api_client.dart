@@ -191,6 +191,31 @@ class ApiClient {
     return GenerateResponse.fromJson(resp.data as Map<String, dynamic>);
   }
 
+  // ── Jobs ──────────────────────────────────────────────────────────────────
+
+  Future<List<JobResponse>> listJobs() async {
+    final resp = await _get('/api/v1/jobs');
+    return (resp.data as List)
+        .map((e) => JobResponse.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  // ── Shares ────────────────────────────────────────────────────────────────
+
+  Future<MySharesResponse> listMyShares() async {
+    final resp = await _get('/api/v1/shares');
+    return MySharesResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  Future<void> revokeShareLink(String linkId) =>
+      _delete('/api/v1/shares/links/$linkId');
+
+  Future<void> revokeEntryShare(String entryId, String userId) =>
+      _delete('/api/v1/entries/$entryId/share/$userId');
+
+  Future<void> revokeFolderShare(String folderId, String userId) =>
+      _delete('/api/v1/folders/$folderId/share/$userId');
+
   // ── Admin ─────────────────────────────────────────────────────────────────
 
   Future<List<UserResponse>> adminListUsers() async {
