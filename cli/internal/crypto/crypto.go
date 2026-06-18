@@ -206,6 +206,8 @@ func hybridKDF(classical, pq []byte) []byte {
 	combined := append(classical, pq...)
 	r := hkdf.New(gocrypto.New, combined, nil, []byte("passbubble-hybrid-kem-v1"))
 	key := make([]byte, 32)
-	io.ReadFull(r, key)
+	if _, err := io.ReadFull(r, key); err != nil {
+		panic("hybridKDF: failed to derive key: " + err.Error())
+	}
 	return key
 }

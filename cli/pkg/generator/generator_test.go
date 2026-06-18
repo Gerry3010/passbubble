@@ -115,7 +115,7 @@ func TestGenerateAlphanumeric(t *testing.T) {
 
 	// Should only contain letters and numbers
 	for _, char := range password {
-		if !((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')) {
+		if (char < 'A' || char > 'Z') && (char < 'a' || char > 'z') && (char < '0' || char > '9') {
 			t.Errorf("Alphanumeric password contains invalid character: %c", char)
 		}
 	}

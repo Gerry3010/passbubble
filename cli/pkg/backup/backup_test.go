@@ -152,7 +152,7 @@ func TestCreateAndRestoreBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Setup mock keyring with test data
 	kr := NewMockKeyring()
@@ -230,7 +230,7 @@ func TestListBackups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	kr := NewMockKeyring()
 	opts := &BackupOptions{
@@ -308,7 +308,7 @@ func TestCleanOldBackups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	kr := NewMockKeyring()
 	if err := kr.Store("test", "", "password"); err != nil {
@@ -387,7 +387,7 @@ func TestBackupMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	kr := NewMockKeyring()
 	if err := kr.Store("test1", "user1", "password1"); err != nil {

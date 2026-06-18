@@ -136,18 +136,18 @@ func (m *Manager) CreateBackup() (string, error) {
 	if m.options.UseGPG {
 		encryptedFilename, err := m.encryptWithGPG(filename)
 		if err != nil {
-			os.Remove(filename) // Clean up unencrypted file
+			_ = os.Remove(filename) // Clean up unencrypted file
 			return "", fmt.Errorf("failed to encrypt backup: %w", err)
 		}
-		os.Remove(filename) // Remove unencrypted file
+		_ = os.Remove(filename) // Remove unencrypted file
 		filename = encryptedFilename
 	} else if m.options.UsePassword {
 		encryptedFilename, err := m.encryptWithPassword(filename)
 		if err != nil {
-			os.Remove(filename) // Clean up unencrypted file
+			_ = os.Remove(filename) // Clean up unencrypted file
 			return "", fmt.Errorf("failed to encrypt backup: %w", err)
 		}
-		os.Remove(filename) // Remove unencrypted file
+		_ = os.Remove(filename) // Remove unencrypted file
 		filename = encryptedFilename
 	}
 
@@ -303,7 +303,7 @@ func (m *Manager) writeBackup(data BackupData, filename string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Write JSON data
 	jsonPath := filepath.Join(tempDir, "passwords.json")
@@ -338,7 +338,7 @@ func (m *Manager) readBackup(filename string) (BackupData, error) {
 	if err != nil {
 		return data, err
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Extract tar.gz
 	if err := m.extractTarGz(filename, tempDir); err != nil {
@@ -384,13 +384,13 @@ func (m *Manager) createTarGz(filename, sourceDir string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	gzWriter := gzip.NewWriter(file)
-	defer gzWriter.Close()
+	defer func() { _ = gzWriter.Close() }()
 
 	tarWriter := tar.NewWriter(gzWriter)
-	defer tarWriter.Close()
+	defer func() { _ = tarWriter.Close() }()
 
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -420,7 +420,7 @@ func (m *Manager) createTarGz(filename, sourceDir string) error {
 		if err != nil {
 			return err
 		}
-		defer srcFile.Close()
+		defer func() { _ = srcFile.Close() }()
 
 		_, err = io.Copy(tarWriter, srcFile)
 		return err
@@ -432,13 +432,13 @@ func (m *Manager) extractTarGz(filename, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	gzReader, err := gzip.NewReader(file)
 	if err != nil {
 		return err
 	}
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	tarReader := tar.NewReader(gzReader)
 
@@ -459,7 +459,7 @@ func (m *Manager) extractTarGz(filename, destDir string) error {
 			if err != nil {
 				return err
 			}
-			defer outFile.Close()
+			defer func() { _ = outFile.Close() }()
 
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				return err
