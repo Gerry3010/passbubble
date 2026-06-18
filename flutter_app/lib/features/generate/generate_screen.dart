@@ -16,11 +16,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
 
 class GenerateScreen extends ConsumerStatefulWidget {
@@ -171,7 +170,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: const _BottomNav(currentIndex: 2),
+      bottomNavigationBar: const PbBottomNav(currentIndex: 2),
     );
   }
 }
@@ -255,48 +254,3 @@ class _StrengthBar extends StatelessWidget {
   }
 }
 
-// Re-export the bottom nav from entries for use here
-class _BottomNav extends _BottomNavBase {
-  const _BottomNav({required super.currentIndex});
-}
-
-class _BottomNavBase extends StatelessWidget {
-  final int currentIndex;
-  const _BottomNavBase({required this.currentIndex});
-
-  @override
-  Widget build(BuildContext context) {
-    return NavigationBar(
-      backgroundColor: AppTheme.bg,
-      selectedIndex: currentIndex,
-      indicatorColor: AppTheme.greenFaint,
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.lock_outline),
-          selectedIcon: Icon(Icons.lock, color: AppTheme.green),
-          label: 'Vault',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.folder_outlined),
-          selectedIcon: Icon(Icons.folder, color: AppTheme.green),
-          label: 'Folders',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.casino_outlined),
-          selectedIcon: Icon(Icons.casino, color: AppTheme.green),
-          label: 'Generate',
-        ),
-      ],
-      onDestinationSelected: (i) {
-        switch (i) {
-          case 0:
-            context.go('/entries');
-          case 1:
-            context.go('/folders');
-          case 2:
-            break; // already here
-        }
-      },
-    );
-  }
-}

@@ -20,6 +20,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
 
 final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
@@ -116,7 +117,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
         onPressed: () => context.go('/entries/new'),
         child: const Icon(Icons.add),
       ),
-      bottomNavigationBar: _BottomNav(currentIndex: 0),
+      bottomNavigationBar: const PbBottomNav(currentIndex: 0),
     );
   }
 }
@@ -226,43 +227,3 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-class _BottomNav extends StatelessWidget {
-  final int currentIndex;
-  const _BottomNav({required this.currentIndex});
-
-  @override
-  Widget build(BuildContext context) {
-    return NavigationBar(
-      backgroundColor: AppTheme.bg,
-      selectedIndex: currentIndex,
-      indicatorColor: AppTheme.greenFaint,
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.lock_outline),
-          selectedIcon: Icon(Icons.lock, color: AppTheme.green),
-          label: 'Vault',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.folder_outlined),
-          selectedIcon: Icon(Icons.folder, color: AppTheme.green),
-          label: 'Folders',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.casino_outlined),
-          selectedIcon: Icon(Icons.casino, color: AppTheme.green),
-          label: 'Generate',
-        ),
-      ],
-      onDestinationSelected: (i) {
-        switch (i) {
-          case 0:
-            context.go('/entries');
-          case 1:
-            context.go('/folders');
-          case 2:
-            context.go('/generate');
-        }
-      },
-    );
-  }
-}

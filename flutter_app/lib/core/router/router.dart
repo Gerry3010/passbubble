@@ -26,6 +26,7 @@ import '../../features/entries/entry_detail_screen.dart';
 import '../../features/entries/add_edit_screen.dart';
 import '../../features/generate/generate_screen.dart';
 import '../../features/folders/folders_screen.dart';
+import '../../features/manage/manage_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/settings/update_screen.dart';
 
@@ -79,6 +80,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/generate', builder: (_, _) => const GenerateScreen()),
       GoRoute(path: '/folders', builder: (_, _) => const FoldersScreen()),
+      GoRoute(path: '/manage', builder: (_, _) => const ManageScreen()),
       GoRoute(
         path: '/settings',
         builder: (_, _) => const SettingsScreen(),

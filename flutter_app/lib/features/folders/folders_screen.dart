@@ -15,11 +15,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/bottom_nav.dart';
 
 final _foldersProvider = FutureProvider<List<FolderResponse>>((ref) {
   return ref.watch(apiClientProvider).listFolders();
@@ -52,7 +51,7 @@ class FoldersScreen extends ConsumerWidget {
           );
         },
       ),
-      bottomNavigationBar: _BottomNav(),
+      bottomNavigationBar: const PbBottomNav(currentIndex: 1),
     );
   }
 }
@@ -76,40 +75,3 @@ class _FolderTile extends StatelessWidget {
   }
 }
 
-class _BottomNav extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return NavigationBar(
-      backgroundColor: AppTheme.bg,
-      selectedIndex: 1,
-      indicatorColor: AppTheme.greenFaint,
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.lock_outline),
-          selectedIcon: Icon(Icons.lock, color: AppTheme.green),
-          label: 'Vault',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.folder_outlined),
-          selectedIcon: Icon(Icons.folder, color: AppTheme.green),
-          label: 'Folders',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.casino_outlined),
-          selectedIcon: Icon(Icons.casino, color: AppTheme.green),
-          label: 'Generate',
-        ),
-      ],
-      onDestinationSelected: (i) {
-        switch (i) {
-          case 0:
-            context.go('/entries');
-          case 1:
-            break;
-          case 2:
-            context.go('/generate');
-        }
-      },
-    );
-  }
-}
