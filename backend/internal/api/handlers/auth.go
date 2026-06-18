@@ -22,6 +22,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -130,6 +131,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.mailer.SendVerificationEmail(req.Email, token); err != nil {
+			slog.Error("smtp send failed", "to", req.Email, "err", err)
 			// Account is created but email delivery failed — admin can activate manually.
 			respondErr(w, http.StatusCreated, "account created but verification email could not be sent — contact your administrator")
 			return
