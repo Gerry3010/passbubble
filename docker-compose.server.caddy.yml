@@ -58,8 +58,6 @@ services:
       SERVER_PORT: ${SERVER_PORT:-8765}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ENVIRONMENT: production
-    ports:
-      - "127.0.0.1:${SERVER_PORT:-8765}:8765"
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,7 +69,28 @@ services:
         limits:
           memory: 256M
 
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: always
+    profiles:
+      - production
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
 volumes:
   postgres_data:
   redis_data:
   backups:
+  caddy_data:
+  caddy_config:
