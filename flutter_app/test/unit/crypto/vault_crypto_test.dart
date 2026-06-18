@@ -65,31 +65,44 @@ void main() {
     });
 
     group('deriveMasterKey', () {
+      // Use minimal Argon2 params in tests — we're verifying determinism and
+      // output properties, not KDF hardness. Production params (memory=65536,
+      // iterations=3) exceed the 30s CI timeout.
+      const testMemory = 1024;
+      const testIter = 1;
+
       test('same password + salt yields same key bytes', () async {
         final salt = VaultCrypto.randomSalt();
-        final k1 = await VaultCrypto.deriveMasterKey('mypassword', salt);
-        final k2 = await VaultCrypto.deriveMasterKey('mypassword', salt);
+        final k1 = await VaultCrypto.deriveMasterKey('mypassword', salt,
+            memory: testMemory, iterations: testIter);
+        final k2 = await VaultCrypto.deriveMasterKey('mypassword', salt,
+            memory: testMemory, iterations: testIter);
         expect(await k1.extractBytes(), equals(await k2.extractBytes()));
       });
 
       test('different passwords yield different keys', () async {
         final salt = VaultCrypto.randomSalt();
-        final k1 = await VaultCrypto.deriveMasterKey('password1', salt);
-        final k2 = await VaultCrypto.deriveMasterKey('password2', salt);
+        final k1 = await VaultCrypto.deriveMasterKey('password1', salt,
+            memory: testMemory, iterations: testIter);
+        final k2 = await VaultCrypto.deriveMasterKey('password2', salt,
+            memory: testMemory, iterations: testIter);
         expect(await k1.extractBytes(), isNot(equals(await k2.extractBytes())));
       });
 
       test('different salts yield different keys', () async {
         final s1 = VaultCrypto.randomSalt();
         final s2 = VaultCrypto.randomSalt();
-        final k1 = await VaultCrypto.deriveMasterKey('password', s1);
-        final k2 = await VaultCrypto.deriveMasterKey('password', s2);
+        final k1 = await VaultCrypto.deriveMasterKey('password', s1,
+            memory: testMemory, iterations: testIter);
+        final k2 = await VaultCrypto.deriveMasterKey('password', s2,
+            memory: testMemory, iterations: testIter);
         expect(await k1.extractBytes(), isNot(equals(await k2.extractBytes())));
       });
 
       test('derived key is 32 bytes', () async {
         final salt = VaultCrypto.randomSalt();
-        final key = await VaultCrypto.deriveMasterKey('password', salt);
+        final key = await VaultCrypto.deriveMasterKey('password', salt,
+            memory: testMemory, iterations: testIter);
         final bytes = await key.extractBytes();
         expect(bytes.length, equals(32));
       });
