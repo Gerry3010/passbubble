@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-06-18
+
+### Fixed
+- CI: pin Flutter to `3.44.0` (Dart 3.10) — wildcard `3.44.x` fell back to cached `3.32.8`
+- CI: restore `sdk: ^3.10.0` Dart constraint in `pubspec.yaml` (correct for Flutter 3.44.0)
+
 ## [2.0.2] - 2026-06-18
 
 ### Fixed
