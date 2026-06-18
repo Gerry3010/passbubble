@@ -50,7 +50,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
       if (!canBio) return;
       final ok = await _localAuth.authenticate(
         localizedReason: 'Unlock your vault',
-        options: const AuthenticationOptions(biometricOnly: true),
+        biometricOnly: true,
       );
       if (ok && mounted) {
         // Biometric unlocked — signal success (master password was cached via secure storage)
