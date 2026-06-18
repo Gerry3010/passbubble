@@ -36,11 +36,11 @@ jobs:
           - 6379:6379
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           cache-dependency-path: backend/go.sum
 
       - name: Run backend tests
@@ -54,7 +54,7 @@ jobs:
       - name: Lint backend
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v2.12.2
           working-directory: backend
           args: --timeout=5m
 
@@ -63,11 +63,11 @@ jobs:
     name: Test CLI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           cache-dependency-path: cli/go.sum
 
       - name: Run CLI tests
@@ -81,7 +81,7 @@ jobs:
       - name: Lint CLI
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v2.12.2
           working-directory: cli
           args: --timeout=5m
 
@@ -90,11 +90,11 @@ jobs:
     name: Test Flutter
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.32.x"
+          flutter-version: "3.44.0"
           channel: stable
           cache: true
 
@@ -122,12 +122,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test-backend]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Build backend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: backend
           push: false
