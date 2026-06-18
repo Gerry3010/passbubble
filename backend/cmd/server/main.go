@@ -56,7 +56,7 @@ func main() {
 		slog.Error("failed to connect to redis", "error", err)
 		os.Exit(1)
 	}
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	srv := api.NewServer(cfg, pool, rdb)
 

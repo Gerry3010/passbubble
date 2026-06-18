@@ -43,7 +43,7 @@ func Parse1PUX(zipBytes []byte) (*ImportResult, error) {
 			continue
 		}
 		data, err := io.ReadAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		if err != nil {
 			continue
 		}

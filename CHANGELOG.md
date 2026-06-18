@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-06-18
+
+### Fixed
+- CLI: resolve 17 golangci-lint issues (errcheck: defer Close/Remove/ReadFull, staticcheck: De Morgan's law)
+- Flutter: fix deprecated API usage in export/import tabs (`value`→`initialValue`, `activeColor`→`activeThumbColor`, `withOpacity`→`withValues`)
+
 ## [2.0.4] - 2026-06-18
 
 ### Fixed

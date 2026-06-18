@@ -289,9 +289,6 @@ func (h *Handler) entryPerm(ctx context.Context, entryID, userID string, perms .
 	return exists
 }
 
-func itoa(n int) string {
-	return fmt.Sprintf("%d", n)
-}
 
 var allowedEntryTypes = map[string]bool{
 	"password":     true,

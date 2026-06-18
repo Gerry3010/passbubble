@@ -163,14 +163,14 @@ func (m *Manager) RestoreBackup(backupPath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to decrypt GPG backup: %w", err)
 		}
-		defer os.Remove(decryptedPath) // Clean up decrypted file
+		defer func() { _ = os.Remove(decryptedPath) }() // Clean up decrypted file
 		actualPath = decryptedPath
 	} else if strings.HasSuffix(backupPath, ".enc") {
 		decryptedPath, err := m.decryptWithPassword(backupPath)
 		if err != nil {
 			return fmt.Errorf("failed to decrypt password-protected backup: %w", err)
 		}
-		defer os.Remove(decryptedPath) // Clean up decrypted file
+		defer func() { _ = os.Remove(decryptedPath) }() // Clean up decrypted file
 		actualPath = decryptedPath
 	}
 

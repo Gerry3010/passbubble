@@ -35,7 +35,7 @@ var migrationsFS embed.FS
 func Migrate(pool *pgxpool.Pool) error {
 	// pgx pool → stdlib *sql.DB for golang-migrate
 	db := pgxstdlib.OpenDBFromPool(pool)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
@@ -51,7 +51,7 @@ func Migrate(pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("create migrate instance: %w", err)
 	}
-	defer m.Close()
+	defer func() { _, _ = m.Close() }()
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("run migrations: %w", err)

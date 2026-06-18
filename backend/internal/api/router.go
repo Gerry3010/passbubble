@@ -32,7 +32,6 @@ func (s *Server) buildRouter() http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
-	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.RequestID)
 	r.Use(mw.Logger)
 	r.Use(chimiddleware.Recoverer)
