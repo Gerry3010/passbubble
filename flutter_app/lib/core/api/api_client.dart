@@ -94,9 +94,22 @@ class ApiClient {
     return LoginResponse.fromJson(resp.data as Map<String, dynamic>);
   }
 
-  Future<LoginResponse> register(RegisterRequest req) async {
+  /// Returns a [LoginResponse] on immediate activation (HTTP 201), or a
+  /// pending-verification message string on HTTP 202 (SMTP enabled).
+  Future<({LoginResponse? session, String? pendingMessage})> register(
+      RegisterRequest req) async {
     final resp = await _post('/api/v1/auth/register', req.toJson());
-    return LoginResponse.fromJson(resp.data as Map<String, dynamic>);
+    if (resp.statusCode == 202) {
+      final msg = (resp.data as Map<String, dynamic>)['message'] as String?;
+      return (
+        session: null,
+        pendingMessage: msg ?? 'Check your email to verify your account',
+      );
+    }
+    return (
+      session: LoginResponse.fromJson(resp.data as Map<String, dynamic>),
+      pendingMessage: null,
+    );
   }
 
   Future<RefreshResponse> refresh(String refreshToken) async {

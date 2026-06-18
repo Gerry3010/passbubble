@@ -64,6 +64,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final infoMessage = GoRouterState.of(context).extra as String?;
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
@@ -85,6 +86,30 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           letterSpacing: 3,
                         ),
                   ),
+                  if (infoMessage != null) ...[
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.green),
+                        color: AppTheme.green.withAlpha(25),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.mark_email_unread_outlined,
+                              color: AppTheme.green, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              infoMessage,
+                              style: const TextStyle(
+                                  color: AppTheme.green, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 32),
                   PbTextField(
                     label: 'Email',

@@ -114,18 +114,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  Future<void> register(String email, String name, String password,
+  /// Returns null when logged in directly, or a pending-verification message
+  /// that the UI should display before redirecting to the login screen.
+  Future<String?> register(String email, String name, String password,
       String invitationToken) async {
-    final session =
+    final pending =
         await _svc.register(email, name, password, invitationToken);
+    if (pending != null) return pending;
+
+    // SMTP disabled — session is live, load profile to populate state.
+    final (_, userId, userEmail, userName, role) = await _svc.loadSession();
     state = AuthState(
       isLoggedIn: true,
       isUnlocked: true,
-      userId: session.userId,
-      email: session.email,
-      name: session.name,
-      role: session.role,
+      userId: userId,
+      email: userEmail,
+      name: userName,
+      role: role,
     );
+    return null;
   }
 
   Future<bool> unlock(String masterPassword) async {
@@ -189,7 +196,10 @@ class AuthService {
     );
   }
 
-  Future<AuthSession> register(
+  /// Registers a new account. Returns null when the user is immediately
+  /// logged in (SMTP disabled), or a pending-verification message when the
+  /// server requires email confirmation before the account is active.
+  Future<String?> register(
     String email,
     String name,
     String password,
@@ -221,7 +231,12 @@ class AuthService {
       encPrivMlkem768: base64.encode(encPrivMlkem),
       kdfSalt: base64.encode(salt),
     );
-    final resp = await _api.register(req);
+    final result = await _api.register(req);
+
+    // Server requires email verification — no tokens yet.
+    if (result.session == null) return result.pendingMessage;
+
+    final resp = result.session!;
     await _api.setTokens(resp.accessToken, resp.refreshToken);
 
     // Store the key material that came back (server echoes pub keys)
@@ -241,12 +256,7 @@ class AuthService {
 
     _privX25519 = privBytes;
 
-    return (
-      userId: resp.userId,
-      email: resp.email,
-      name: resp.name,
-      role: resp.role,
-    );
+    return null;
   }
 
   Future<bool> unlock(String masterPassword) async {

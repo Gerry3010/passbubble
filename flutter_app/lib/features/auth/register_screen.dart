@@ -59,12 +59,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     }
     setState(() { _loading = true; _error = null; });
     try {
-      await ref.read(authStateProvider.notifier).register(
+      final pending = await ref.read(authStateProvider.notifier).register(
             _emailCtrl.text.trim(),
             _nameCtrl.text.trim(),
             _passCtrl.text,
             _tokenCtrl.text.trim(),
           );
+      if (pending != null && mounted) {
+        // Email verification required — go to login and show the message there.
+        context.go('/login', extra: pending);
+      }
+      // If pending == null, router auto-navigates because isLoggedIn flipped.
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
