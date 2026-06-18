@@ -269,6 +269,9 @@ class ApiClient {
         final msg = data['error'] as String?;
         if (msg != null && msg.isNotEmpty) throw Exception(msg);
       }
+      final status = e.response?.statusCode;
+      if (status == 401) throw Exception('Session expired. Please log in again.');
+      if (status == 403) throw Exception('Access denied.');
       switch (e.type) {
         case DioExceptionType.connectionTimeout:
         case DioExceptionType.receiveTimeout:
