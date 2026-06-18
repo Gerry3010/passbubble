@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2026-06-18
+
+### Fixed
+- CI: upgrade `golangci-lint-action` v6 → v7 (v6 rejects golangci-lint v2.x)
+- CI: Go version 1.24 → 1.26 to match `go.mod` (backend + CLI)
+- Flutter: add missing `PbBottomNav` widget (`shared/widgets/bottom_nav.dart`)
+- Flutter: add missing `job_polling_service.dart` (`runningJobsProvider`)
+- Flutter: add `JobResponse`, `MySharesResponse`, `ShareLinkResponse`, `DirectShareResponse` to `models.dart`
+- Flutter: add `listJobs`, `listMyShares`, `revokeShareLink`, `revokeEntryShare`, `revokeFolderShare` to `ApiClient`
+
 ## [2.0.3] - 2026-06-18
 
 ### Fixed
