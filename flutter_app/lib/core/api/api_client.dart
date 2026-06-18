@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -32,6 +33,7 @@ class ApiClient {
 
   String? _accessToken;
   String? _baseUrl;
+  VoidCallback? _onSessionExpired;
 
   ApiClient() {
     _storage = const FlutterSecureStorage(
@@ -50,6 +52,8 @@ class ApiClient {
   }
 
   bool get isConfigured => _baseUrl != null && _baseUrl!.isNotEmpty;
+
+  void setSessionExpiredCallback(VoidCallback cb) => _onSessionExpired = cb;
 
   Future<void> setServerUrl(String url) async {
     _baseUrl = url.replaceAll(RegExp(r'/$'), '');
@@ -244,7 +248,8 @@ class ApiClient {
 
   Future<Response<dynamic>> _post(String path, Map<String, dynamic> data,
       {bool skipAuth = false}) =>
-      _dio.post(_url(path), data: data);
+      _dio.post(_url(path), data: data,
+          options: skipAuth ? Options(extra: {'skipAuth': true}) : null);
 
   Future<Response<dynamic>> _put(String path, Map<String, dynamic> data) =>
       _dio.put(_url(path), data: data);
@@ -264,21 +269,29 @@ class ApiClient {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
-    // Auto-refresh on 401
+    // Don't intercept requests that explicitly skip auth (e.g. the refresh
+    // call itself) — prevents an infinite retry loop.
+    if (err.requestOptions.extra['skipAuth'] == true) {
+      handler.next(err);
+      return;
+    }
+
     if (err.response?.statusCode == 401) {
       final refreshToken = await getRefreshToken();
       if (refreshToken != null) {
         try {
           final resp = await refresh(refreshToken);
           await setTokens(resp.accessToken, resp.refreshToken);
-          // Retry original request
           final opts = err.requestOptions;
           opts.headers['Authorization'] = 'Bearer $_accessToken';
           final retried = await _dio.fetch(opts);
           handler.resolve(retried);
           return;
         } catch (_) {
+          // Refresh failed — session is gone. Clear everything and signal
+          // the app to return to the login screen.
           await clearTokens();
+          _onSessionExpired?.call();
         }
       }
     }

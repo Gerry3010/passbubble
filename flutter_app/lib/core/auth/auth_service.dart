@@ -85,6 +85,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier(this._svc) : super(const AuthState());
 
   Future<void> init() async {
+    // When the API layer detects a terminal 401 (refresh rejected), clear
+    // everything locally and drop back to the login screen.
+    _svc.api.setSessionExpiredCallback(() async {
+      await _svc.clearLocalSession();
+      state = const AuthState();
+    });
+
     final (loggedIn, userId, email, name, role) = await _svc.loadSession();
     state = AuthState(
       isLoggedIn: loggedIn,
@@ -149,6 +156,14 @@ class AuthService {
   Uint8List? get privX25519 => _privX25519;
 
   AuthService(this._api);
+
+  ApiClient get api => _api;
+
+  Future<void> clearLocalSession() async {
+    _privX25519 = null;
+    await _api.clearTokens();
+    await _storage.deleteAll();
+  }
 
   Future<(bool, String?, String?, String?, String?)> loadSession() async {
     final userId = await _storage.read(key: _kUserIdKey);
