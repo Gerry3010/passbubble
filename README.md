@@ -78,6 +78,18 @@ Admin panel: `https://pwmgr.example.com/admin/`
 
 > For the full setup guide including updates, backups, and pitfalls see [`docs/server-deployment.md`](docs/server-deployment.md).
 
+## Updating
+
+```bash
+# Quick update (image only):
+cd /opt/passbubble && docker compose pull && docker compose up -d
+
+# Full update (image + compose file + nginx config):
+curl -fsSL https://raw.githubusercontent.com/Gerry3010/passbubble/main/deploy.sh | bash
+```
+
+`deploy.sh` is idempotent — it skips secret generation if `.env` already exists and reads `DOMAIN`/`ADMIN_EMAIL` from it.
+
 ## Docker Compose services
 
 | Service | Purpose |
@@ -85,7 +97,6 @@ Admin panel: `https://pwmgr.example.com/admin/`
 | `postgres` | Primary datastore (users, entries, folders, sessions, invitations) |
 | `redis` | Session/rate-limit cache |
 | `backend` | API server; also serves the embedded Flutter web build at `/web/*` and `/admin/*` |
-| `caddy` | TLS reverse proxy — only started with `--profile production` |
 
 ## CLI reference (`pwmgr`)
 
