@@ -2,7 +2,10 @@
 # Builds the Flutter vault web app, served at /web/*. The admin panel at
 # /admin/* is a standalone hand-written HTML/CSS/JS page (backend/internal/
 # static/admin/) — no E2E crypto needed there, so no Flutter build for it.
-FROM ghcr.io/cirruslabs/flutter:stable AS flutter-builder
+#
+# --platform=$BUILDPLATFORM: run Flutter on the native build host (amd64) even
+# when the final image targets arm64 — Flutter web output is arch-independent.
+FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:stable AS flutter-builder
 
 WORKDIR /build
 COPY flutter_app/pubspec.yaml flutter_app/pubspec.lock ./
@@ -11,11 +14,16 @@ COPY flutter_app/ .
 RUN flutter build web --release --base-href "/web/"
 
 # ─── Go build stage ───────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS builder
+# --platform=$BUILDPLATFORM: compile on the native host using Go's built-in
+# cross-compilation (GOARCH=$TARGETARCH) instead of QEMU emulation, cutting
+# arm64 build time from ~10 min down to ~1 min.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
+ARG TARGETOS=linux
+ARG TARGETARCH
 
 WORKDIR /build
 
@@ -28,7 +36,7 @@ RUN go mod download
 COPY backend/ .
 COPY --from=flutter-builder /build/build/web ./internal/static/web
 
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-s -w \
       -X github.com/Gerry3010/passbubble/backend/internal/version.Version=${VERSION} \
       -X github.com/Gerry3010/passbubble/backend/internal/version.Commit=${COMMIT} \
