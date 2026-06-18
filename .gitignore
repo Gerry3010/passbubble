@@ -45,3 +45,6 @@ build/
 # Secrets
 .env
 .claude/
+
+# SVG-derived assets (synced from assets/svg/ via `make sync-assets`)
+extension/icons/

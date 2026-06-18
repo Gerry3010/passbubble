@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# SVG assets synced from root assets/svg/ via `make sync-assets`
+/assets/svg/
+/web/favicon.svg

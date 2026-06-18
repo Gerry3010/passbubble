@@ -13,7 +13,7 @@ LDFLAGS     = -ldflags="-s -w \
         build-backend build-cli build-all \
         test test-backend test-cli test-flutter test-all \
         lint migrate migrate-down migrate-create sqlc \
-        build-extension test-extension icons \
+        build-extension test-extension sync-assets icons \
         clean
 
 help:
@@ -33,6 +33,7 @@ help:
 	@echo "  make sqlc            Regenerate sqlc models"
 	@echo "  make build-extension Build Chrome + Firefox extension"
 	@echo "  make test-extension  Run extension tests"
+	@echo "  make sync-assets     Distribute SVGs from assets/svg/ → flutter_app + extension"
 	@echo "  make icons           Rasterize SVG → extension PNGs (needs rsvg-convert)"
 	@echo "  make clean           Remove build artifacts"
 
@@ -74,8 +75,8 @@ test-backend:
 test-cli:
 	cd cli && go test ./... -race -count=1
 
-test-flutter:
-	cd flutter_app && flutter test --coverage
+test-flutter: sync-assets
+	cd flutter_app && flutter pub get && flutter test --coverage
 
 test-all: test test-flutter
 
@@ -106,7 +107,7 @@ sqlc:
 
 # ── Browser Extension ─────────────────────────────────────────────────────────
 
-build-extension:
+build-extension: sync-assets
 	cd packages/shared-ts && npm run build
 	cd extension && npm run build:chrome && npm run build:firefox
 
@@ -114,12 +115,18 @@ test-extension:
 	cd packages/shared-ts && npm ci && npm test
 	cd extension && npm ci && npm test
 
-# ── SVG Icons ─────────────────────────────────────────────────────────────────
+# ── SVG Assets ────────────────────────────────────────────────────────────────
 
-icons: ## Rasterize SVG → extension PNG icons (requires rsvg-convert or inkscape)
-	rsvg-convert -w 16  -h 16  flutter_app/assets/svg/icon.svg -o extension/icons/icon16.png
-	rsvg-convert -w 48  -h 48  flutter_app/assets/svg/icon.svg -o extension/icons/icon48.png
-	rsvg-convert -w 128 -h 128 flutter_app/assets/svg/icon.svg -o extension/icons/icon128.png
+sync-assets: ## Copy SVG sources from assets/svg/ into sub-projects
+	mkdir -p flutter_app/assets/svg extension/icons
+	cp assets/svg/icon.svg flutter_app/assets/svg/icon.svg
+	cp assets/svg/icon.svg flutter_app/web/favicon.svg
+	cp assets/svg/icon.svg extension/icons/icon.svg
+
+icons: sync-assets ## Rasterize SVG → extension PNG icons (requires rsvg-convert)
+	rsvg-convert -w 16  -h 16  assets/svg/icon.svg -o extension/icons/icon16.png
+	rsvg-convert -w 48  -h 48  assets/svg/icon.svg -o extension/icons/icon48.png
+	rsvg-convert -w 128 -h 128 assets/svg/icon.svg -o extension/icons/icon128.png
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

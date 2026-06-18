@@ -98,6 +98,9 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Sync SVG assets
+        run: make sync-assets
+
       - name: Flutter pub get
         working-directory: flutter_app
         run: flutter pub get
