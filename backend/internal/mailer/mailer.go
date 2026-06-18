@@ -16,14 +16,14 @@
 package mailer
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/smtp"
 )
 
-// Mailer sends transactional emails via SMTP with STARTTLS (port 587) or
-// plain SMTP (port 25). For SMTPS (implicit TLS, port 465) set SMTP_PORT=465
-// and the server must be configured accordingly.
+// Mailer sends transactional emails via SMTP.
+// Port 587 uses STARTTLS; port 465 uses implicit TLS (SMTPS).
 type Mailer struct {
 	host     string
 	port     string
@@ -75,9 +75,50 @@ func (m *Mailer) SendVerificationEmail(toEmail, token string) error {
 	)
 
 	addr := net.JoinHostPort(m.host, m.port)
+
+	// Port 465 uses implicit TLS (SMTPS); all other ports use STARTTLS via smtp.SendMail.
+	if m.port == "465" {
+		return m.sendImplicitTLS(addr, toEmail, []byte(msg))
+	}
+
 	var auth smtp.Auth
 	if m.user != "" {
 		auth = smtp.PlainAuth("", m.user, m.password, m.host)
 	}
 	return smtp.SendMail(addr, auth, m.from, []string{toEmail}, []byte(msg))
+}
+
+// sendImplicitTLS dials with TLS first (port 465 / SMTPS), then authenticates.
+func (m *Mailer) sendImplicitTLS(addr, to string, msg []byte) error {
+	tlsCfg := &tls.Config{ServerName: m.host}
+	conn, err := tls.Dial("tcp", addr, tlsCfg)
+	if err != nil {
+		return fmt.Errorf("tls dial: %w", err)
+	}
+	client, err := smtp.NewClient(conn, m.host)
+	if err != nil {
+		return fmt.Errorf("smtp client: %w", err)
+	}
+	defer client.Close()
+
+	if m.user != "" {
+		auth := smtp.PlainAuth("", m.user, m.password, m.host)
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("smtp auth: %w", err)
+		}
+	}
+	if err := client.Mail(m.from); err != nil {
+		return fmt.Errorf("smtp mail from: %w", err)
+	}
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("smtp rcpt: %w", err)
+	}
+	wc, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("smtp data: %w", err)
+	}
+	if _, err := wc.Write(msg); err != nil {
+		return fmt.Errorf("smtp write: %w", err)
+	}
+	return wc.Close()
 }
