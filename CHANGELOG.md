@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.17] - 2026-06-18
+
+### Added
+- Register form: live password strength bar (rot → orange → gelb → grün) mit Häkchen-Liste; erzwingt min. 12 Zeichen, min. 1 Zahl und min. 1 Sonderzeichen
+
+### Fixed
+- Release workflow: `download-artifact` filtert jetzt auf `{cli-*,flutter-*}`; das interne Docker Build Cloud Artifact (`*.dockerbuild`) hat den Release-Job nach 5 Retries zum Absturz gebracht
+
+### Changed
+- CI/Release: pub-Package-Cache zu `ci.yml` und allen Release-Build-Jobs hinzugefügt; Go-Modul-Cache-Pfad im `release.yml` Test-Job ergänzt; Linux Flutter-Build auf `awalsh128/cache-apt-pkgs-action` umgestellt
+
 ## [2.0.13] - 2026-06-18
 
 ### Added

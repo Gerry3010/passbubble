@@ -41,6 +41,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _obscure = true;
   String? _error;
 
+  static final _specialCharsRe =
+      RegExp(r"""[!@#$%^&*(),.?":{}|<>\-_=+\[\]\\;'`~/]""");
+
+  @override
+  void initState() {
+    super.initState();
+    _passCtrl.addListener(() => setState(() {}));
+  }
+
   @override
   void dispose() {
     _emailCtrl.dispose();
@@ -76,6 +85,81 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  String? _validatePassword(String? v) {
+    if (v == null || v.isEmpty) return 'Required';
+    if (v.length < 12) return 'Min. 12 Zeichen erforderlich';
+    if (!RegExp(r'\d').hasMatch(v)) return 'Min. 1 Zahl erforderlich';
+    if (!_specialCharsRe.hasMatch(v)) return 'Min. 1 Sonderzeichen erforderlich';
+    return null;
+  }
+
+  int get _passwordStrength {
+    final v = _passCtrl.text;
+    int s = 0;
+    if (v.length >= 12) s++;
+    if (RegExp(r'\d').hasMatch(v)) s++;
+    if (_specialCharsRe.hasMatch(v)) s++;
+    return s;
+  }
+
+  Widget _buildStrengthBar() {
+    final pw = _passCtrl.text;
+    if (pw.isEmpty) return const SizedBox.shrink();
+
+    final s = _passwordStrength;
+    const colors = [Colors.red, Colors.orange, Colors.yellow, Colors.green];
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: List.generate(
+              3,
+              (i) => Expanded(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  height: 4,
+                  margin: EdgeInsets.only(right: i < 2 ? 4 : 0),
+                  decoration: BoxDecoration(
+                    color: i < s ? colors[s] : Colors.white12,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _rule('Min. 12 Zeichen', pw.length >= 12),
+          _rule('Min. 1 Zahl', RegExp(r'\d').hasMatch(pw)),
+          _rule('Min. 1 Sonderzeichen', _specialCharsRe.hasMatch(pw)),
+        ],
+      ),
+    );
+  }
+
+  Widget _rule(String label, bool ok) => Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: Row(
+          children: [
+            Icon(
+              ok ? Icons.check_circle : Icons.radio_button_unchecked,
+              size: 14,
+              color: ok ? Colors.green : AppTheme.onBgDim,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: ok ? Colors.green : AppTheme.onBgDim,
+              ),
+            ),
+          ],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -133,9 +217,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       ),
                       onPressed: () => setState(() => _obscure = !_obscure),
                     ),
-                    validator: (v) =>
-                        v!.length < 8 ? 'Min 8 characters' : null,
+                    validator: _validatePassword,
                   ),
+                  _buildStrengthBar(),
                   const SizedBox(height: 16),
                   PbTextField(
                     label: 'Confirm Master Password',
