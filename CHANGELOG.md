@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-06-18
+
+### Fixed
+- CI: upgrade Flutter from 3.32.x to 3.44.x to satisfy the `sdk: ^3.10.4` Dart constraint declared in `pubspec.yaml`
+
+### Added
+- `docker-compose.server.yml` — standalone production compose file using the DockerHub image (no source or Go needed on the server)
+- `docs/server-deployment.md` — full server setup, update, and pitfall guide
+
 ## [2.0.0] - 2026-06-16
 
 ### Changed
