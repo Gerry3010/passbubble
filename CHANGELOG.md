@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-06-18
+
+### Fixed
+- CI: update GitHub Actions to Node.js 24 compatible versions (checkout v6, docker/* actions v4/v4/v4/v6/v7)
+- CI: add `libsecret-1-dev` to Linux Flutter build dependencies (required by `flutter_secure_storage_linux`)
+- CI: remove unused `assets:` declaration from `pubspec.yaml` (caused build warning on Windows and Docker)
+
 ## [2.0.1] - 2026-06-18
 
 ### Fixed
