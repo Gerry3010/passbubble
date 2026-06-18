@@ -49,7 +49,7 @@ services:
           memory: 128M
 
   backend:
-    image: gerry3010/passbubble-server:latest
+    image: gerre01/passbubble-server:latest
     environment:
       DATABASE_URL: postgres://pwmgr:${POSTGRES_PASSWORD}@postgres:5432/pwmgr?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379

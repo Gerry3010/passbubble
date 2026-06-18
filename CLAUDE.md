@@ -106,7 +106,7 @@ The backend version is injected at build time via Go ldflags into `backend/inter
 The `VERSION` variable in the Makefile defaults to `git describe --tags --always --dirty`.
 
 **To cut a release:** tag with `vX.Y.Z` → GH Actions `release.yml` handles everything automatically:
-tests → CLI binaries → Flutter apps → Docker image (DockerHub: `gerry3010/passbubble-server`) → GitHub Release.
+tests → CLI binaries → Flutter apps → Docker image (DockerHub: `gerre01/passbubble-server`) → GitHub Release.
 
 The Flutter app's **Version & Updates** screen (Settings → Check for updates) fetches the server version from
 `GET /health` and the latest release from the GitHub Releases API, then shows the update command.

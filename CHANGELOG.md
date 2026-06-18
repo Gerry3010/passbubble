@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.9] - 2026-06-18
+
+### Fixed
+- CI: remove Flutter Windows build — `local_auth_windows` incompatible with MSVC 14.51 (VS 18)
+- CI: fix DockerHub image name `gerry3010/passbubble-server` → `gerre01/passbubble-server` in all workflows and docs
+
 ## [2.0.8] - 2026-06-18
 
 ### Fixed

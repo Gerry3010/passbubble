@@ -137,35 +137,6 @@ jobs:
           name: flutter-linux
           path: flutter_app/passbubble-linux-x64.tar.gz
 
-  build-flutter-windows:
-    name: Build Flutter Windows
-    runs-on: windows-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v6
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.44.0"
-          channel: stable
-          cache: true
-      - name: Sync version from tag
-        shell: powershell
-        run: |
-          $ver = "${{ github.ref_name }}".TrimStart("v")
-          (Get-Content flutter_app/pubspec.yaml) -replace '^version:.*', "version: ${ver}+1" | Set-Content flutter_app/pubspec.yaml
-      - name: Build Windows
-        working-directory: flutter_app
-        run: flutter build windows --release
-      - name: Package
-        run: |
-          cd flutter_app/build/windows/x64/runner/Release
-          Compress-Archive -Path * -DestinationPath ../../../../../passbubble-windows-x64.zip
-        shell: powershell
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flutter-windows
-          path: flutter_app/passbubble-windows-x64.zip
-
   build-flutter-macos:
     name: Build Flutter macOS
     runs-on: macos-latest
@@ -242,7 +213,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: gerry3010/passbubble-server
+          images: gerre01/passbubble-server
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -270,7 +241,6 @@ jobs:
     needs:
       - build-cli
       - build-flutter-linux
-      - build-flutter-windows
       - build-flutter-macos
       - build-flutter-web
       - docker
@@ -305,7 +275,7 @@ jobs:
 
             ```bash
             # Pull the server
-            docker pull gerry3010/passbubble-server:${{ github.ref_name }}
+            docker pull gerre01/passbubble-server:${{ github.ref_name }}
 
             # Start the stack
             curl -O https://raw.githubusercontent.com/Gerry3010/passbubble/main/docker-compose.yml
@@ -324,7 +294,6 @@ jobs:
             | CLI — macOS Apple Silicon | `pwmgr-darwin-arm64` |
             | CLI — Windows | `pwmgr-windows-amd64.exe` |
             | App — Linux | `passbubble-linux-x64.tar.gz` |
-            | App — Windows | `passbubble-windows-x64.zip` |
             | App — macOS | `passbubble-macos.zip` |
             | Web build | `passbubble-web.tar.gz` |
 
