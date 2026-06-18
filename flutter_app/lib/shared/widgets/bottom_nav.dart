@@ -35,11 +35,6 @@ class PbBottomNav extends StatelessWidget {
           label: 'Vault',
         ),
         NavigationDestination(
-          icon: Icon(Icons.folder_outlined),
-          selectedIcon: Icon(Icons.folder, color: AppTheme.green),
-          label: 'Folders',
-        ),
-        NavigationDestination(
           icon: Icon(Icons.casino_outlined),
           selectedIcon: Icon(Icons.casino, color: AppTheme.green),
           label: 'Generate',
@@ -55,10 +50,8 @@ class PbBottomNav extends StatelessWidget {
           case 0:
             context.go('/entries');
           case 1:
-            context.go('/folders');
-          case 2:
             context.go('/generate');
-          case 3:
+          case 2:
             context.go('/manage');
         }
       },

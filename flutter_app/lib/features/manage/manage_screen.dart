@@ -52,7 +52,7 @@ class ManageScreen extends StatelessWidget {
             JobsTab(),
           ],
         ),
-        bottomNavigationBar: const PbBottomNav(currentIndex: 3),
+        bottomNavigationBar: const PbBottomNav(currentIndex: 2),
       ),
     );
   }

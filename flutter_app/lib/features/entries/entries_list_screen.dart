@@ -27,13 +27,8 @@ final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
   return ref.watch(apiClientProvider).listEntries();
 });
 
-final _searchQueryProvider = StateProvider<String>((ref) => '');
-
-final _filteredEntriesProvider =
-    FutureProvider<List<EntryResponse>>((ref) async {
-  final q = ref.watch(_searchQueryProvider);
-  if (q.isEmpty) return ref.watch(entriesProvider.future);
-  return ref.watch(apiClientProvider).searchEntries(q);
+final foldersProvider = FutureProvider<List<FolderResponse>>((ref) {
+  return ref.watch(apiClientProvider).listFolders();
 });
 
 class EntriesListScreen extends ConsumerStatefulWidget {
@@ -45,6 +40,13 @@ class EntriesListScreen extends ConsumerStatefulWidget {
 
 class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
   final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  // Folder navigation stack — null means root level.
+  final List<FolderResponse?> _stack = [null];
+
+  FolderResponse? get _currentFolder => _stack.last;
+  bool get _atRoot => _stack.length == 1;
 
   @override
   void dispose() {
@@ -52,72 +54,178 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
     super.dispose();
   }
 
+  List<FolderResponse> _subfolders(List<FolderResponse> roots) {
+    if (_currentFolder == null) return roots;
+    return _currentFolder!.children;
+  }
+
+  List<EntryResponse> _entriesInFolder(List<EntryResponse> all) {
+    final id = _currentFolder?.id;
+    return all.where((e) => e.folderId == id).toList();
+  }
+
+  List<EntryResponse> _searchEntries(List<EntryResponse> all) {
+    final q = _searchQuery.toLowerCase();
+    return all
+        .where((e) =>
+            e.name.toLowerCase().contains(q) ||
+            e.url.toLowerCase().contains(q))
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final entries = ref.watch(_filteredEntriesProvider);
+    final foldersAsync = ref.watch(foldersProvider);
+    final entriesAsync = ref.watch(entriesProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('> VAULT'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => context.go('/settings'),
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: TextField(
-              controller: _searchCtrl,
-              onChanged: (v) =>
-                  ref.read(_searchQueryProvider.notifier).state = v,
-              decoration: InputDecoration(
-                hintText: 'search entries...',
-                prefixIcon: const Icon(Icons.search, size: 18),
-                suffixIcon: _searchCtrl.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          ref.read(_searchQueryProvider.notifier).state = '';
-                        },
-                      )
-                    : null,
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                isDense: true,
+    final isSearching = _searchQuery.isNotEmpty;
+
+    final title = _currentFolder == null
+        ? '> VAULT'
+        : '> ${_currentFolder!.name.toUpperCase()}';
+
+    return PopScope(
+      canPop: _atRoot,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_atRoot) setState(() => _stack.removeLast());
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(title),
+          leading: _atRoot
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => setState(() => _stack.removeLast()),
+                ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => context.go('/settings'),
+            ),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(56),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (v) => setState(() => _searchQuery = v),
+                decoration: InputDecoration(
+                  hintText: 'search entries...',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: _searchCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
+                      : null,
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  isDense: true,
+                ),
               ),
             ),
           ),
         ),
+        body: foldersAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => _ErrorState(error: e.toString()),
+          data: (rootFolders) => entriesAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => _ErrorState(error: e.toString()),
+            data: (allEntries) {
+              if (isSearching) {
+                final results = _searchEntries(allEntries);
+                if (results.isEmpty) {
+                  return const _EmptyState(mode: _EmptyMode.search);
+                }
+                return RefreshIndicator(
+                  color: AppTheme.green,
+                  onRefresh: () async => ref.invalidate(entriesProvider),
+                  child: ListView.separated(
+                    itemCount: results.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (ctx, i) => _EntryTile(entry: results[i]),
+                  ),
+                );
+              }
+
+              final folders = _subfolders(rootFolders);
+              final entries = _entriesInFolder(allEntries);
+
+              if (folders.isEmpty && entries.isEmpty) {
+                return _EmptyState(
+                  mode: _atRoot ? _EmptyMode.vault : _EmptyMode.folder,
+                );
+              }
+
+              return RefreshIndicator(
+                color: AppTheme.green,
+                onRefresh: () async {
+                  ref.invalidate(foldersProvider);
+                  ref.invalidate(entriesProvider);
+                },
+                child: ListView.separated(
+                  itemCount: folders.length + entries.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (ctx, i) {
+                    if (i < folders.length) {
+                      return _FolderTile(
+                        folder: folders[i],
+                        onTap: () =>
+                            setState(() => _stack.add(folders[i])),
+                      );
+                    }
+                    return _EntryTile(entry: entries[i - folders.length]);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => context.go('/entries/new'),
+          child: const Icon(Icons.add),
+        ),
+        bottomNavigationBar: const PbBottomNav(currentIndex: 0),
       ),
-      body: entries.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => _ErrorState(error: e.toString()),
-        data: (list) {
-          if (list.isEmpty) {
-            return _EmptyState(
-              hasSearch: _searchCtrl.text.isNotEmpty,
-            );
-          }
-          return RefreshIndicator(
-            color: AppTheme.green,
-            onRefresh: () async => ref.invalidate(entriesProvider),
-            child: ListView.separated(
-              itemCount: list.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (ctx, i) => _EntryTile(entry: list[i]),
-            ),
-          );
-        },
+    );
+  }
+}
+
+class _FolderTile extends StatelessWidget {
+  final FolderResponse folder;
+  final VoidCallback onTap;
+  const _FolderTile({required this.folder, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          border: Border.all(color: AppTheme.border),
+          color: AppTheme.surfaceVariant,
+        ),
+        child: const Icon(Icons.folder_outlined, size: 18, color: AppTheme.green),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.go('/entries/new'),
-        child: const Icon(Icons.add),
+      title: Text(
+        folder.name,
+        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
       ),
-      bottomNavigationBar: const PbBottomNav(currentIndex: 0),
+      subtitle: folder.children.isNotEmpty
+          ? Text(
+              '${folder.children.length} subfolder${folder.children.length == 1 ? '' : 's'}',
+              style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12),
+            )
+          : null,
+      trailing: const Icon(Icons.chevron_right, size: 18, color: AppTheme.onBgDim),
+      onTap: onTap,
     );
   }
 }
@@ -132,18 +240,12 @@ class _EntryTile extends StatelessWidget {
       leading: _typeIcon(entry.type),
       title: Text(
         entry.name,
-        style: const TextStyle(
-          fontWeight: FontWeight.w500,
-          fontSize: 14,
-        ),
+        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
       ),
       subtitle: entry.url.isNotEmpty
           ? Text(
               entry.url,
-              style: const TextStyle(
-                color: AppTheme.onBgDim,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12),
               overflow: TextOverflow.ellipsis,
             )
           : null,
@@ -172,9 +274,11 @@ class _EntryTile extends StatelessWidget {
   }
 }
 
+enum _EmptyMode { vault, folder, search }
+
 class _EmptyState extends StatelessWidget {
-  final bool hasSearch;
-  const _EmptyState({required this.hasSearch});
+  final _EmptyMode mode;
+  const _EmptyState({required this.mode});
 
   @override
   Widget build(BuildContext context) {
@@ -182,14 +286,23 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.lock_open_outlined,
-              size: 64, color: AppTheme.onBgDim),
+          Icon(
+            mode == _EmptyMode.search
+                ? Icons.search_off
+                : Icons.lock_open_outlined,
+            size: 64,
+            color: AppTheme.onBgDim,
+          ),
           const SizedBox(height: 16),
           Text(
-            hasSearch ? 'No entries found' : 'Your vault is empty',
+            switch (mode) {
+              _EmptyMode.vault => 'Your vault is empty',
+              _EmptyMode.folder => 'This folder is empty',
+              _EmptyMode.search => 'No entries found',
+            },
             style: const TextStyle(color: AppTheme.onBgDim),
           ),
-          if (!hasSearch) ...[
+          if (mode == _EmptyMode.vault) ...[
             const SizedBox(height: 16),
             PbButton(
               label: 'Add First Entry',
@@ -226,4 +339,3 @@ class _ErrorState extends StatelessWidget {
     );
   }
 }
-
