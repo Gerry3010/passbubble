@@ -99,7 +99,7 @@ func (m *Mailer) sendImplicitTLS(addr, to string, msg []byte) error {
 	if err != nil {
 		return fmt.Errorf("smtp client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if m.user != "" {
 		auth := smtp.PlainAuth("", m.user, m.password, m.host)
