@@ -92,11 +92,16 @@ curl -fsSL https://raw.githubusercontent.com/Gerry3010/passbubble/main/deploy.sh
 
 ## Docker Compose services
 
+`docker-compose.server.yml` is the **nginx variant** — the backend binds to `127.0.0.1:8765` only and nginx (on the host) handles TLS. Use this if you already have nginx running on the server.
+
+`docker-compose.server.caddy.yml` is the **Caddy variant** — Caddy runs as a container and manages TLS automatically. Use this on a fresh server with no existing reverse proxy (`--profile production`).
+
 | Service | Purpose |
 |---|---|
 | `postgres` | Primary datastore (users, entries, folders, sessions, invitations) |
 | `redis` | Session/rate-limit cache |
 | `backend` | API server; also serves the embedded Flutter web build at `/web/*` and `/admin/*` |
+| `caddy` | TLS reverse proxy — Caddy variant only, started with `--profile production` |
 
 ## CLI reference (`pwmgr`)
 
