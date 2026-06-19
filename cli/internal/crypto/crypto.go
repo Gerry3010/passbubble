@@ -158,24 +158,31 @@ func EncryptDataKey(dataKey, recipX25519Pub, recipMLKEMPub []byte) ([]byte, erro
 	return result, nil
 }
 
-// DecryptDataKey decrypts a data key previously encrypted with EncryptDataKey.
+// DecryptDataKey decrypts a data key encrypted with EncryptDataKey.
+// It auto-detects the wire format:
+//   - Hybrid (≥ 32+mlkemCTSize bytes): ephPub(32) || mlkem_ct || AES-GCM  — produced by Go CLI / backend
+//   - Legacy (< 32+mlkemCTSize bytes): ephPub(32) || AES-GCM              — produced by Flutter app (X25519-only, raw shared secret)
 func DecryptDataKey(encKey, privX25519, privMLKEM []byte) ([]byte, error) {
 	ctSize := mlkem768.Scheme().CiphertextSize()
-	if len(encKey) < 32+ctSize {
-		return nil, fmt.Errorf("encrypted key too short")
+	if len(encKey) >= 32+ctSize {
+		return decryptDataKeyHybrid(encKey, privX25519, privMLKEM)
 	}
+	// Fall back to Flutter legacy format: X25519 ECDH with raw shared secret.
+	return decryptDataKeyX25519Only(encKey, privX25519)
+}
 
+// decryptDataKeyHybrid handles the Go CLI / backend wire format.
+func decryptDataKeyHybrid(encKey, privX25519, privMLKEM []byte) ([]byte, error) {
+	ctSize := mlkem768.Scheme().CiphertextSize()
 	ephPub := encKey[:32]
 	mlkemCT := encKey[32 : 32+ctSize]
 	remainder := encKey[32+ctSize:]
 
-	// X25519 ECDH
 	shared25519, err := curve25519.X25519(privX25519, ephPub)
 	if err != nil {
 		return nil, fmt.Errorf("x25519: %w", err)
 	}
 
-	// ML-KEM-768
 	sk, err := mlkem768.Scheme().UnmarshalBinaryPrivateKey(privMLKEM)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal mlkem priv: %w", err)
@@ -187,6 +194,42 @@ func DecryptDataKey(encKey, privX25519, privMLKEM []byte) ([]byte, error) {
 
 	combined := hybridKDF(shared25519, sharedPQ)
 	return Decrypt(combined, remainder)
+}
+
+// encryptDataKeyX25519Only produces the Flutter legacy wire format for testing.
+// Do NOT use this for new entries; use EncryptDataKey (hybrid) instead.
+func encryptDataKeyX25519Only(dataKey, recipPubX25519 []byte) ([]byte, error) {
+	ephPriv, ephPub, err := GenerateX25519()
+	if err != nil {
+		return nil, err
+	}
+	shared, err := curve25519.X25519(ephPriv, recipPubX25519)
+	if err != nil {
+		return nil, err
+	}
+	enc, err := Encrypt(shared, dataKey)
+	if err != nil {
+		return nil, err
+	}
+	return append(ephPub, enc...), nil
+}
+
+// decryptDataKeyX25519Only handles the Flutter legacy wire format:
+// ephPub(32) || AES-256-GCM(nonce||ciphertext||tag) with the raw X25519 shared
+// secret used directly as the AES key (no HKDF).
+func decryptDataKeyX25519Only(encKey, privX25519 []byte) ([]byte, error) {
+	const minLen = 32 + 12 // ephPub + AES-GCM nonce minimum
+	if len(encKey) < minLen {
+		return nil, fmt.Errorf("encrypted key too short")
+	}
+	ephPub := encKey[:32]
+	remainder := encKey[32:]
+
+	shared, err := curve25519.X25519(privX25519, ephPub)
+	if err != nil {
+		return nil, fmt.Errorf("x25519 (legacy): %w", err)
+	}
+	return Decrypt(shared, remainder)
 }
 
 // RandKey generates a random 32-byte key.

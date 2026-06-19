@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.23] - 2026-06-19
+
+### Added
+- CLI TUI: Mausklick-Support — Eintrag anklicken öffnet direkt die Detailansicht (`tea.WithMouseCellMotion`)
+- CLI TUI: Zwischenablage-Kopie via `c`-Taste in der Detailansicht (wl-copy / xclip / xsel)
+- CLI TUI: Listenscrolling — bei mehr Einträgen als Terminalzeilen wird gescrollt, mit Scroll-Indikator
+- CLI TUI: Formularbreiten passen sich dynamisch an die Terminalbreite an (kein hartkodiertes `Width(40)` mehr)
+
+### Fixed
+- CLI TUI: Detailbox und Inhaltsboxen hatten hartkodierte Breite 50 — jetzt responsiv (`m.width - 8`)
+- CLI TUI: Hilfetext war eine lange, schwer lesbare Zeile — jetzt zwei kompakte Zeilen
+- CLI TUI: Toter `a`-Shortcut (verwirrende Status-Message) entfernt; `p` und `t` sind jetzt direkte Shortcuts
+- CLI Crypto: `DecryptDataKey` konnte Einträge, die mit der Flutter-App erstellt wurden, nicht entschlüsseln (`encrypted key too short`). Die Flutter-App nutzt X25519-only mit rohem Shared Secret (kein HKDF, kein ML-KEM). `DecryptDataKey` erkennt jetzt automatisch das Format anhand der Länge und fällt auf den Legacy-Pfad zurück
+
 ## [2.0.17] - 2026-06-18
 
 ### Added

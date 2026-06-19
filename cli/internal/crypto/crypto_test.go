@@ -91,6 +91,35 @@ func TestHybridKEMRoundtrip(t *testing.T) {
 	}
 }
 
+// TestLegacyX25519Roundtrip verifies that DecryptDataKey can read the X25519-only
+// wire format produced by the Flutter app (raw shared secret, no HKDF, no ML-KEM).
+func TestLegacyX25519Roundtrip(t *testing.T) {
+	privX, pubX, err := GenerateX25519()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dataKey, err := RandKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate Flutter's encryptDataKey: X25519 ECDH + raw shared secret as AES key.
+	enc, err := encryptDataKeyX25519Only(dataKey, pubX)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// DecryptDataKey must auto-detect the legacy format.
+	got, err := DecryptDataKey(enc, privX, nil)
+	if err != nil {
+		t.Fatalf("legacy decrypt: %v", err)
+	}
+	if !bytes.Equal(got, dataKey) {
+		t.Fatal("legacy X25519 round-trip failed")
+	}
+}
+
 func TestHybridKEMWrongKey(t *testing.T) {
 	_, pubX, _ := GenerateX25519()
 	_, pubM, _ := GenerateMLKEM768()

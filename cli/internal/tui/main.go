@@ -17,13 +17,14 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/Gerry3010/passbubble/cli/pkg/generator"
 	"github.com/Gerry3010/passbubble/cli/pkg/backup"
+	"github.com/Gerry3010/passbubble/cli/pkg/generator"
 	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
 )
 
@@ -64,6 +65,9 @@ type Model struct {
 	totpRemaining int
 	password    string
 	
+	// List scroll state
+	listOffset int
+
 	// Backup screen state
 	backups     []backup.BackupInfo
 	backupCursor int
@@ -128,8 +132,7 @@ func NewModel() Model {
 		detailStyle: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("62")).
-			Padding(1, 2).
-			Width(50),
+			Padding(1, 2),
 			
 		secretStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("34")).
@@ -207,8 +210,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.form.width = msg.Width
 		return m, nil
-		
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 		
@@ -355,11 +362,18 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
+			if m.cursor < m.listOffset {
+				m.listOffset = m.cursor
+			}
 		}
-		
+
 	case "down", "j":
 		if m.cursor < len(m.entries)-1 {
 			m.cursor++
+			listHeight := m.listVisibleHeight()
+			if m.cursor >= m.listOffset+listHeight {
+				m.listOffset = m.cursor - listHeight + 1
+			}
 		}
 		
 	case "enter":
@@ -374,58 +388,46 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadSecretDetails()
 		}
 		
-	case "a":
-		// Show add menu - for now just add password, could be extended
+	case "p":
 		m.showingForm = true
 		m.form = CreateAddPasswordForm()
-		m.status = "Choose entry type: [p]assword, [t]otp"
+		m.form.width = m.width
+		m.status = "Adding new password"
 		m.statusType = "info"
 		return m, nil
-		
-	case "p":
-		// Add password (when 'a' pressed first, or direct)
-		if m.status == "Choose entry type: [p]assword, [t]otp" || true {
-			m.showingForm = true
-			m.form = CreateAddPasswordForm()
-			m.status = "Adding new password"
-			m.statusType = "info"
-		}
-		return m, nil
-		
+
 	case "t":
-		// Add TOTP (when 'a' pressed first, or direct)
-		if m.status == "Choose entry type: [p]assword, [t]otp" || true {
-			m.showingForm = true
-			m.form = CreateAddTOTPForm()
-			m.status = "Adding new TOTP secret"
-			m.statusType = "info"
-		}
+		m.showingForm = true
+		m.form = CreateAddTOTPForm()
+		m.form.width = m.width
+		m.status = "Adding new TOTP secret"
+		m.statusType = "info"
 		return m, nil
-		
+
 	case "e":
-		// Edit entry
 		if len(m.entries) > 0 {
 			m.showingForm = true
 			m.form = CreateEditEntryForm(m.entries[m.cursor])
+			m.form.width = m.width
 			m.status = "Editing entry"
 			m.statusType = "info"
 		}
 		return m, nil
-		
+
 	case "d":
-		// Delete entry
 		if len(m.entries) > 0 {
 			m.showingForm = true
 			m.form = CreateConfirmDeleteForm(m.entries[m.cursor])
+			m.form.width = m.width
 			m.status = "Confirm deletion"
 			m.statusType = "info"
 		}
 		return m, nil
-		
+
 	case "c":
-		// Create backup
 		m.showingForm = true
 		m.form = CreateCreateBackupForm()
+		m.form.width = m.width
 		m.status = "Creating backup"
 		m.statusType = "info"
 		return m, nil
@@ -478,20 +480,37 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 		
+	case "c":
+		switch m.detailEntry.Type {
+		case "password":
+			if m.password != "" {
+				return m, copyToClipboard(m.password)
+			}
+			m.status = "Password not loaded yet"
+			m.statusType = "info"
+		case "totp":
+			if m.totpCode != "" {
+				return m, copyToClipboard(m.totpCode)
+			}
+			m.status = "No TOTP code available"
+			m.statusType = "info"
+		}
+		return m, nil
+
 	case "t":
-		// Add TOTP to current entry (only for password entries)
 		if m.detailEntry.Type == "password" {
 			m.showingForm = true
 			m.form = CreateAddTOTPToEntryForm(m.detailEntry)
+			m.form.width = m.width
 			m.status = "Adding TOTP to entry"
 			m.statusType = "info"
 		}
 		return m, nil
 
 	case "e":
-		// Edit current entry
 		m.showingForm = true
 		m.form = CreateEditEntryForm(m.detailEntry)
+		m.form.width = m.width
 		m.status = "Editing entry"
 		m.statusType = "info"
 		return m, nil
@@ -563,10 +582,10 @@ func (m Model) handleGenerateScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.generatePassword("passphrase")
 		
 	case "s":
-		// Save generated password
 		if m.generatedPassword != "" {
 			m.showingForm = true
 			m.form = CreateSavePasswordForm(m.generatedPassword)
+			m.form.width = m.width
 			m.status = "Save generated password"
 			m.statusType = "info"
 		}
@@ -603,62 +622,68 @@ func (m Model) renderMainScreen() string {
 	if m.err != nil {
 		return fmt.Sprintf("Error: %v", m.err)
 	}
-	
-	title := m.titleStyle.Render("🔐 Password Manager")
-	
-	// Entry list
+
+	title := m.titleStyle.Render("🔐 Passbubble")
+
+	// Visible slice of entries
+	listHeight := m.listVisibleHeight()
+	end := m.listOffset + listHeight
+	if end > len(m.entries) {
+		end = len(m.entries)
+	}
+	visible := m.entries
+	if len(m.entries) > 0 {
+		visible = m.entries[m.listOffset:end]
+	}
+
 	var entries []string
-	for i, entry := range m.entries {
+	for i, entry := range visible {
+		absIdx := m.listOffset + i
 		cursor := " "
-		if i == m.cursor {
+		if absIdx == m.cursor {
 			cursor = ">"
 		}
-		
+
 		typeIcon := m.getTypeIcon(entry.Type)
 		line := fmt.Sprintf("%s %s %s", cursor, typeIcon, entry.Service)
 		if entry.Username != "" {
 			line += fmt.Sprintf(" (%s)", entry.Username)
 		}
-		
-		if i == m.cursor {
+
+		if absIdx == m.cursor {
 			line = m.selectedStyle.Render(line)
 		}
-		
 		entries = append(entries, line)
 	}
-	
-	if len(entries) == 0 {
-		entries = append(entries, m.helpStyle.Render("No entries found. Press 'a' to add one."))
+
+	if len(m.entries) == 0 {
+		entries = append(entries, m.helpStyle.Render("No entries found. Press 'p' to add a password or 't' to add a TOTP."))
 	}
-	
-	list := m.listStyle.Render(strings.Join(entries, "\n"))
-	
-	// Help text
-	help := m.helpStyle.Render(
-		"Navigation: ↑/↓ or j/k • Enter: view details • a: add menu • p: add password • t: add TOTP • e: edit • d: delete • g: generate passwords • c: create backup • b: backups • r: refresh • q: quit",
-	)
-	
-	// Status
-	status := ""
-	if m.status != "" {
-		var statusStyle lipgloss.Style
-		switch m.statusType {
-		case "success":
-			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("34")).Bold(true)
-		case "error":
-			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-		default:
-			statusStyle = m.statusStyle
-		}
-		status = statusStyle.Render(fmt.Sprintf("Status: %s", m.status))
+
+	// Scroll indicator
+	if len(m.entries) > listHeight {
+		scrollInfo := fmt.Sprintf(" %d–%d / %d", m.listOffset+1, end, len(m.entries))
+		entries = append(entries, m.helpStyle.Render(scrollInfo))
 	}
-	
+
+	listWidth := m.width - 4
+	if listWidth < 20 {
+		listWidth = 20
+	}
+	list := m.listStyle.Width(listWidth).Render(strings.Join(entries, "\n"))
+
+	help1 := m.helpStyle.Render("↑/↓ j/k: navigate  Enter/click: open  p: add password  t: add TOTP  e: edit  d: delete")
+	help2 := m.helpStyle.Render("g: generate  c: create backup  b: backups  r: refresh  q: quit")
+
+	status := m.renderStatus()
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
 		list,
 		"",
-		help,
+		help1,
+		help2,
 		status,
 	)
 }
@@ -717,26 +742,30 @@ func (m Model) renderDetailScreen() string {
 		}
 	}
 	
-	content := m.detailStyle.Render(strings.Join(details, "\n"))
-	
-	// Context-sensitive help text
+	detailWidth := m.width - 8
+	if detailWidth < 40 {
+		detailWidth = 40
+	}
+	content := m.detailStyle.Width(detailWidth).Render(strings.Join(details, "\n"))
+
 	var helpText string
 	switch m.detailEntry.Type {
 	case "password":
-		helpText = "s: show/hide password • t: add TOTP • e: edit entry • esc/q: back to list"
+		helpText = "s: show/hide  c: copy to clipboard  t: add TOTP  e: edit  esc/q: back"
 	case "totp":
-		helpText = "s: show/hide TOTP code • e: edit entry • esc/q: back to list"
+		helpText = "s: show/hide TOTP  c: copy code  e: edit  esc/q: back"
 	default:
-		helpText = "e: edit entry • esc/q: back to list"
+		helpText = "e: edit  esc/q: back"
 	}
 	help := m.helpStyle.Render(helpText)
-	
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
 		content,
 		"",
 		help,
+		m.renderStatus(),
 	)
 }
 
@@ -766,20 +795,15 @@ func (m Model) renderBackupScreen() string {
 	
 	list := m.listStyle.Render(strings.Join(backupList, "\n"))
 	
-	help := m.helpStyle.Render("Navigation: ↑/↓ or j/k • d: delete backup • r: restore backup • f: refresh • esc/q: back")
-	
-	status := ""
-	if m.status != "" {
-		status = m.statusStyle.Render(fmt.Sprintf("Status: %s", m.status))
-	}
-	
+	help := m.helpStyle.Render("↑/↓ j/k: navigate  d: delete  r: restore  f: refresh  esc/q: back")
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
 		list,
 		"",
 		help,
-		status,
+		m.renderStatus(),
 	)
 }
 
@@ -810,22 +834,21 @@ func (m Model) renderGenerateScreen() string {
 		content = append(content, "Press [r], [m], or [p] to generate a password")
 	}
 	
-	contentBox := m.detailStyle.Render(strings.Join(content, "\n"))
-	
-	help := m.helpStyle.Render("r: random • m: memorable • p: passphrase • s: save password • esc/q: back to main")
-	
-	status := ""
-	if m.status != "" {
-		status = m.statusStyle.Render(fmt.Sprintf("Status: %s", m.status))
+	detailWidth := m.width - 8
+	if detailWidth < 40 {
+		detailWidth = 40
 	}
-	
+	contentBox := m.detailStyle.Width(detailWidth).Render(strings.Join(content, "\n"))
+
+	help := m.helpStyle.Render("r: random  m: memorable  p: passphrase  s: save password  esc/q: back")
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
 		contentBox,
 		"",
 		help,
-		status,
+		m.renderStatus(),
 	)
 }
 
@@ -965,10 +988,90 @@ func (m Model) generatePassword(passwordType string) tea.Cmd {
 	}
 }
 
+// listVisibleHeight returns the number of list rows that fit in the terminal.
+func (m Model) listVisibleHeight() int {
+	// overhead: title(1) + blank(1) + list border+pad top(2) + list border+pad bottom(2)
+	//           + blank(1) + help(2) + status(1) = 10
+	h := m.height - 10
+	if h < 3 {
+		h = 3
+	}
+	return h
+}
+
+// renderStatus returns a styled status line (empty string when no status).
+func (m Model) renderStatus() string {
+	if m.status == "" {
+		return ""
+	}
+	var s lipgloss.Style
+	switch m.statusType {
+	case "success":
+		s = lipgloss.NewStyle().Foreground(lipgloss.Color("34")).Bold(true)
+	case "error":
+		s = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	default:
+		s = m.statusStyle
+	}
+	return s.Render("» " + m.status)
+}
+
+// handleMouse handles mouse events.
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	if m.screen != MainScreen {
+		return m, nil
+	}
+	// List content starts at row 4 (title=0, blank=1, border=2, pad=3, item0=4).
+	itemRow := msg.Y - 4
+	if itemRow < 0 {
+		return m, nil
+	}
+	absIdx := m.listOffset + itemRow
+	if absIdx < 0 || absIdx >= len(m.entries) {
+		return m, nil
+	}
+	m.cursor = absIdx
+	m.detailEntry = m.entries[m.cursor]
+	m.screen = DetailScreen
+	m.showSecrets = false
+	m.password = ""
+	if m.detailEntry.Type == "password" {
+		return m, m.loadPasswordReal()
+	}
+	return m, m.loadSecretDetails()
+}
+
+// copyToClipboard copies text to the system clipboard asynchronously.
+func copyToClipboard(text string) tea.Cmd {
+	return func() tea.Msg {
+		commands := []struct {
+			name string
+			args []string
+		}{
+			{"wl-copy", nil},
+			{"xclip", []string{"-selection", "clipboard"}},
+			{"xsel", []string{"--clipboard", "--input"}},
+		}
+		for _, c := range commands {
+			if _, err := exec.LookPath(c.name); err == nil {
+				cmd := exec.Command(c.name, c.args...)
+				cmd.Stdin = strings.NewReader(text)
+				if err := cmd.Run(); err == nil {
+					return ActionResultMsg{Success: true, Message: "Copied to clipboard", Action: "copy"}
+				}
+			}
+		}
+		return ActionResultMsg{Success: false, Message: "No clipboard tool found (install xclip, xsel, or wl-copy)", Action: "copy"}
+	}
+}
+
 // StartTUI starts the TUI application
 func StartTUI() error {
 	model := NewModel()
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }

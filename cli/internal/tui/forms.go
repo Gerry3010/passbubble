@@ -74,14 +74,15 @@ type FormField struct {
 
 // FormModel represents the form state
 type FormModel struct {
-	Type        FormType
-	Title       string
-	Fields      []FormField
+	Type         FormType
+	Title        string
+	Fields       []FormField
 	CurrentField int
-	Submitted   bool
-	Confirmed   bool
-	Error       string
-	Entry       *Entry // For edit forms
+	Submitted    bool
+	Confirmed    bool
+	Error        string
+	Entry        *Entry // For edit forms
+	width        int    // terminal width, set by caller
 }
 
 // FormSubmittedMsg indicates form submission
@@ -482,6 +483,10 @@ func CreateSavePasswordForm(generatedPassword string) FormModel {
 // Update handles form updates
 func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		f.width = msg.Width
+		return f, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
@@ -748,11 +753,15 @@ func (f FormModel) View() string {
 				Render(field.Placeholder)
 		}
 		
+		fieldWidth := f.width - 20
+		if fieldWidth < 40 {
+			fieldWidth = 40
+		}
 		inputStyle := lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("62")).
 			Padding(0, 1).
-			Width(40)
+			Width(fieldWidth)
 		
 		if i == f.CurrentField {
 			inputStyle = inputStyle.BorderForeground(lipgloss.Color("39"))
