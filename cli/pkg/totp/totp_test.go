@@ -89,6 +89,38 @@ func TestGenerateAndValidateCode(t *testing.T) {
 	}
 }
 
+// TestGenerateCodeAcceptsStoredFormats covers the secret shapes that importers
+// store verbatim and that previously produced "Decoding of secret as base32
+// failed": full otpauth:// URLs and secrets formatted with spaces/hyphens.
+func TestGenerateCodeAcceptsStoredFormats(t *testing.T) {
+	const base = "JBSWY3DPEHPK3PXP"
+	cases := []struct {
+		name   string
+		secret string
+	}{
+		{"bare", base},
+		{"lowercase", "jbswy3dpehpk3pxp"},
+		{"spaced", "JBSW Y3DP EHPK 3PXP"},
+		{"hyphenated", "JBSW-Y3DP-EHPK-3PXP"},
+		{"otpauth url", "otpauth://totp/Ionos:me@example.com?secret=" + base + "&issuer=Ionos&period=30&digits=6"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, err := GenerateCode(tc.secret, nil)
+			if err != nil {
+				t.Fatalf("GenerateCode(%q) failed: %v", tc.secret, err)
+			}
+			if len(code) != 6 {
+				t.Errorf("expected 6-digit code, got %q", code)
+			}
+			// All forms encode the same secret -> same code at the same instant.
+			if ref, _ := GenerateCode(base, nil); code != ref {
+				t.Errorf("code %q for %q != reference %q", code, tc.secret, ref)
+			}
+		})
+	}
+}
+
 func TestParseTOTPURL(t *testing.T) {
 	testCases := []struct {
 		url           string

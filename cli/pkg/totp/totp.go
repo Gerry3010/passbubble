@@ -66,14 +66,38 @@ func GenerateSecret(opts *GenerateOptions) (string, string, error) {
 	return key.Secret(), key.URL(), nil
 }
 
-// GenerateCode generates a TOTP code for the given secret
-func GenerateCode(secret string, opts *GenerateOptions) (string, error) {
+// resolveSecret normalizes a stored TOTP secret into a bare base32 string.
+//
+// It transparently accepts several real-world formats that importers store
+// verbatim (Bitwarden, KeePass, 1Password, Psono, …):
+//   - a full otpauth:// URL — the secret and its period/digits/algorithm are
+//     extracted from the URL (these override the caller-supplied opts)
+//   - a base32 secret formatted with spaces, hyphens or underscores
+//   - lower-case secrets
+//
+// Padding is left untouched; pquerna/otp adds it as needed when decoding.
+func resolveSecret(secret string, opts *GenerateOptions) (string, *GenerateOptions) {
 	if opts == nil {
 		opts = DefaultOptions()
 	}
 
-	// Validate and clean the secret
-	secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
+	s := strings.TrimSpace(secret)
+	if strings.HasPrefix(strings.ToLower(s), "otpauth://") {
+		if urlOpts, urlSecret, err := ParseTOTPURL(s); err == nil {
+			opts = urlOpts
+			s = urlSecret
+		}
+	}
+
+	// base32 contains none of these separators, so stripping them is safe and
+	// fixes secrets that were copied with grouping for readability.
+	s = strings.NewReplacer(" ", "", "-", "", "_", "").Replace(s)
+	return strings.ToUpper(s), opts
+}
+
+// GenerateCode generates a TOTP code for the given secret
+func GenerateCode(secret string, opts *GenerateOptions) (string, error) {
+	secret, opts = resolveSecret(secret, opts)
 
 	// Generate code with custom options
 	code, err := totp.GenerateCodeCustom(secret, time.Now(), totp.ValidateOpts{
@@ -91,12 +115,7 @@ func GenerateCode(secret string, opts *GenerateOptions) (string, error) {
 
 // ValidateCode validates a TOTP code against the secret
 func ValidateCode(code, secret string, opts *GenerateOptions) bool {
-	if opts == nil {
-		opts = DefaultOptions()
-	}
-
-	// Validate and clean the secret
-	secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
+	secret, opts = resolveSecret(secret, opts)
 
 	valid, _ := totp.ValidateCustom(code, secret, time.Now(), totp.ValidateOpts{
 		Period:    opts.Period,
@@ -193,17 +212,23 @@ func FormatCode(code string) string {
 	return code
 }
 
-// IsValidSecret checks if a secret is a valid base32 string
+// IsValidSecret checks if a secret is a valid base32 string. It accepts the
+// same formats as resolveSecret (otpauth:// URLs, spaced/hyphenated secrets).
 func IsValidSecret(secret string) bool {
-	// Clean the secret
-	secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
+	s, _ := resolveSecret(secret, nil)
 
 	// Empty secrets are not valid
-	if secret == "" {
+	if s == "" {
 		return false
 	}
 
+	// base32.StdEncoding requires canonical padding; add it if the secret was
+	// stored unpadded (as most authenticator secrets are).
+	if n := len(s) % 8; n != 0 {
+		s += strings.Repeat("=", 8-n)
+	}
+
 	// Check if it's valid base32
-	_, err := base32.StdEncoding.DecodeString(secret)
+	_, err := base32.StdEncoding.DecodeString(s)
 	return err == nil
 }
