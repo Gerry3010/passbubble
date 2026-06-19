@@ -47,6 +47,10 @@ func (s *Server) buildRouter() http.Handler {
 	// /api/v1/admin/* routes below, gated by JWTAuth + AdminOnly.
 	webHandler := http.FileServer(static.WebFS())
 	adminHandler := http.FileServer(static.AdminFS())
+	// Bare host → the Flutter web app.
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/web/", http.StatusFound)
+	})
 	r.Handle("/web", http.RedirectHandler("/web/", http.StatusMovedPermanently))
 	r.Handle("/web/*", http.StripPrefix("/web", spaHandler(webHandler)))
 	r.Handle("/admin", http.RedirectHandler("/admin/", http.StatusMovedPermanently))

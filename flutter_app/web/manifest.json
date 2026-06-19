@@ -1,11 +1,11 @@
 {
-    "name": "passbubble",
-    "short_name": "passbubble",
+    "name": "Passbubble — Password Manager",
+    "short_name": "Passbubble",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#212121",
+    "theme_color": "#212121",
+    "description": "Zero-knowledge, post-quantum-secure password manager. Hybrid X25519 + ML-KEM end-to-end encryption — the server never sees your secrets.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

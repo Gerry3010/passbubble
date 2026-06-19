@@ -15,6 +15,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
 
@@ -80,7 +81,9 @@ class _ShareLinkDialogState extends State<ShareLinkDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(_url == null ? 'Share "${widget.title}"' : 'Share link'),
-      content: _url == null ? _buildConfig() : _buildResult(),
+      content: _url == null
+          ? _buildConfig()
+          : SingleChildScrollView(child: _buildResult()),
       actions: _url == null
           ? [
               TextButton(
@@ -145,6 +148,30 @@ class _ShareLinkDialogState extends State<ShareLinkDialog> {
               : 'Valid for ${_expiryOptions[_expiryIndex].label}. The key is in the '
                   'link (after #) and never reaches the server.',
           style: const TextStyle(fontSize: 13),
+        ),
+        const SizedBox(height: 12),
+        // Scannable QR of the full link (white quiet zone for reliable scans).
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            // Fixed SizedBox so AlertDialog's IntrinsicWidth pass doesn't probe
+            // QrImageView's internal LayoutBuilder (which can't be measured).
+            child: SizedBox(
+              width: 180,
+              height: 180,
+              child: QrImageView(
+                data: _url!,
+                version: QrVersions.auto,
+                backgroundColor: Colors.white,
+                // High error-correction so the QR still scans if slightly covered.
+                errorCorrectionLevel: QrErrorCorrectLevel.M,
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 12),
         // Terminal-styled link field: green on black, monospace, selectable.
