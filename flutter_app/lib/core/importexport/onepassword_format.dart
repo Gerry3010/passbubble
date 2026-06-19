@@ -286,6 +286,13 @@ OnePuxParseResult parseOnePux(Uint8List zipBytes) {
 }
 
 /// Returns an [EntryRecord], a warning [String], or null to skip silently.
+/// Converts a 1PUX Unix-seconds timestamp to RFC3339 UTC ('' if absent).
+String _unixToRfc3339(dynamic v) {
+  final sec = (v as num?)?.toInt() ?? 0;
+  if (sec <= 0) return '';
+  return DateTime.fromMillisecondsSinceEpoch(sec * 1000, isUtc: true).toIso8601String();
+}
+
 dynamic _convertItem(Map<String, dynamic> item, Map<String, Uint8List> fileBlobs) {
   if (item['trashed'] == 'Y') return null;
 
@@ -300,6 +307,8 @@ dynamic _convertItem(Map<String, dynamic> item, Map<String, Uint8List> fileBlobs
 
   String type;
   final rec = _RecordBuilder(name: name, url: url, notes: notes);
+  rec.createdAt = _unixToRfc3339(item['createdAt']);
+  rec.updatedAt = _unixToRfc3339(item['updatedAt']);
 
   switch (categoryUuid) {
     case '003':
@@ -456,6 +465,8 @@ class _RecordBuilder {
   String country = '';
   String licenseKey = '';
   String productName = '';
+  String createdAt = '';
+  String updatedAt = '';
   List<CustomFieldRecord> customFields = [];
 
   _RecordBuilder({required this.name, required this.url, required this.notes});
@@ -465,6 +476,8 @@ class _RecordBuilder {
         url: url,
         type: type,
         notes: notes,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
         username: username,
         password: password,
         totpSecret: totpSecret,

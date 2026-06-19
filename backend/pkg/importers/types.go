@@ -18,6 +18,23 @@
 // must encrypt before uploading to the Passbubble API.
 package importers
 
+import "time"
+
+// normalizeTimestamp parses a source timestamp into an RFC3339 UTC string.
+// Returns "" when the input is empty or unparseable (caller falls back to NOW()).
+func normalizeTimestamp(s string) string {
+	if s == "" {
+		return ""
+	}
+	layouts := []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.999999Z07:00", "2006-01-02 15:04:05"}
+	for _, l := range layouts {
+		if t, err := time.Parse(l, s); err == nil {
+			return t.UTC().Format(time.RFC3339)
+		}
+	}
+	return ""
+}
+
 // EntryRecord is the plaintext intermediate format used during import.
 // Every field maps directly to the Passbubble EntryData JSON blob.
 type EntryRecord struct {
@@ -55,6 +72,14 @@ type EntryRecord struct {
 	LicenseKey    string
 	ProductName   string
 	PurchaseEmail string
+
+	// Original timestamps from the source export (RFC3339 UTC; "" = unknown).
+	CreatedAt string
+	UpdatedAt string
+
+	// Folder hierarchy root→leaf (e.g. ["Business","Gewerbe"]; empty = root).
+	// Segments are literal names and may themselves contain "/".
+	FolderPath []string
 
 	// Generic key-value extras
 	CustomFields []CustomField

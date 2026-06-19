@@ -19,9 +19,19 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/tobischo/gokeepasslib/v3"
+	"github.com/tobischo/gokeepasslib/v3/wrappers"
 )
+
+// keepassTime formats a KeePass time wrapper as RFC3339 UTC ("" if unset).
+func keepassTime(tw *wrappers.TimeWrapper) string {
+	if tw == nil || tw.Time.IsZero() {
+		return ""
+	}
+	return tw.Time.UTC().Format(time.RFC3339)
+}
 
 // ParseKeePass parses a KeePass .kdbx file (v3/v4).
 // password is the database master password; pass "" for keyfile-only (not yet supported).
@@ -37,23 +47,30 @@ func ParseKeePass(r io.Reader, password string) (*ImportResult, error) {
 	}
 
 	result := &ImportResult{}
+	// The outermost group is the KeePass "Root" container; its own name is not
+	// treated as a folder. Sub-groups become the folder hierarchy.
 	for _, group := range db.Content.Root.Groups {
-		walkKeePassGroup(group, result)
+		walkKeePassGroup(group, nil, result)
 	}
 	return result, nil
 }
 
-func walkKeePassGroup(group gokeepasslib.Group, result *ImportResult) {
+func walkKeePassGroup(group gokeepasslib.Group, parentPath []string, result *ImportResult) {
 	for _, entry := range group.Entries {
 		rec := convertKeePassEntry(entry)
 		if rec == nil {
 			result.Skipped++
 			continue
 		}
+		rec.FolderPath = parentPath
 		result.Records = append(result.Records, *rec)
 	}
 	for _, sub := range group.Groups {
-		walkKeePassGroup(sub, result)
+		childPath := parentPath
+		if sub.Name != "" {
+			childPath = append(append([]string{}, parentPath...), sub.Name)
+		}
+		walkKeePassGroup(sub, childPath, result)
 	}
 }
 
@@ -68,12 +85,14 @@ func convertKeePassEntry(e gokeepasslib.Entry) *EntryRecord {
 	}
 
 	rec := &EntryRecord{
-		Type:     "password",
-		Name:     title,
-		URL:      get("URL"),
-		Username: get("UserName"),
-		Password: get("Password"),
-		Notes:    get("Notes"),
+		Type:      "password",
+		Name:      title,
+		URL:       get("URL"),
+		Username:  get("UserName"),
+		Password:  get("Password"),
+		Notes:     get("Notes"),
+		CreatedAt: keepassTime(e.Times.CreationTime),
+		UpdatedAt: keepassTime(e.Times.LastModificationTime),
 	}
 
 	// Detect TOTP via common KeePass TOTP field names

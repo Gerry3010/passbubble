@@ -44,7 +44,7 @@ func (a *KeyringAdapter) Store(service, username, password string) error {
 	_, err := a.v.CreateEntry(service, "password", "", &EntryData{
 		Username: username,
 		Password: password,
-	}, nil)
+	}, nil, "", "")
 	return err
 }
 
@@ -71,7 +71,7 @@ func (a *KeyringAdapter) StoreEntry(e keyring.Entry) error {
 		data.TOTPSecret = e.Password
 		data.Password = ""
 	}
-	_, err := a.v.CreateEntry(e.Service, entryType, "", data, nil)
+	_, err := a.v.CreateEntry(e.Service, entryType, "", data, nil, "", "")
 	return err
 }
 

@@ -371,6 +371,8 @@ class _ImportTabState extends ConsumerState<ImportTab> {
       encryptedData: base64.encode(ciphertext),
       dataNonce: base64.encode(Uint8List(12)),
       entryKeys: [EntryKey(userId: userId!, encryptedKey: encDataKey)],
+      createdAt: rec.createdAt,
+      updatedAt: rec.updatedAt,
     ));
   }
 

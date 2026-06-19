@@ -13,6 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+/// Normalises a source timestamp into an RFC3339 UTC string for import.
+/// Returns '' when empty or unparseable (server falls back to NOW()).
+String normalizeImportDate(String s) {
+  if (s.isEmpty) return '';
+  try {
+    return DateTime.parse(s).toUtc().toIso8601String();
+  } catch (_) {
+    return '';
+  }
+}
+
 /// Field types for custom fields, mirroring the backend CustomField.Type values.
 enum CustomFieldType {
   text,
@@ -106,6 +117,8 @@ class EntryRecord {
   final String productName;
   final List<CustomFieldRecord> customFields;
   final List<String> folderPath; // root→leaf, e.g. ['Work', 'Dev']; empty = root
+  final String createdAt; // RFC3339 UTC, '' = unknown (server uses NOW())
+  final String updatedAt;
 
   const EntryRecord({
     required this.name,
@@ -134,6 +147,8 @@ class EntryRecord {
     this.productName = '',
     this.customFields = const [],
     this.folderPath = const [],
+    this.createdAt = '',
+    this.updatedAt = '',
   });
 
   /// Duplicate detection: same name AND username (case-insensitive, trimmed).

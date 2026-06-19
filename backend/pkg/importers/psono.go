@@ -43,27 +43,32 @@ func ParsePsono(data []byte) (*ImportResult, error) {
 
 	// Root-level items
 	for _, item := range export.Items {
-		convertPsonoItem(item, result)
+		convertPsonoItem(item, nil, result)
 	}
 
-	// Recursively walk folders
+	// Recursively walk folders, accumulating the folder-name path.
 	for _, folder := range export.Folders {
-		walkPsonoFolder(folder, result)
+		walkPsonoFolder(folder, nil, result)
 	}
 
 	return result, nil
 }
 
-func walkPsonoFolder(folder psonoFolder, result *ImportResult) {
+func walkPsonoFolder(folder psonoFolder, parentPath []string, result *ImportResult) {
+	path := parentPath
+	if folder.Name != "" {
+		// Copy to avoid aliasing the parent's slice across siblings.
+		path = append(append([]string{}, parentPath...), folder.Name)
+	}
 	for _, item := range folder.Items {
-		convertPsonoItem(item, result)
+		convertPsonoItem(item, path, result)
 	}
 	for _, sub := range folder.Folders {
-		walkPsonoFolder(sub, result)
+		walkPsonoFolder(sub, path, result)
 	}
 }
 
-func convertPsonoItem(item map[string]any, result *ImportResult) {
+func convertPsonoItem(item map[string]any, folderPath []string, result *ImportResult) {
 	str := func(key string) string {
 		v, _ := item[key].(string)
 		return v
@@ -155,6 +160,10 @@ func convertPsonoItem(item map[string]any, result *ImportResult) {
 		result.Warnings = append(result.Warnings, "skipping unnamed Psono entry")
 		return
 	}
+
+	rec.CreatedAt = normalizeTimestamp(str("create_date"))
+	rec.UpdatedAt = normalizeTimestamp(str("write_date"))
+	rec.FolderPath = folderPath
 
 	// Custom fields
 	if cfs, ok := item["custom_fields"].([]any); ok {

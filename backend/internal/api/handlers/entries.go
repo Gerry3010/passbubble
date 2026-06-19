@@ -120,11 +120,14 @@ func (h *Handler) CreateEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entryID := uuid.New().String()
+	// created_at/updated_at are optional (import preserves source dates).
+	// nil → NULL → COALESCE falls back to NOW().
 	_, err = h.pool.Exec(r.Context(), `
-		INSERT INTO entries (id, folder_id, owner_id, type, name, url, encrypted_data, data_nonce)
-		VALUES ($1,$2,$3,$4,$5,$6,decode($7,'base64'),decode($8,'base64'))`,
+		INSERT INTO entries (id, folder_id, owner_id, type, name, url, encrypted_data, data_nonce, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,decode($7,'base64'),decode($8,'base64'),
+		        COALESCE($9::timestamptz, NOW()), COALESCE($10::timestamptz, NOW()))`,
 		entryID, req.FolderID, claims.UserID, req.Type, req.Name, req.URL,
-		req.EncryptedData, req.DataNonce,
+		req.EncryptedData, req.DataNonce, req.CreatedAt, req.UpdatedAt,
 	)
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to create entry")

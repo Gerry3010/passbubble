@@ -15,7 +15,10 @@
 
 package vault
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // EntryRecord is a decrypted entry ready for export or duplicate detection.
 type EntryRecord struct {
@@ -27,7 +30,8 @@ type EntryRecord struct {
 	Data     EntryData
 }
 
-// ListAllDecrypted fetches and decrypts all entries.
+// ListAllDecrypted fetches and decrypts all entries. ListEntries returns
+// metadata only (Data==nil), so each entry is fetched + decrypted individually.
 func (v *Vault) ListAllDecrypted() ([]EntryRecord, error) {
 	entries, err := v.ListEntries()
 	if err != nil {
@@ -35,16 +39,20 @@ func (v *Vault) ListAllDecrypted() ([]EntryRecord, error) {
 	}
 	out := make([]EntryRecord, 0, len(entries))
 	for _, e := range entries {
-		if e.Data == nil {
+		full, err := v.GetEntry(e.ID) // fetches entry_key + encrypted_data, then decrypts
+		if err != nil {
+			return nil, fmt.Errorf("decrypt entry %q: %w", e.Name, err)
+		}
+		if full.Data == nil {
 			continue
 		}
 		out = append(out, EntryRecord{
-			ID:       e.ID,
-			Name:     e.Name,
-			URL:      e.URL,
-			Type:     e.Type,
-			FolderID: e.FolderID,
-			Data:     *e.Data,
+			ID:       full.ID,
+			Name:     full.Name,
+			URL:      full.URL,
+			Type:     full.Type,
+			FolderID: full.FolderID,
+			Data:     *full.Data,
 		})
 	}
 	return out, nil

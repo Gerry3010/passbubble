@@ -123,7 +123,7 @@ var totpAddCmd = &cobra.Command{
 			return fmt.Errorf("provide --secret, --url, or --generate")
 		}
 
-		entry, err := v.CreateEntry(name, "totp", "", &totpData, nil)
+		entry, err := v.CreateEntry(name, "totp", "", &totpData, nil, "", "")
 		if err != nil {
 			return err
 		}

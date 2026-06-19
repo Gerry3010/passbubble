@@ -76,6 +76,8 @@ void _convertItem(
 
   final entryType = s('type');
   final name = s('name');
+  final created = normalizeImportDate(s('create_date'));
+  final updated = normalizeImportDate(s('write_date'));
 
   EntryRecord? rec;
 
@@ -95,6 +97,8 @@ void _convertItem(
         notes: s('website_password_notes'),
         customFields: _parseCustomFields(item),
         folderPath: folderPath,
+        createdAt: created,
+        updatedAt: updated,
       );
 
     case 'application_password':
@@ -107,6 +111,8 @@ void _convertItem(
         password: s('application_password_password'),
         customFields: _parseCustomFields(item),
         folderPath: folderPath,
+        createdAt: created,
+        updatedAt: updated,
       );
 
     case 'note':
@@ -117,6 +123,8 @@ void _convertItem(
         notes: s('note_notes'),
         customFields: _parseCustomFields(item),
         folderPath: folderPath,
+        createdAt: created,
+        updatedAt: updated,
       );
 
     case 'bookmark':
@@ -129,6 +137,8 @@ void _convertItem(
         url: url,
         customFields: _parseCustomFields(item),
         folderPath: folderPath,
+        createdAt: created,
+        updatedAt: updated,
       );
 
     case 'totp':
@@ -140,6 +150,8 @@ void _convertItem(
         notes: s('totp_notes'),
         customFields: _parseCustomFields(item),
         folderPath: folderPath,
+        createdAt: created,
+        updatedAt: updated,
       );
 
     default:

@@ -37,6 +37,12 @@ type Config struct {
 	KDFSalt         string `mapstructure:"kdf_salt"`         // base64
 	KDFTime         int    `mapstructure:"kdf_time"`
 	KDFMemory       int    `mapstructure:"kdf_memory"`
+
+	// TUI preferences (optional; pointers distinguish "unset" from false).
+	SortField   string            `mapstructure:"sort_field"`
+	SortAsc     *bool             `mapstructure:"sort_asc"`
+	FolderFirst *bool             `mapstructure:"folder_first"`
+	Keybindings map[string]string `mapstructure:"keybindings"` // action -> key ("" = unbound)
 }
 
 // IsLoggedIn returns true if a valid session exists.
@@ -94,6 +100,20 @@ func (c *Config) Save(path string) error {
 	v.Set("kdf_salt", c.KDFSalt)
 	v.Set("kdf_time", c.KDFTime)
 	v.Set("kdf_memory", c.KDFMemory)
+
+	// TUI preferences
+	if c.SortField != "" {
+		v.Set("sort_field", c.SortField)
+	}
+	if c.SortAsc != nil {
+		v.Set("sort_asc", *c.SortAsc)
+	}
+	if c.FolderFirst != nil {
+		v.Set("folder_first", *c.FolderFirst)
+	}
+	if len(c.Keybindings) > 0 {
+		v.Set("keybindings", c.Keybindings)
+	}
 
 	if err := v.WriteConfigAs(path); err != nil {
 		return fmt.Errorf("write config: %w", err)

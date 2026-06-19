@@ -23,7 +23,16 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
+
+// unixToRFC3339 converts a Unix-seconds timestamp to RFC3339 UTC ("" if 0).
+func unixToRFC3339(sec int64) string {
+	if sec <= 0 {
+		return ""
+	}
+	return time.Unix(sec, 0).UTC().Format(time.RFC3339)
+}
 
 // Parse1PUX parses a 1Password 1PUX export ZIP and returns EntryRecords.
 // The zipBytes argument is the raw content of a *.1pux file.
@@ -66,6 +75,9 @@ func Parse1PUX(zipBytes []byte) (*ImportResult, error) {
 	var raw struct {
 		Accounts []struct {
 			Vaults []struct {
+				Attrs struct {
+					Name string `json:"name"`
+				} `json:"attrs"`
 				Items []json.RawMessage `json:"items"`
 			} `json:"vaults"`
 		} `json:"accounts"`
@@ -78,7 +90,7 @@ func Parse1PUX(zipBytes []byte) (*ImportResult, error) {
 	for _, acc := range raw.Accounts {
 		for _, vault := range acc.Vaults {
 			for _, rawItem := range vault.Items {
-				rec, warn := convert1PuxItem(rawItem, fileBlobs)
+				rec, warn := convert1PuxItem(rawItem, vault.Attrs.Name, fileBlobs)
 				if rec == nil {
 					result.Skipped++
 					if warn != "" {
@@ -93,11 +105,13 @@ func Parse1PUX(zipBytes []byte) (*ImportResult, error) {
 	return result, nil
 }
 
-func convert1PuxItem(raw json.RawMessage, fileBlobs map[string][]byte) (*EntryRecord, string) {
+func convert1PuxItem(raw json.RawMessage, vaultName string, fileBlobs map[string][]byte) (*EntryRecord, string) {
 	var item struct {
 		UUID         string `json:"uuid"`
 		Trashed      string `json:"trashed"`
 		CategoryUUID string `json:"categoryUuid"`
+		CreatedAt    int64  `json:"createdAt"`
+		UpdatedAt    int64  `json:"updatedAt"`
 		Details      struct {
 			LoginFields []struct {
 				Value       string `json:"value"`
@@ -137,8 +151,13 @@ func convert1PuxItem(raw json.RawMessage, fileBlobs map[string][]byte) (*EntryRe
 	}
 
 	rec := &EntryRecord{
-		Name:  item.Overview.Title,
-		Notes: item.Details.NotesPlain,
+		Name:      item.Overview.Title,
+		Notes:     item.Details.NotesPlain,
+		CreatedAt: unixToRFC3339(item.CreatedAt),
+		UpdatedAt: unixToRFC3339(item.UpdatedAt),
+	}
+	if vaultName != "" {
+		rec.FolderPath = []string{vaultName}
 	}
 	if len(item.Overview.URLs) > 0 {
 		rec.URL = item.Overview.URLs[0].URL
