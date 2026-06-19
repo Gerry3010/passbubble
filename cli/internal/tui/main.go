@@ -272,6 +272,10 @@ func NewModel(v *vaultpkg.Vault, cfg *config.Config, cfgPath string) Model {
 		if cfg.FolderFirst != nil {
 			m.folderFirst = *cfg.FolderFirst
 		}
+		if cfg.LogoutInterval != nil {
+			// 0 disables auto-lock; any positive value is in minutes.
+			m.idleTimeout = time.Duration(*cfg.LogoutInterval) * time.Minute
+		}
 	} else {
 		m.keymap = defaultKeymap()
 	}

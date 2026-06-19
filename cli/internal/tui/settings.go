@@ -18,6 +18,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	vaultpkg "github.com/Gerry3010/passbubble/cli/internal/vault"
 	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
@@ -79,6 +80,11 @@ func (m Model) handleSettingsScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusType = "info"
 		return m, nil
 
+	case "t":
+		// Cycle the auto-lock idle timeout through the presets and persist it.
+		m.cycleLogoutInterval()
+		return m, nil
+
 	case "l":
 		return m.lockVault(), nil
 
@@ -86,6 +92,46 @@ func (m Model) handleSettingsScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.logout()
 	}
 	return m, nil
+}
+
+// logoutPresets are the selectable auto-lock idle timeouts, in minutes.
+// 0 means "off" (auto-lock disabled).
+var logoutPresets = []int{0, 1, 5, 10, 15, 30, 60}
+
+// cycleLogoutInterval advances the auto-lock timeout to the next preset,
+// applies it to the live model and persists it to the config.
+func (m *Model) cycleLogoutInterval() {
+	cur := int(m.idleTimeout / time.Minute)
+	next := logoutPresets[0]
+	for i, p := range logoutPresets {
+		if p == cur {
+			next = logoutPresets[(i+1)%len(logoutPresets)]
+			break
+		}
+	}
+	m.idleTimeout = time.Duration(next) * time.Minute
+	if m.cfg != nil {
+		m.cfg.LogoutInterval = &next
+		_ = m.cfg.Save(m.cfgPath)
+	}
+	if next == 0 {
+		m.status = "Auto-lock disabled"
+	} else {
+		m.status = fmt.Sprintf("Auto-lock set to %s", formatTimeout(m.idleTimeout))
+	}
+	m.statusType = "success"
+}
+
+// formatTimeout renders an idle timeout for display ("off" when disabled).
+func formatTimeout(d time.Duration) string {
+	if d <= 0 {
+		return "off"
+	}
+	mins := int(d / time.Minute)
+	if mins == 1 {
+		return "1 minute"
+	}
+	return fmt.Sprintf("%d minutes", mins)
 }
 
 // setBinding updates the in-memory keymap + config and persists it.
@@ -224,6 +270,7 @@ func (m Model) renderSettingsScreen() string {
 
 	fmt.Fprintf(&b, "Account\n  Email:   %s\n  User ID: %s\n\n", email, userID)
 	fmt.Fprintf(&b, "Server\n  URL:     %s\n  Vault:   %s\n\n", server, locked)
+	fmt.Fprintf(&b, "Security\n  Auto-lock: %s  (press 't' to change)\n\n", formatTimeout(m.idleTimeout))
 
 	b.WriteString(m.titleStyle.Render("Keybindings"))
 	b.WriteString("\n")
@@ -248,7 +295,7 @@ func (m Model) renderSettingsScreen() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(m.helpStyle.Render("↑/↓: select  Enter: rebind  (then Esc: unbind)  l: lock  o: log out  q: back"))
+	b.WriteString(m.helpStyle.Render("↑/↓: select  Enter: rebind  (then Esc: unbind)  t: auto-lock  l: lock  o: log out  q: back"))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

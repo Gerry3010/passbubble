@@ -43,6 +43,11 @@ type Config struct {
 	SortAsc     *bool             `mapstructure:"sort_asc"`
 	FolderFirst *bool             `mapstructure:"folder_first"`
 	Keybindings map[string]string `mapstructure:"keybindings"` // action -> key ("" = unbound)
+
+	// LogoutInterval is the auto-lock idle timeout in minutes. A pointer
+	// distinguishes "unset" (use the 10-minute default) from an explicit 0,
+	// which disables auto-lock entirely.
+	LogoutInterval *int `mapstructure:"logout_interval"`
 }
 
 // IsLoggedIn returns true if a valid session exists.
@@ -110,6 +115,9 @@ func (c *Config) Save(path string) error {
 	}
 	if c.FolderFirst != nil {
 		v.Set("folder_first", *c.FolderFirst)
+	}
+	if c.LogoutInterval != nil {
+		v.Set("logout_interval", *c.LogoutInterval)
 	}
 	if len(c.Keybindings) > 0 {
 		v.Set("keybindings", c.Keybindings)

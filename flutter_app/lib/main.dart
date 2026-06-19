@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/api/api_client.dart';
 import 'core/auth/auth_service.dart';
+import 'core/auth/auto_lock_scope.dart';
 import 'core/router/router.dart';
 import 'core/theme/app_theme.dart';
 
@@ -62,11 +63,13 @@ class _PassbubbleAppState extends ConsumerState<PassbubbleApp> {
     }
 
     final router = ref.watch(routerProvider);
-    return MaterialApp.router(
-      title: 'Passbubble',
-      theme: AppTheme.dark,
-      routerConfig: router,
-      debugShowCheckedModeBanner: false,
+    return AutoLockScope(
+      child: MaterialApp.router(
+        title: 'Passbubble',
+        theme: AppTheme.dark,
+        routerConfig: router,
+        debugShowCheckedModeBanner: false,
+      ),
     );
   }
 }

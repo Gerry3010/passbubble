@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_service.dart';
+import '../../core/auth/auto_lock_provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import 'providers/version_provider.dart';
@@ -70,11 +71,23 @@ class SettingsScreen extends ConsumerWidget {
             title: const Text('Lock vault'),
             subtitle: const Text('Clears private keys from memory'),
             onTap: () {
-              // TODO: implement lock-only (clear in-memory keys without full logout)
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Vault locked')),
-              );
+              ref.read(authStateProvider.notifier).lock();
+              // Router redirects to the unlock screen automatically.
             },
+          ),
+          ListTile(
+            leading: const Icon(Icons.timer_outlined),
+            title: const Text('Auto-lock'),
+            subtitle: Text(
+              ref.watch(autoLockProvider) <= 0
+                  ? 'Disabled — vault stays unlocked'
+                  : 'Lock after ${autoLockLabel(ref.watch(autoLockProvider))} of inactivity',
+            ),
+            trailing: Text(
+              autoLockLabel(ref.watch(autoLockProvider)),
+              style: const TextStyle(color: AppTheme.green),
+            ),
+            onTap: () => _showAutoLockPicker(context, ref),
           ),
           ListTile(
             leading: const Icon(Icons.fingerprint),
@@ -158,6 +171,29 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _showAutoLockPicker(BuildContext context, WidgetRef ref) async {
+    final current = ref.read(autoLockProvider);
+    final choice = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Auto-lock after'),
+        children: [
+          for (final minutes in autoLockPresets)
+            ListTile(
+              title: Text(autoLockLabel(minutes)),
+              trailing: minutes == current
+                  ? const Icon(Icons.check, color: AppTheme.green)
+                  : null,
+              onTap: () => ctx.pop(minutes),
+            ),
+        ],
+      ),
+    );
+    if (choice != null) {
+      await ref.read(autoLockProvider.notifier).set(choice);
+    }
   }
 }
 

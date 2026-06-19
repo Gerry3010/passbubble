@@ -141,6 +141,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return ok;
   }
 
+  /// Locks the vault: clears the in-memory private keys but keeps the session.
+  /// The router redirects to the unlock screen; the master password re-derives
+  /// the keys from the still-stored encrypted material.
+  void lock() {
+    if (!state.isLoggedIn || !state.isUnlocked) return;
+    _svc.lock();
+    state = state.copyWith(isUnlocked: false);
+  }
+
   Future<void> logout() async {
     await _svc.logout();
     state = const AuthState();
@@ -285,6 +294,12 @@ class AuthService {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Clears the in-memory private keys without touching the persisted session
+  /// or tokens, so the vault can be re-unlocked with the master password.
+  void lock() {
+    _privX25519 = null;
   }
 
   Future<void> logout() async {

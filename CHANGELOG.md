@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Settings: **konfigurierbares Auto-Lock-Intervall** in CLI und Flutter-App. CLI: im Settings-Screen mit Taste `t` durch die Presets (Off/1/5/10/15/30/60 Min) schalten, Wert wird in der Config gespeichert. Flutter-App: Settings → **Auto-lock** öffnet eine Auswahl; die App sperrt den Vault jetzt überhaupt erst bei Inaktivität (Standard 10 Min) und kehrt zum Entsperr-Screen zurück. `0`/`Off` deaktiviert das Auto-Lock
+- Flutter-App: **„Lock vault"** im Settings-Screen funktioniert jetzt (löscht die privaten Schlüssel aus dem Speicher und führt zum Entsperr-Screen) statt nur eine Snackbar zu zeigen
+
 ## [2.1.0] - 2026-06-19
 
 ### Added
