@@ -22,7 +22,13 @@ interface CopyState {
   field: 'username' | 'password';
 }
 
-export function EntryList() {
+export function EntryList({
+  onSelect,
+  onCreate,
+}: {
+  onSelect?: (entry: EntryResponse) => void;
+  onCreate?: () => void;
+} = {}) {
   const { entries, isLoading, search, copyField } = useEntriesStore();
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState<CopyState | null>(null);
@@ -44,19 +50,30 @@ export function EntryList() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <input
-        type="search"
-        placeholder="Search entries…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        style={{
-          padding: '8px',
-          borderRadius: '4px',
-          border: '1px solid #e2e8f0',
-          fontSize: '13px',
-          width: '100%',
-        }}
-      />
+      <div style={{ display: 'flex', gap: '6px' }}>
+        <input
+          type="search"
+          placeholder="Search entries…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{
+            padding: '8px',
+            borderRadius: '4px',
+            border: '1px solid #e2e8f0',
+            fontSize: '13px',
+            flex: 1,
+          }}
+        />
+        {onCreate && (
+          <button
+            onClick={onCreate}
+            title="New entry"
+            style={{ padding: '0 12px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#4299e1', color: '#fff', cursor: 'pointer', fontSize: '16px' }}
+          >
+            +
+          </button>
+        )}
+      </div>
       {isLoading && <p style={{ color: '#718096', fontSize: '12px' }}>Loading…</p>}
       {!isLoading && entries.length === 0 && (
         <p style={{ color: '#718096', fontSize: '12px' }}>No entries found</p>
@@ -68,6 +85,7 @@ export function EntryList() {
             entry={entry}
             copied={copied}
             onCopy={handleCopy}
+            onSelect={onSelect}
           />
         ))}
       </ul>
@@ -79,10 +97,12 @@ function EntryItem({
   entry,
   copied,
   onCopy,
+  onSelect,
 }: {
   entry: EntryResponse;
   copied: CopyState | null;
   onCopy: (id: string, field: 'username' | 'password') => void;
+  onSelect?: (entry: EntryResponse) => void;
 }) {
   const isCopiedUser = copied?.entryId === entry.id && copied.field === 'username';
   const isCopiedPw = copied?.entryId === entry.id && copied.field === 'password';
@@ -98,7 +118,12 @@ function EntryItem({
         gap: '4px',
       }}
     >
-      <span style={{ fontWeight: 600, fontSize: '13px', color: '#2d3748' }}>{entry.name}</span>
+      <span
+        onClick={onSelect ? () => onSelect(entry) : undefined}
+        style={{ fontWeight: 600, fontSize: '13px', color: '#2d3748', cursor: onSelect ? 'pointer' : 'default' }}
+      >
+        {entry.name}
+      </span>
       {entry.url && (
         <span style={{ color: '#718096', fontSize: '11px' }}>{entry.url}</span>
       )}
@@ -113,6 +138,9 @@ function EntryItem({
           copied={isCopiedPw}
           onClick={() => onCopy(entry.id, 'password')}
         />
+        {onSelect && (
+          <CopyButton label="Details" copied={false} onClick={() => onSelect(entry)} />
+        )}
       </div>
     </li>
   );

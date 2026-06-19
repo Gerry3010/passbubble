@@ -19,3 +19,5 @@ export { hkdfSha256 } from './hkdf.js';
 export { decryptDataKey, encryptDataKey } from './hybrid-kem.js';
 export { MLKEM768_CT_SIZE, generateMLKEM768, mlkemDecapsulate, mlkemEncapsulate } from './mlkem.js';
 export { generateX25519, x25519PublicKey, x25519SharedSecret } from './x25519.js';
+export { base32Decode, generateTotp } from './totp.js';
+export type { TotpOptions, TotpResult } from './totp.js';

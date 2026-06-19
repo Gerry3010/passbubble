@@ -19,7 +19,7 @@ import { LoginForm } from './components/LoginForm.js';
 import { TotpCodeForm } from './components/TotpCodeForm.js';
 import { SavePrompt } from './components/SavePrompt.js';
 import { MasterPasswordPrompt } from './components/MasterPasswordPrompt.js';
-import { EntryList } from './components/EntryList.js';
+import { VaultPanel } from './components/VaultPanel.js';
 import { GeneratorPanel } from './components/GeneratorPanel.js';
 import browser from 'webextension-polyfill';
 import { STORAGE_KEYS } from '../shared/constants.js';
@@ -140,7 +140,7 @@ export function App() {
 
       {/* Content */}
       <div style={{ padding: '12px', flex: 1, overflowY: 'auto' }}>
-        {tab === 'vault' ? <EntryList /> : <GeneratorPanel />}
+        {tab === 'vault' ? <VaultPanel /> : <GeneratorPanel />}
       </div>
     </div>
   );
