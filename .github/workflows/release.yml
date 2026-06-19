@@ -276,6 +276,24 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # ── Notify pipepush of the Docker Hub deploy result ─────────────────────────
+      - name: Notify pipepush
+        if: always()                 # notify on success AND failure
+        run: |
+          curl -sf -X POST "$PIPEPUSH_SERVER/api/webhook" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"token\": \"$PIPEPUSH_TOKEN\",
+              \"status\": \"${{ job.status }}\",
+              \"pipeline\": \"passbubble · Docker Hub\",
+              \"branch\": \"${{ github.ref_name }}\",
+              \"commit\": \"${{ github.sha }}\",
+              \"runId\": \"${{ github.run_number }}\"
+            }"
+        env:
+          PIPEPUSH_TOKEN: ${{ secrets.PIPEPUSH_TOKEN }}
+          PIPEPUSH_SERVER: ${{ vars.PIPEPUSH_SERVER }}
+
   # ── Create GitHub Release ─────────────────────────────────────────────────────
   release:
     name: GitHub Release
