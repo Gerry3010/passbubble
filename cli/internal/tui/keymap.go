@@ -26,6 +26,7 @@ const (
 	actMove        = "move"
 	actCopyPass    = "copy_password"
 	actCopyUser    = "copy_username"
+	actShareLink   = "share_link"
 	actSortCycle   = "sort_cycle"
 	actSortDir     = "sort_dir"
 	actFolderFirst = "folder_first"
@@ -43,7 +44,7 @@ const (
 // actionOrder is the stable display order used by the settings/help screens.
 var actionOrder = []string{
 	actAddPassword, actAddTOTP, actNewFolder, actEdit, actDelete, actMove,
-	actCopyPass, actCopyUser, actSearch, actSortCycle, actSortDir, actFolderFirst,
+	actCopyPass, actCopyUser, actShareLink, actSearch, actSortCycle, actSortDir, actFolderFirst,
 	actSortMenu, actGenerate, actBackup, actBackups, actSettings, actRefresh, actHelp, actQuit,
 }
 
@@ -57,6 +58,7 @@ var actionLabels = map[string]string{
 	actMove:        "Move entry",
 	actCopyPass:    "Copy password",
 	actCopyUser:    "Copy username",
+	actShareLink:   "Create share link (QR)",
 	actSearch:      "Search / filter",
 	actSortCycle:   "Cycle sort field",
 	actSortDir:     "Toggle sort direction",
@@ -82,6 +84,7 @@ func defaultKeymap() map[string]string {
 		actMove:        "m",
 		actCopyPass:    "y",
 		actCopyUser:    "u",
+		actShareLink:   "L",
 		actSearch:      "/",
 		actSortCycle:   "s",
 		actSortDir:     "S",

@@ -1,7 +1,7 @@
 // Post-build script: copy manifest + icons + wasm to dist/
 // Usage: node scripts/build.js [chrome|firefox]
 
-import { copyFileSync, mkdirSync, existsSync } from 'fs';
+import { copyFileSync, mkdirSync, existsSync, renameSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -46,5 +46,20 @@ if (existsSync(wasmDir)) {
     }
   }
 }
+
+// HTML entry points: Vite emits them under dist/<browser>/src/<name>/index.html
+// (mirroring the rollup input paths), but the manifest references them at
+// <name>/index.html. Move them up and drop the leftover src/ dir.
+for (const name of ['popup', 'options', 'fill-iframe']) {
+  const from = join(outDir, 'src', name, 'index.html');
+  const to = join(outDir, name, 'index.html');
+  if (existsSync(from)) {
+    if (!existsSync(dirname(to))) mkdirSync(dirname(to), { recursive: true });
+    renameSync(from, to);
+    console.log(`  moved /src/${name}/index.html → /${name}/index.html`);
+  }
+}
+const srcDir = join(outDir, 'src');
+if (existsSync(srcDir)) rmSync(srcDir, { recursive: true, force: true });
 
 console.log(`\n✓ ${browser} build ready at dist/${browser}/`);

@@ -146,6 +146,14 @@ type Model struct {
 	moveCursor   int
 	moveTargets  []moveTarget
 
+	// Share-link overlays: expiry picker, then the QR/URL result.
+	showShareMenu  bool
+	showShareQR    bool
+	shareEntryID   string
+	shareEntryName string
+	shareURL       string
+	shareQR        string
+
 	// Auth screens (login / register / unlock)
 	authFields []authField
 	authCursor int
@@ -481,6 +489,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return ClipboardClearMsg{value: msg.value}
 		})
 
+	case ShareLinkCreatedMsg:
+		if msg.err != nil {
+			m.status = "Share link failed: " + msg.err.Error()
+			m.statusType = "error"
+			return m, nil
+		}
+		m.shareURL = msg.url
+		m.shareQR = renderQR(msg.url)
+		m.showShareQR = true
+		m.status = "Share link created"
+		m.statusType = "success"
+		// Best-effort copy to clipboard so the long URL is easy to paste, too.
+		writeClipboard(msg.url)
+		return m, nil
+
 	case BackupCreatedMsg:
 		if msg.Error != nil {
 			m.status = fmt.Sprintf("Backup failed: %v", msg.Error)
@@ -583,6 +606,14 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.showMoveMenu {
 		return m.handleMoveMenu(msg)
+	}
+	if m.showShareQR {
+		m.showShareQR = false // any key closes the share-link result
+		m.status = ""
+		return m, nil
+	}
+	if m.showShareMenu {
+		return m.handleShareMenu(msg)
 	}
 	if m.showHelp {
 		m.showHelp = false // any key closes the help overlay
@@ -765,6 +796,16 @@ func (m Model) runAction(action string) (tea.Model, tea.Cmd) {
 			m.status = "Copying username…"
 			m.statusType = "info"
 			return m, m.copyEntryFieldCmd(item.entry.ID, "username")
+		}
+		return m, nil
+
+	case actShareLink:
+		if item, ok := m.selectedItem(); ok && item.kind == entryKind {
+			m.shareEntryID = item.entry.ID
+			m.shareEntryName = item.entry.Service
+			m.showShareMenu = true
+			m.status = "Share link — choose how long it stays valid"
+			m.statusType = "info"
 		}
 		return m, nil
 
@@ -1059,6 +1100,13 @@ func (m Model) View() string {
 	// Show move overlay if active
 	if m.showMoveMenu {
 		return m.renderMoveMenu()
+	}
+	// Show share-link QR result / expiry picker if active
+	if m.showShareQR {
+		return m.renderShareQR()
+	}
+	if m.showShareMenu {
+		return m.renderShareMenu()
 	}
 	// Show help overlay if active
 	if m.showHelp {
