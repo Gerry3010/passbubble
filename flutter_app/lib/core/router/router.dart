@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -40,10 +41,19 @@ String _initialLocation() {
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final auth = ref.watch(authStateProvider);
+  // Build the GoRouter exactly ONCE. Watching authStateProvider here would
+  // recreate the whole router on every auth change, which resets navigation and
+  // drops the initial deep link (the "first open bounces to /login" bug).
+  // Instead, refresh redirects via a listenable and read auth inside redirect.
+  final refresh = ValueNotifier(0);
+  ref.listen(authStateProvider, (_, _) => refresh.value++);
+  ref.onDispose(refresh.dispose);
+
   return GoRouter(
     initialLocation: _initialLocation(),
+    refreshListenable: refresh,
     redirect: (context, state) {
+      final auth = ref.read(authStateProvider);
       final path = state.matchedLocation;
       final isSetup = path.startsWith('/setup');
       final isLogin = path.startsWith('/login');

@@ -141,6 +141,15 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+/// Shows "Never expires" for the far-future date used by unlimited links,
+/// otherwise the expiry day.
+String _expiryLabel(String expiresAt) {
+  final dt = DateTime.tryParse(expiresAt);
+  if (dt != null && dt.year >= 2100) return 'Never expires';
+  final day = expiresAt.length >= 10 ? expiresAt.substring(0, 10) : expiresAt;
+  return 'Expires $day';
+}
+
 class _ShareLinkTile extends StatelessWidget {
   final ShareLinkResponse link;
   final VoidCallback onRevoke;
@@ -159,8 +168,7 @@ class _ShareLinkTile extends StatelessWidget {
         style: const TextStyle(fontSize: 14),
       ),
       subtitle: Text(
-        'Expires ${link.expiresAt.length > 10 ? link.expiresAt.substring(0, 10) : link.expiresAt}'
-        '${isRevoked ? ' · REVOKED' : ''}',
+        '${_expiryLabel(link.expiresAt)}${isRevoked ? ' · REVOKED' : ''}',
         style: TextStyle(color: isRevoked ? AppTheme.error : AppTheme.onBgDim, fontSize: 11),
       ),
       trailing: isRevoked

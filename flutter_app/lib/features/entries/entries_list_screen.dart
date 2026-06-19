@@ -25,6 +25,7 @@ import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
@@ -90,8 +91,9 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
       );
       return;
     }
+    List<Map<String, dynamic>> items;
     try {
-      final items = <Map<String, dynamic>>[];
+      items = <Map<String, dynamic>>[];
       for (final e in inFolder) {
         final full = await api.getEntry(e.id);
         final encKey = full.entryKey;
@@ -102,66 +104,54 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
             full.encryptedData, Uint8List.fromList(dataKey));
         items.add({'name': e.name, 'type': e.type, 'url': e.url, 'data': data});
       }
-      final payload = {'folder': folder.name, 'entries': items};
-      // Deterministic link key → re-sharing the folder yields the same URL.
-      final linkKey =
-          await VaultCrypto.deriveShareLinkKey(authSvc.privX25519!, folder.id);
-      final encryptedPayload =
-          await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
-      final exp = DateTime.now().toUtc().add(const Duration(days: 7));
-      final expStr = '${exp.toIso8601String().split('.').first}Z';
-      final link = await api.createFolderShareLink(
-        folder.id,
-        CreateShareLinkRequest(
-          encryptedPayload: encryptedPayload,
-          payloadNonce: base64.encode(Uint8List(12)),
-          expiresAt: expStr,
-        ),
-      );
-      ref.invalidate(sharesProvider);
-      final secret = base64Url.encode(linkKey);
-      final url =
-          '${api.publicBaseUrl}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text('Share "${folder.name}"'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${items.length} entries, viewable for 7 days. The decryption key '
-                'is in the link (after #) and never reaches the server.',
-                style: const TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 12),
-              SelectableText(url, style: const TextStyle(fontSize: 12)),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: url));
-                ctx.pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Link copied')),
-                );
-              },
-              child: const Text('Copy link'),
-            ),
-            TextButton(onPressed: () => ctx.pop(), child: const Text('Close')),
-          ],
-        ),
-      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not create link: $e')),
+          SnackBar(content: Text('Could not read folder: $e')),
         );
       }
+      return;
     }
+
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => ShareLinkDialog(
+        title: folder.name,
+        onCreate: (validity) =>
+            _buildFolderShareLink(folder, items, authSvc.privX25519!, validity),
+      ),
+    );
+  }
+
+  /// Encrypts the folder payload under a deterministic link key, creates (or
+  /// refreshes) the folder share link, and returns the shareable URL.
+  Future<String> _buildFolderShareLink(
+    FolderResponse folder,
+    List<Map<String, dynamic>> items,
+    Uint8List priv,
+    Duration? validity,
+  ) async {
+    final api = ref.read(apiClientProvider);
+    final payload = {'folder': folder.name, 'entries': items};
+    final linkKey = await VaultCrypto.deriveShareLinkKey(priv, folder.id);
+    final encryptedPayload =
+        await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
+    final exp = validity == null
+        ? DateTime.utc(2125)
+        : DateTime.now().toUtc().add(validity);
+    final expStr = '${exp.toIso8601String().split('.').first}Z';
+    final link = await api.createFolderShareLink(
+      folder.id,
+      CreateShareLinkRequest(
+        encryptedPayload: encryptedPayload,
+        payloadNonce: base64.encode(Uint8List(12)),
+        expiresAt: expStr,
+      ),
+    );
+    ref.invalidate(sharesProvider);
+    final secret = base64Url.encode(linkKey);
+    return '${api.publicBaseUrl}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
   }
 
   List<EntryResponse> _searchEntries(List<EntryResponse> all) {

@@ -28,6 +28,7 @@ import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
 import 'entries_list_screen.dart' show entriesProvider;
 
@@ -137,78 +138,52 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     if (d == null) return; // vault locked / decrypt failed
     final priv = ref.read(authServiceProvider).privX25519;
     if (priv == null) return;
-    try {
-      final payload = {
-        'name': entry.name,
-        'type': entry.type,
-        'url': entry.url,
-        'data': d,
-      };
-      // Deterministic link key → re-sharing the same entry yields the same URL.
-      final linkKey = await VaultCrypto.deriveShareLinkKey(priv, entry.id);
-      final encryptedPayload =
-          await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
-      final exp = DateTime.now().toUtc().add(const Duration(days: 7));
-      final expStr = '${exp.toIso8601String().split('.').first}Z';
 
-      final api = ref.read(apiClientProvider);
-      final link = await api.createEntryShareLink(
-        entry.id,
-        CreateShareLinkRequest(
-          encryptedPayload: encryptedPayload,
-          payloadNonce: base64.encode(Uint8List(12)), // placeholder; nonce is in the ciphertext
-          expiresAt: expStr,
-        ),
-      );
-      ref.invalidate(sharesProvider);
+    await showDialog<void>(
+      context: context,
+      builder: (_) => ShareLinkDialog(
+        title: entry.name,
+        onCreate: (validity) => _buildEntryShareLink(entry, d, priv, validity),
+      ),
+    );
+  }
 
-      // Zero-knowledge link: the decryption key (k) lives in the URL fragment
-      // after '#', which (with the web app's hash routing) never reaches the
-      // server. The server only ever sees the token when the viewer loads it.
-      final secret = base64Url.encode(linkKey);
-      final url =
-          '${api.publicBaseUrl}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Share link created'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Anyone with this link can view the entry for 7 days. The '
-                'decryption key lives only in the link (after #) and never '
-                'reaches the server. Revoke it any time under Manage › Shares.',
-                style: TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 12),
-              SelectableText(url, style: const TextStyle(fontSize: 12)),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: url));
-                ctx.pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Link copied')),
-                );
-              },
-              child: const Text('Copy link'),
-            ),
-            TextButton(onPressed: () => ctx.pop(), child: const Text('Close')),
-          ],
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not create link: $e')),
-        );
-      }
-    }
+  /// Creates (or refreshes) the entry's share link and returns the shareable URL.
+  /// A null [validity] means the link never expires (a far-future date).
+  Future<String> _buildEntryShareLink(
+    EntryResponse entry,
+    Map<String, dynamic> data,
+    Uint8List priv,
+    Duration? validity,
+  ) async {
+    final payload = {
+      'name': entry.name,
+      'type': entry.type,
+      'url': entry.url,
+      'data': data,
+    };
+    // Deterministic link key → re-sharing the same entry yields the same URL.
+    final linkKey = await VaultCrypto.deriveShareLinkKey(priv, entry.id);
+    final encryptedPayload =
+        await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
+    final exp = validity == null
+        ? DateTime.utc(2125)
+        : DateTime.now().toUtc().add(validity);
+    final expStr = '${exp.toIso8601String().split('.').first}Z';
+
+    final api = ref.read(apiClientProvider);
+    final link = await api.createEntryShareLink(
+      entry.id,
+      CreateShareLinkRequest(
+        encryptedPayload: encryptedPayload,
+        payloadNonce: base64.encode(Uint8List(12)), // placeholder; nonce is in the ciphertext
+        expiresAt: expStr,
+      ),
+    );
+    ref.invalidate(sharesProvider);
+
+    final secret = base64Url.encode(linkKey);
+    return '${api.publicBaseUrl}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
   }
 
   Future<void> _delete(String id) async {
