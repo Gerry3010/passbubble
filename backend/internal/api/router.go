@@ -141,6 +141,7 @@ func (s *Server) buildRouter() http.Handler {
 				r.Get("/admin/users", h.ListUsers)
 				r.Put("/admin/users/{id}", h.UpdateUser)
 				r.Get("/admin/invitations", h.ListInvitations)
+				r.Delete("/admin/invitations/{id}", h.DeleteInvitation)
 			})
 		})
 	})

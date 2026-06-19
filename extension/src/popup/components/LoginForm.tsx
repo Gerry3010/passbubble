@@ -13,14 +13,40 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import browser from 'webextension-polyfill';
 import { useSessionStore } from '../store/session.js';
+import { STORAGE_KEYS } from '../../shared/constants.js';
 import { term, input, buttonPrimary, errorText, withDisabled } from '../../shared/theme.js';
 
 export function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [restored, setRestored] = useState(false);
   const { login, isLoading, error } = useSessionStore();
+
+  // Restore an in-progress draft so closing the popup mid-login (e.g. to grab
+  // a password from elsewhere) does not wipe what was already typed.
+  useEffect(() => {
+    browser.storage.session
+      .get(STORAGE_KEYS.AUTH_DRAFT)
+      .then((data) => {
+        const draft = data[STORAGE_KEYS.AUTH_DRAFT] as { email?: string; password?: string } | undefined;
+        if (draft) {
+          setEmail(draft.email ?? '');
+          setPassword(draft.password ?? '');
+        }
+      })
+      .catch(() => {})
+      .finally(() => setRestored(true));
+  }, []);
+
+  // Persist the draft on every change (only after the initial restore, so we
+  // never clobber a saved draft with the empty initial state).
+  useEffect(() => {
+    if (!restored) return;
+    void browser.storage.session.set({ [STORAGE_KEYS.AUTH_DRAFT]: { email, password } }).catch(() => {});
+  }, [email, password, restored]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

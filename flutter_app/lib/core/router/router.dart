@@ -49,7 +49,10 @@ void captureLaunchUri() => _launchFragment ??= Uri.base.fragment;
 /// puts the route after '#') so it opens without bouncing to /login.
 String _initialLocation() {
   final frag = _launchFragment ?? Uri.base.fragment;
-  return frag.startsWith('/share') ? frag : '/entries';
+  // Preserve public/unauthenticated deep links (share viewer, invitation
+  // register link) so they open without bouncing to /login on first load.
+  if (frag.startsWith('/share') || frag.startsWith('/register')) return frag;
+  return '/entries';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -89,7 +92,13 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/setup', builder: (_, _) => const SetupScreen()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-      GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
+      GoRoute(
+        path: '/register',
+        builder: (_, state) => RegisterScreen(
+          initialToken: state.uri.queryParameters['token'],
+          initialEmail: state.uri.queryParameters['email'],
+        ),
+      ),
       GoRoute(path: '/unlock', builder: (_, _) => const UnlockScreen()),
       GoRoute(
         path: '/share/:token',

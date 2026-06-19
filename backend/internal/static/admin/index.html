@@ -221,6 +221,16 @@ only manages users/invitations via plain JWT-authenticated requests.
     font-size: 11px;
     padding: 2px 6px;
   }
+  .revoke-btn {
+    background: none;
+    border: 1px solid var(--error);
+    color: var(--error);
+    font-size: 11px;
+    padding: 3px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .revoke-btn:hover { background: var(--error); color: #121212; }
   .empty {
     color: var(--text-dim);
     font-size: 13px;
@@ -276,7 +286,7 @@ only manages users/invitations via plain JWT-authenticated requests.
       </div>
       <div id="invite-error" class="error-box hidden"></div>
       <table>
-        <thead><tr><th>Email</th><th>Token</th><th>Status</th><th>Expires</th></tr></thead>
+        <thead><tr><th>Email</th><th>Token</th><th>Status</th><th>Expires</th><th></th></tr></thead>
         <tbody id="invitations-body"></tbody>
       </table>
       <div id="invitations-empty" class="empty hidden">No invitations yet.</div>
@@ -389,6 +399,8 @@ only manages users/invitations via plain JWT-authenticated requests.
           </td>
           <td>${statusBadge}</td>
           <td>${escapeHtml(inv.expires_at || '')}</td>
+          <td><button class="revoke-btn" data-revoke="${escapeHtml(inv.id)}"
+              data-email="${escapeHtml(inv.email)}">REVOKE</button></td>
         `;
         body.appendChild(tr);
       }
@@ -397,6 +409,20 @@ only manages users/invitations via plain JWT-authenticated requests.
           navigator.clipboard.writeText(btn.dataset.copy);
           btn.textContent = 'COPIED';
           setTimeout(() => (btn.textContent = 'COPY'), 1200);
+        });
+      });
+      body.querySelectorAll('[data-revoke]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm(`Revoke the invitation for ${btn.dataset.email}? Its token can no longer be used.`)) return;
+          btn.disabled = true;
+          hideError($('invite-error'));
+          try {
+            await api(`/admin/invitations/${btn.dataset.revoke}`, { method: 'DELETE' });
+            await loadInvitations();
+          } catch (e) {
+            btn.disabled = false;
+            showError($('invite-error'), e.message);
+          }
         });
       });
     } catch (e) {

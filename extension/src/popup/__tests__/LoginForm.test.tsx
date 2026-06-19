@@ -22,6 +22,19 @@ vi.mock('../store/session.js', () => ({
   useSessionStore: vi.fn(),
 }));
 
+// LoginForm persists/restores its draft via browser.storage.session.
+vi.mock('webextension-polyfill', () => ({
+  default: {
+    storage: {
+      session: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
+    },
+  },
+}));
+
 import { useSessionStore } from '../store/session.js';
 
 const mockUseStore = useSessionStore as ReturnType<typeof vi.fn>;

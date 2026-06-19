@@ -19,9 +19,11 @@ export const MessageType = {
   VERIFY_TOTP: 'VERIFY_TOTP',
   UNLOCK: 'UNLOCK',
   LOCK: 'LOCK',
+  LOGOUT: 'LOGOUT',
   GET_SESSION: 'GET_SESSION',
   // Entries
   SEARCH_ENTRIES: 'SEARCH_ENTRIES',
+  LIST_FOLDERS: 'LIST_FOLDERS',
   GET_ENTRY: 'GET_ENTRY',
   CREATE_ENTRY: 'CREATE_ENTRY',
   UPDATE_ENTRY: 'UPDATE_ENTRY',
@@ -59,4 +61,8 @@ export const STORAGE_KEYS = {
   PUB_MLKEM: 'pub_mlkem',
   DISMISSED_SAVE_HOSTS: 'dismissed_save_hosts',
   PENDING_SAVE: 'pending_save',
+  // In-progress login draft + 2FA state, so closing the popup mid-login
+  // (e.g. to fetch a TOTP code) does not discard what the user already entered.
+  AUTH_DRAFT: 'auth_draft',
+  PENDING_2FA: 'pending_2fa',
 } as const;

@@ -16,33 +16,66 @@
 import { create } from 'zustand';
 import browser from 'webextension-polyfill';
 import { MessageType } from '../../shared/constants.js';
-import type { EntryResponse } from '@passbubble/shared-ts';
+import type { EntryResponse, FolderResponse } from '@passbubble/shared-ts';
 
 interface EntriesState {
   entries: EntryResponse[];
+  folders: FolderResponse[];
+  /** Host of the active tab (sans leading "www."), used to pre-filter on open. */
+  currentHost: string;
   isLoading: boolean;
   error: string | null;
-  search: (query: string) => Promise<void>;
+  /** Fetch the full vault (entries + folders) and the active-tab host. */
+  load: () => Promise<void>;
   copyField: (entryId: string, field: 'username' | 'password') => Promise<void>;
+}
+
+/** The folders endpoint returns a tree (roots with nested `children`); the
+ * popup browses level-by-level via parent_id, so flatten it to a single list. */
+function flattenFolders(tree: FolderResponse[]): FolderResponse[] {
+  const out: FolderResponse[] = [];
+  const walk = (nodes: FolderResponse[]) => {
+    for (const n of nodes) {
+      out.push(n);
+      if (n.children?.length) walk(n.children);
+    }
+  };
+  walk(tree);
+  return out;
+}
+
+/** Best-effort host of the currently active tab. Empty string if unavailable. */
+async function activeTabHost(): Promise<string> {
+  try {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return '';
+    return new URL(tab.url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
 }
 
 export const useEntriesStore = create<EntriesState>((set) => ({
   entries: [],
+  folders: [],
+  currentHost: '',
   isLoading: false,
   error: null,
 
-  search: async (query) => {
+  load: async () => {
     set({ isLoading: true, error: null });
     try {
-      const resp = await browser.runtime.sendMessage({
-        type: MessageType.SEARCH_ENTRIES,
-        payload: { query },
+      const [entriesResp, foldersResp, host] = await Promise.all([
+        browser.runtime.sendMessage({ type: MessageType.SEARCH_ENTRIES, payload: { query: '' } }),
+        browser.runtime.sendMessage({ type: MessageType.LIST_FOLDERS, payload: {} }),
+        activeTabHost(),
+      ]);
+      set({
+        entries: Array.isArray(entriesResp) ? (entriesResp as EntryResponse[]) : [],
+        folders: Array.isArray(foldersResp) ? flattenFolders(foldersResp as FolderResponse[]) : [],
+        currentHost: host,
+        isLoading: false,
       });
-      if (Array.isArray(resp)) {
-        set({ entries: resp as EntryResponse[], isLoading: false });
-      } else {
-        set({ isLoading: false, entries: [] });
-      }
     } catch (e) {
       set({ isLoading: false, error: String(e) });
     }

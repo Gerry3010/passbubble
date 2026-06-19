@@ -16,6 +16,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -50,6 +51,15 @@ func (h *Handler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondErr(w, http.StatusConflict, "invitation already exists for this email")
 		return
+	}
+
+	// Best-effort invitation email. The token is still returned (and shown in
+	// the admin panel) so the admin can share the link manually if SMTP fails
+	// or is not configured.
+	if h.mailer != nil {
+		if err := h.mailer.SendInvitationEmail(req.Email, token); err != nil {
+			slog.Error("invitation email send failed", "to", req.Email, "err", err)
+		}
 	}
 
 	respond(w, http.StatusCreated, models.InvitationResponse{
@@ -128,4 +138,26 @@ func (h *Handler) ListInvitations(w http.ResponseWriter, r *http.Request) {
 		invitations = append(invitations, inv)
 	}
 	respond(w, http.StatusOK, invitations)
+}
+
+// DeleteInvitation handles DELETE /api/v1/admin/invitations/{id}. It removes a
+// pending (or already-used) invitation so its token can no longer be redeemed.
+func (h *Handler) DeleteInvitation(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(id); err != nil {
+		respondErr(w, http.StatusBadRequest, "invalid invitation id")
+		return
+	}
+
+	tag, err := h.pool.Exec(r.Context(),
+		`DELETE FROM invitations WHERE id = $1`, id)
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to delete invitation")
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		respondErr(w, http.StatusNotFound, "invitation not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

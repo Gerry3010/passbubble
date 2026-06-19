@@ -37,6 +37,8 @@ test_results/
 pwmgr-go
 pwmgr-*
 passbubble-*
+# …but the mailer's brand icon is a //go:embed asset and must be committed
+!backend/internal/mailer/passbubble-icon.png
 *.exe
 dist/
 build/

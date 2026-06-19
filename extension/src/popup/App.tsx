@@ -28,8 +28,9 @@ import { term, buttonPrimary } from '../shared/theme.js';
 type Tab = 'vault' | 'generator';
 
 export function App() {
-  const { isLoggedIn, isUnlocked, userName, lock, checkSession, isLoading, totpRequired } =
+  const { isLoggedIn, isUnlocked, userName, userEmail, lock, checkSession, isLoading, totpRequired } =
     useSessionStore();
+  const accountLabel = userName || userEmail;
   const [tab, setTab] = useState<Tab>('vault');
   const [hasServerUrl, setHasServerUrl] = useState<boolean | null>(null);
 
@@ -96,7 +97,15 @@ export function App() {
           <span style={{ color: term.muted }}>&gt;_</span> passbubble
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {userName && <span style={{ fontSize: '11px', color: term.muted }}>{userName}</span>}
+          {accountLabel && (
+            <button
+              onClick={() => browser.runtime.openOptionsPage()}
+              title="Account settings"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: term.green, fontSize: '11px', fontFamily: term.font, padding: 0 }}
+            >
+              [{accountLabel}]
+            </button>
+          )}
           <button
             onClick={() => void lock()}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: term.muted, fontSize: '11px', fontFamily: term.font }}

@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { ServerUrlForm } from './components/ServerUrlForm.js';
+import { AccountSection } from './components/AccountSection.js';
 import { term } from '../shared/theme.js';
 
 export function App() {
@@ -22,6 +23,7 @@ export function App() {
       <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: term.green, fontFamily: term.font }}>
         <span style={{ color: term.muted }}>passbubble:~$</span> settings
       </h1>
+      <AccountSection />
       <ServerUrlForm />
       <section style={{ color: term.muted, fontSize: '13px' }}>
         <h2 style={{ fontSize: '16px', fontWeight: 700, color: term.green, marginBottom: '8px', fontFamily: term.font }}>

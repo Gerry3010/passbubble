@@ -187,6 +187,16 @@ export function buildHandlers(): Record<string, Handler> {
       return { ok: true };
     },
 
+    // Full sign-out: unlike LOCK (which only drops the in-memory keys but keeps
+    // you logged in), this wipes the refresh token and all session storage so
+    // the next popup starts at the login screen.
+    [MessageType.LOGOUT]: async () => {
+      clearSession();
+      await browser.alarms.clear('token-refresh');
+      await browser.storage.session.clear();
+      return { ok: true };
+    },
+
     [MessageType.SEARCH_ENTRIES]: async (payload) => {
       const session = getSession();
       if (!session) return { locked: true };
@@ -201,6 +211,13 @@ export function buildHandlers(): Record<string, Handler> {
         return entries;
       }
       return client.searchEntries(query);
+    },
+
+    [MessageType.LIST_FOLDERS]: async () => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      return client.listFolders();
     },
 
     [MessageType.GET_ENTRY]: async (payload) => {

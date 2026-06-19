@@ -15,8 +15,17 @@
 
 import { create } from 'zustand';
 import browser from 'webextension-polyfill';
-import { MessageType } from '../../shared/constants.js';
+import { MessageType, STORAGE_KEYS } from '../../shared/constants.js';
 import type { SessionInfo } from '@passbubble/shared-ts';
+
+/** Drop the in-progress login draft + 2FA state from session storage. */
+async function clearAuthDraft(): Promise<void> {
+  try {
+    await browser.storage.session.remove([STORAGE_KEYS.AUTH_DRAFT, STORAGE_KEYS.PENDING_2FA]);
+  } catch {
+    // session storage may be unavailable in some contexts — best effort only
+  }
+}
 
 interface SessionState extends SessionInfo {
   serverUrl: string;
@@ -32,6 +41,7 @@ interface SessionState extends SessionInfo {
   cancelTotp: () => void;
   unlock: (masterPassword: string) => Promise<void>;
   lock: () => Promise<void>;
+  logout: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -53,7 +63,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         type: MessageType.GET_SESSION,
         payload: {},
       }) as SessionInfo & { serverUrl: string };
-      set({ ...resp, isLoading: false });
+      // Restore a pending 2FA step if the popup was closed mid-login, so the
+      // user lands back on the code prompt instead of starting over.
+      let totp: { totpRequired: boolean; pendingToken: string | null } = {
+        totpRequired: false,
+        pendingToken: null,
+      };
+      if (!resp.isLoggedIn) {
+        try {
+          const stored = await browser.storage.session.get(STORAGE_KEYS.PENDING_2FA);
+          const token = stored[STORAGE_KEYS.PENDING_2FA] as string | undefined;
+          if (token) totp = { totpRequired: true, pendingToken: token };
+        } catch {
+          // ignore — fall back to a fresh login
+        }
+      }
+      set({ ...resp, ...totp, isLoading: false });
     } catch {
       set({ isLoading: false, error: 'Failed to connect to extension background' });
     }
@@ -67,6 +92,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         payload: { email, password },
       })) as { requiresTotp?: boolean; pendingToken?: string };
       if (resp?.requiresTotp) {
+        // Password step done — keep only the pending-2FA token (not the
+        // password) so the code prompt survives the popup closing.
+        try {
+          await browser.storage.session.set({ [STORAGE_KEYS.PENDING_2FA]: resp.pendingToken ?? '' });
+          await browser.storage.session.remove(STORAGE_KEYS.AUTH_DRAFT);
+        } catch {
+          // best effort
+        }
         set({
           isLoading: false,
           totpRequired: true,
@@ -74,6 +107,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         });
         return;
       }
+      await clearAuthDraft();
       set({ isLoggedIn: true, isLoading: false });
     } catch (e) {
       set({ isLoading: false, error: String(e) });
@@ -89,6 +123,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         type: MessageType.VERIFY_TOTP,
         payload: { pendingToken, code },
       });
+      await clearAuthDraft();
       set({
         isLoggedIn: true,
         isLoading: false,
@@ -100,8 +135,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  cancelTotp: () =>
-    set({ totpRequired: false, pendingToken: null, error: null }),
+  cancelTotp: () => {
+    void clearAuthDraft();
+    set({ totpRequired: false, pendingToken: null, error: null });
+  },
 
   unlock: async (masterPassword) => {
     set({ isLoading: true, error: null });
@@ -124,6 +161,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   lock: async () => {
     await browser.runtime.sendMessage({ type: MessageType.LOCK, payload: {} });
     set({ isUnlocked: false, error: null });
+  },
+
+  logout: async () => {
+    await browser.runtime.sendMessage({ type: MessageType.LOGOUT, payload: {} });
+    await clearAuthDraft();
+    set({
+      isLoggedIn: false,
+      isUnlocked: false,
+      totpRequired: false,
+      pendingToken: null,
+      userEmail: undefined,
+      userName: undefined,
+      error: null,
+    });
   },
 
   clearError: () => set({ error: null }),

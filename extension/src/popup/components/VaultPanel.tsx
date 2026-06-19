@@ -26,7 +26,7 @@ type View = { kind: 'list' } | { kind: 'detail'; entry: EntryResponse } | { kind
  * create form. */
 export function VaultPanel() {
   const [view, setView] = useState<View>({ kind: 'list' });
-  const search = useEntriesStore((s) => s.search);
+  const load = useEntriesStore((s) => s.load);
 
   if (view.kind === 'detail') {
     return <EntryDetail entry={view.entry} onBack={() => setView({ kind: 'list' })} />;
@@ -36,7 +36,7 @@ export function VaultPanel() {
       <CreateEntryForm
         onCancel={() => setView({ kind: 'list' })}
         onCreated={() => {
-          void search('');
+          void load();
           setView({ kind: 'list' });
         }}
       />

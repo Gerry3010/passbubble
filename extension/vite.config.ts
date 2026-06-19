@@ -13,7 +13,9 @@ export default defineConfig({
         'options/index': resolve(__dirname, 'src/options/index.html'),
         'fill-iframe/index': resolve(__dirname, 'src/fill-iframe/index.html'),
         'background/service-worker': resolve(__dirname, 'src/background/service-worker.ts'),
-        'content/content-script': resolve(__dirname, 'src/content/content-script.ts'),
+        // NOTE: the content script is built separately (vite.config.content.ts)
+        // as a classic IIFE — MV3 injects content_scripts as non-module scripts,
+        // so it must not contain ESM `import` statements.
       },
       output: {
         entryFileNames: '[name].js',

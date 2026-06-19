@@ -33,9 +33,11 @@ function makeEntry(id: string, name: string, url?: string): EntryResponse {
 function defaultStore(overrides = {}) {
   return {
     entries: [],
+    folders: [],
+    currentHost: '',
     isLoading: false,
     error: null,
-    search: vi.fn().mockResolvedValue(undefined),
+    load: vi.fn().mockResolvedValue(undefined),
     copyField: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -99,19 +101,38 @@ describe('EntryList', () => {
     expect(copyMock).toHaveBeenCalledWith('42', 'password');
   });
 
-  it('calls search with the query when the search input changes', async () => {
-    const searchMock = vi.fn().mockResolvedValue(undefined);
-    mockUseStore.mockReturnValue(defaultStore({ search: searchMock }));
+  it('filters the visible entries as the search query changes', async () => {
+    const entries = [makeEntry('1', 'GitHub', 'https://github.com'), makeEntry('2', 'Google')];
+    mockUseStore.mockReturnValue(defaultStore({ entries }));
     render(<EntryList />);
 
     fireEvent.change(screen.getByPlaceholderText(/grep entries/i), {
-      target: { value: 'github' },
+      target: { value: 'git' },
     });
 
-    await waitFor(
-      () => expect(searchMock).toHaveBeenCalledWith('github'),
-      { timeout: 500 },
-    );
+    await waitFor(() => {
+      expect(screen.getByText('GitHub')).toBeDefined();
+      expect(screen.queryByText('Google')).toBeNull();
+    });
+  });
+
+  it('groups entries under their folder and opens it on click', () => {
+    const entries = [
+      { ...makeEntry('1', 'WorkPass'), folder_id: 'f1' },
+      makeEntry('2', 'RootPass'),
+    ];
+    const folders = [{ id: 'f1', name: 'Work', created_at: '' }];
+    mockUseStore.mockReturnValue(defaultStore({ entries, folders }));
+    render(<EntryList />);
+
+    // Root view: folder row + root entry visible, foldered entry hidden
+    expect(screen.getByText(/Work/)).toBeDefined();
+    expect(screen.getByText('RootPass')).toBeDefined();
+    expect(screen.queryByText('WorkPass')).toBeNull();
+
+    // Open the folder → its entry becomes visible
+    fireEvent.click(screen.getByText(/Work/));
+    expect(screen.getByText('WorkPass')).toBeDefined();
   });
 
   it('renders multiple entries', () => {

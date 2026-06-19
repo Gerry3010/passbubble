@@ -19,12 +19,19 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/util/strip_query.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
 import '../../widgets/app_logo.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.initialToken, this.initialEmail});
+
+  /// Invitation token, pre-filled from the `?token=` deep-link query param.
+  final String? initialToken;
+
+  /// Invitee email, pre-filled from the `?email=` deep-link query param.
+  final String? initialEmail;
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -48,6 +55,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   void initState() {
     super.initState();
     _passCtrl.addListener(() => setState(() {}));
+
+    // Pre-fill from an invitation deep link, then strip the token/email out of
+    // the browser URL so it isn't left in the address bar, history or bookmarks.
+    final token = widget.initialToken?.trim() ?? '';
+    final email = widget.initialEmail?.trim() ?? '';
+    if (token.isNotEmpty) _tokenCtrl.text = token;
+    if (email.isNotEmpty) _emailCtrl.text = email;
+    if (token.isNotEmpty || email.isNotEmpty) stripUrlQuery();
   }
 
   @override

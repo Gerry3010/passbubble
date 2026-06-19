@@ -49,6 +49,7 @@ dependencies:
   url_launcher: ^6.3.1
 
   # Utilities
+  web: ^1.1.0 # browser History API (strip invitation token from URL on web)
   intl: ^0.20.2
   uuid: ^4.5.1
   json_annotation: ^4.9.0
