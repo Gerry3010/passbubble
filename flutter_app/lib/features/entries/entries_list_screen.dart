@@ -159,7 +159,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
   ) async {
     final api = ref.read(apiClientProvider);
     final payload = {'folder': folder.name, 'entries': items};
-    final linkKey = await VaultCrypto.deriveShareLinkKey(priv, folder.id);
+    final linkKey = VaultCrypto.randomKey();
     final encryptedPayload =
         await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
     final exp = validity == null
@@ -291,7 +291,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
       'url': entry.url,
       'data': data,
     };
-    final linkKey = await VaultCrypto.deriveShareLinkKey(priv, entry.id);
+    final linkKey = VaultCrypto.randomKey();
     final encryptedPayload =
         await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
     final exp = validity == null

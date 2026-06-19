@@ -53,19 +53,17 @@ void main() {
     );
   });
 
-  test('deriveShareLinkKey is deterministic per (owner, resource)', () async {
-    final priv = VaultCrypto.randomKey();
-    final k1 = await VaultCrypto.deriveShareLinkKey(priv, 'entry-1');
-    final k2 = await VaultCrypto.deriveShareLinkKey(priv, 'entry-1');
-    final kOther = await VaultCrypto.deriveShareLinkKey(priv, 'entry-2');
-    expect(k1, equals(k2)); // same → same link URL on re-share
-    expect(k1, isNot(equals(kOther))); // different resource → different key
+  test('two links for the same entry get independent random keys', () async {
+    // Each "Create link" mints a fresh random key, so multiple links can
+    // coexist for one entry (e.g. two 7-day links plus one that never expires).
+    final k1 = VaultCrypto.randomKey();
+    final k2 = VaultCrypto.randomKey();
+    expect(k1, isNot(equals(k2)));
     expect(k1.length, 32);
   });
 
-  test('deterministic-key payload round-trips through the viewer path', () async {
-    final priv = VaultCrypto.randomKey();
-    final linkKey = await VaultCrypto.deriveShareLinkKey(priv, 'entry-1');
+  test('encryptShareLinkPayload round-trips through the viewer path', () async {
+    final linkKey = VaultCrypto.randomKey();
     final b64 = await VaultCrypto.encryptShareLinkPayload(
       linkKey,
       {'name': 'GitHub', 'data': {'password': 's3cret'}},

@@ -148,8 +148,9 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     );
   }
 
-  /// Creates (or refreshes) the entry's share link and returns the shareable URL.
-  /// A null [validity] means the link never expires (a far-future date).
+  /// Creates a new, independent share link for the entry and returns the
+  /// shareable URL. A null [validity] means the link never expires (a far-future
+  /// date). Each call mints a fresh link, so several can coexist for one entry.
   Future<String> _buildEntryShareLink(
     EntryResponse entry,
     Map<String, dynamic> data,
@@ -162,8 +163,8 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       'url': entry.url,
       'data': data,
     };
-    // Deterministic link key → re-sharing the same entry yields the same URL.
-    final linkKey = await VaultCrypto.deriveShareLinkKey(priv, entry.id);
+    // Fresh random link key per link → each shared URL is independent.
+    final linkKey = VaultCrypto.randomKey();
     final encryptedPayload =
         await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
     final exp = validity == null
