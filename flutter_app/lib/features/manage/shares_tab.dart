@@ -69,6 +69,10 @@ class SharesTab extends ConsumerWidget {
                       await ref.read(apiClientProvider).revokeShareLink(link.id);
                       ref.invalidate(sharesProvider);
                     },
+                    onDelete: () async {
+                      await ref.read(apiClientProvider).deleteShareLink(link.id);
+                      ref.invalidate(sharesProvider);
+                    },
                   ),
               ],
               if (shares.entryShares.isNotEmpty) ...[
@@ -153,14 +157,19 @@ String _expiryLabel(String expiresAt) {
 class _ShareLinkTile extends StatelessWidget {
   final ShareLinkResponse link;
   final VoidCallback onRevoke;
-  const _ShareLinkTile({required this.link, required this.onRevoke});
+  final VoidCallback onDelete;
+  const _ShareLinkTile({
+    required this.link,
+    required this.onRevoke,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isRevoked = link.revokedAt != null;
     return ListTile(
       leading: Icon(
-        Icons.link,
+        isRevoked ? Icons.link_off : Icons.link,
         color: isRevoked ? AppTheme.onBgDim : AppTheme.green,
       ),
       title: Text(
@@ -171,10 +180,17 @@ class _ShareLinkTile extends StatelessWidget {
         '${_expiryLabel(link.expiresAt)}${isRevoked ? ' · REVOKED' : ''}',
         style: TextStyle(color: isRevoked ? AppTheme.error : AppTheme.onBgDim, fontSize: 11),
       ),
+      // Active links can be revoked (soft, keeps the token dead); a revoked link
+      // gets a permanent-remove button so it disappears from the list.
       trailing: isRevoked
-          ? null
+          ? IconButton(
+              icon: const Icon(Icons.close, color: AppTheme.onBgDim),
+              tooltip: 'Remove from list',
+              onPressed: () => _confirmDelete(context),
+            )
           : IconButton(
               icon: const Icon(Icons.delete_outline, color: AppTheme.error),
+              tooltip: 'Revoke',
               onPressed: () => _confirmRevoke(context),
             ),
     );
@@ -194,6 +210,26 @@ class _ShareLinkTile extends StatelessWidget {
                 onRevoke();
               },
               child: const Text('Revoke', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove share link?'),
+        content: const Text(
+            'This permanently removes the (already revoked) link from your list.'),
+        actions: [
+          TextButton(onPressed: () => ctx.pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () {
+                ctx.pop();
+                onDelete();
+              },
+              child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
         ],
       ),
     );

@@ -204,14 +204,11 @@ class _ShareViewerScreenState extends ConsumerState<ShareViewerScreen> {
     ];
     return [
       for (final f in fields)
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(f.label, style: const TextStyle(fontSize: 12, color: AppTheme.onBgDim)),
-          subtitle: Text(f.secret ? '••••••••' : f.value),
-          trailing: IconButton(
-            icon: const Icon(Icons.copy, size: 18),
-            onPressed: () => _copy(f.value, f.label),
-          ),
+        _FieldTile(
+          label: f.label,
+          value: f.value,
+          secret: f.secret,
+          onCopy: () => _copy(f.value, f.label),
         ),
     ];
   }
@@ -230,6 +227,60 @@ class _ShareViewerScreenState extends ConsumerState<ShareViewerScreen> {
           style: TextStyle(fontSize: 11, color: AppTheme.onBgDim),
         ),
       ],
+    );
+  }
+}
+
+/// One field row in the public share viewer. Secret fields (password / TOTP
+/// secret) are masked with a reveal toggle; every field can be copied.
+class _FieldTile extends StatefulWidget {
+  final String label;
+  final String value;
+  final bool secret;
+  final VoidCallback onCopy;
+  const _FieldTile({
+    required this.label,
+    required this.value,
+    required this.secret,
+    required this.onCopy,
+  });
+
+  @override
+  State<_FieldTile> createState() => _FieldTileState();
+}
+
+class _FieldTileState extends State<_FieldTile> {
+  bool _revealed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final masked = !widget.secret || _revealed
+        ? widget.value
+        : '•' * widget.value.length.clamp(1, 20);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(widget.label,
+          style: const TextStyle(fontSize: 12, color: AppTheme.onBgDim)),
+      subtitle: Text(masked),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (widget.secret)
+            IconButton(
+              icon: Icon(
+                _revealed ? Icons.visibility_off : Icons.visibility,
+                size: 18,
+                color: AppTheme.onBgDim,
+              ),
+              tooltip: _revealed ? 'Hide' : 'Show',
+              onPressed: () => setState(() => _revealed = !_revealed),
+            ),
+          IconButton(
+            icon: const Icon(Icons.copy, size: 18),
+            onPressed: widget.onCopy,
+          ),
+        ],
+      ),
     );
   }
 }

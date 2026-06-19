@@ -228,3 +228,19 @@ func (h *Handler) RevokeShareLink(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// DeleteShareLink handles DELETE /api/v1/shares/links/{id}/permanent
+// Hard-deletes a share link (used to remove an already-revoked link from the
+// list). Revoke (soft-delete) keeps the row so the public token stays dead;
+// this removes it entirely.
+func (h *Handler) DeleteShareLink(w http.ResponseWriter, r *http.Request) {
+	claims := mw.ClaimsFromCtx(r.Context())
+	linkID := chi.URLParam(r, "id")
+	_, err := h.pool.Exec(r.Context(), `
+		DELETE FROM share_links WHERE id=$1 AND owner_id=$2`, linkID, claims.UserID)
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to delete share link")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

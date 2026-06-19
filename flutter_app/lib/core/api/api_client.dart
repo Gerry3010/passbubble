@@ -295,6 +295,10 @@ class ApiClient {
   Future<void> revokeShareLink(String linkId) =>
       _delete('/api/v1/shares/links/$linkId');
 
+  /// Hard-deletes a (revoked) share link so it disappears from the list.
+  Future<void> deleteShareLink(String linkId) =>
+      _delete('/api/v1/shares/links/$linkId/permanent');
+
   Future<void> revokeEntryShare(String entryId, String userId) =>
       _delete('/api/v1/entries/$entryId/share/$userId');
 

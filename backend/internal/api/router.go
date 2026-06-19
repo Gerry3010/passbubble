@@ -109,6 +109,7 @@ func (s *Server) buildRouter() http.Handler {
 			// Shares aggregation + share-link management
 			r.Get("/shares", h.ListMyShares)
 			r.Delete("/shares/links/{id}", h.RevokeShareLink)
+			r.Delete("/shares/links/{id}/permanent", h.DeleteShareLink)
 
 			// Import/export job ledger
 			r.Post("/jobs", h.CreateJob)
