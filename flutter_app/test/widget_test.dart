@@ -24,7 +24,10 @@ void main() {
     await tester.pumpWidget(
       const ProviderScope(child: PassbubbleApp()),
     );
-    // App shows a loading spinner before init completes
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    await tester.pump();
+    // Init now runs in main() before the app is mounted, so the app boots
+    // straight into the router (no splash spinner). It should render a
+    // MaterialApp.router without throwing.
+    expect(find.byType(MaterialApp), findsOneWidget);
   });
 }

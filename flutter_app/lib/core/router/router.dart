@@ -31,12 +31,24 @@ import '../../features/manage/manage_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/settings/update_screen.dart';
 
-/// On web the app gates startup behind an async-init splash (a plain
-/// MaterialApp), which makes GoRouter lose the deep-link route and fall back to
-/// this initialLocation. Recover public share links from the URL fragment (hash
-/// routing puts the route after '#') so they open without bouncing to /login.
+/// The route the app was launched with, captured once at process start.
+///
+/// On web the app gates startup behind an async-init splash that is a plain
+/// (non-router) [MaterialApp]. Mounting such an app on web **rewrites the
+/// browser fragment to `#/`**, destroying an incoming `/share/...` deep link
+/// before [routerProvider] (and thus [_initialLocation]) is ever built. So we
+/// snapshot `Uri.base.fragment` in [captureLaunchUri], which `main()` calls
+/// *before* `runApp` — while the original URL is still intact.
+String? _launchFragment;
+
+/// Must be called from `main()` before the first `runApp`, so the share deep
+/// link survives the splash MaterialApp overwriting the URL fragment.
+void captureLaunchUri() => _launchFragment ??= Uri.base.fragment;
+
+/// Recovers a public share link from the captured launch fragment (hash routing
+/// puts the route after '#') so it opens without bouncing to /login.
 String _initialLocation() {
-  final frag = Uri.base.fragment;
+  final frag = _launchFragment ?? Uri.base.fragment;
   return frag.startsWith('/share') ? frag : '/entries';
 }
 

@@ -24,44 +24,31 @@ import 'core/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ProviderScope(child: PassbubbleApp()));
+  // Snapshot the launch URL before any MaterialApp can rewrite the browser
+  // fragment — otherwise a `/share/...` deep link is lost.
+  captureLaunchUri();
+
+  // Initialise *before* the first MaterialApp is mounted. Previously a plain
+  // (non-router) splash MaterialApp showed a spinner during init, but mounting
+  // one on web rewrites the URL fragment to `#/`, dropping an incoming
+  // `/share/...` deep link (the "bounces to login on first open" bug). The init
+  // is storage-only and fast, so we run it up front and mount MaterialApp.router
+  // straight away, leaving the launch URL intact for the share viewer.
+  final container = ProviderContainer();
+  await container.read(apiClientProvider).init();
+  await container.read(authStateProvider.notifier).init();
+
+  runApp(UncontrolledProviderScope(
+    container: container,
+    child: const PassbubbleApp(),
+  ));
 }
 
-class PassbubbleApp extends ConsumerStatefulWidget {
+class PassbubbleApp extends ConsumerWidget {
   const PassbubbleApp({super.key});
 
   @override
-  ConsumerState<PassbubbleApp> createState() => _PassbubbleAppState();
-}
-
-class _PassbubbleAppState extends ConsumerState<PassbubbleApp> {
-  bool _initialized = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _init();
-  }
-
-  Future<void> _init() async {
-    await ref.read(apiClientProvider).init();
-    await ref.read(authStateProvider.notifier).init();
-    if (mounted) setState(() => _initialized = true);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_initialized) {
-      return MaterialApp(
-        theme: AppTheme.dark,
-        home: const Scaffold(
-          body: Center(
-            child: CircularProgressIndicator(color: AppTheme.green),
-          ),
-        ),
-      );
-    }
-
+  Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
     return AutoLockScope(
       child: MaterialApp.router(
