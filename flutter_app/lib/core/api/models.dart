@@ -315,12 +315,14 @@ class CreateEntryRequest {
 }
 
 class UpdateEntryRequest {
+  final String? folderId;
   final String? name;
   final String? url;
   final String? encryptedData;
   final String? dataNonce;
   final List<EntryKey>? entryKeys;
   const UpdateEntryRequest({
+    this.folderId,
     this.name,
     this.url,
     this.encryptedData,
@@ -328,6 +330,9 @@ class UpdateEntryRequest {
     this.entryKeys,
   });
   Map<String, dynamic> toJson() => {
+        // Always sent on update so the server keeps the entry in its folder
+        // (the server otherwise resets folder_id). null = move to root.
+        'folder_id': folderId,
         if (name != null) 'name': name,
         if (url != null) 'url': url,
         if (encryptedData != null) 'encrypted_data': encryptedData,
@@ -545,6 +550,7 @@ class JobResponse {
 class ShareLinkResponse {
   final String id;
   final String token; // present on create; the URL is /share/{token}#{key}
+  final String resourceName; // entry/folder name, for display in the shares list
   final String expiresAt;
   final bool hasPassword;
   final int? maxViews;
@@ -554,6 +560,7 @@ class ShareLinkResponse {
   const ShareLinkResponse({
     required this.id,
     this.token = '',
+    this.resourceName = '',
     required this.expiresAt,
     this.hasPassword = false,
     this.maxViews,
@@ -565,6 +572,7 @@ class ShareLinkResponse {
       ShareLinkResponse(
         id: j['id'] as String,
         token: j['token'] as String? ?? '',
+        resourceName: j['resource_name'] as String? ?? '',
         expiresAt: j['expires_at'] as String? ?? '',
         hasPassword: j['has_password'] as bool? ?? false,
         maxViews: j['max_views'] as int?,

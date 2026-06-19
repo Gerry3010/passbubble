@@ -30,10 +30,19 @@ import '../../features/manage/manage_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/settings/update_screen.dart';
 
+/// On web the app gates startup behind an async-init splash (a plain
+/// MaterialApp), which makes GoRouter lose the deep-link route and fall back to
+/// this initialLocation. Recover public share links from the URL fragment (hash
+/// routing puts the route after '#') so they open without bouncing to /login.
+String _initialLocation() {
+  final frag = Uri.base.fragment;
+  return frag.startsWith('/share') ? frag : '/entries';
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authStateProvider);
   return GoRouter(
-    initialLocation: '/entries',
+    initialLocation: _initialLocation(),
     redirect: (context, state) {
       final path = state.matchedLocation;
       final isSetup = path.startsWith('/setup');

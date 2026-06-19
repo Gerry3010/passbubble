@@ -166,16 +166,17 @@ type CreateShareLinkRequest struct {
 }
 
 type ShareLinkResponse struct {
-	ID          string  `json:"id"`
-	Token       string  `json:"token"`
-	EntryID     *string `json:"entry_id,omitempty"`
-	FolderID    *string `json:"folder_id,omitempty"`
-	HasPassword bool    `json:"has_password"`
-	MaxViews    *int    `json:"max_views,omitempty"`
-	ViewCount   int     `json:"view_count"`
-	ExpiresAt   string  `json:"expires_at"`
-	CreatedAt   string  `json:"created_at"`
-	RevokedAt   *string `json:"revoked_at,omitempty"`
+	ID           string  `json:"id"`
+	Token        string  `json:"token"`
+	EntryID      *string `json:"entry_id,omitempty"`
+	FolderID     *string `json:"folder_id,omitempty"`
+	ResourceName string  `json:"resource_name"` // entry or folder name (for display)
+	HasPassword  bool    `json:"has_password"`
+	MaxViews     *int    `json:"max_views,omitempty"`
+	ViewCount    int     `json:"view_count"`
+	ExpiresAt    string  `json:"expires_at"`
+	CreatedAt    string  `json:"created_at"`
+	RevokedAt    *string `json:"revoked_at,omitempty"`
 }
 
 // PublicShareLinkResponse is returned by the unauthenticated GET /share/{token}.

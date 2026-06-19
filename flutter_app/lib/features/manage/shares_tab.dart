@@ -21,7 +21,9 @@ import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/theme/app_theme.dart';
 
-final _sharesProvider = FutureProvider<MySharesResponse>((ref) {
+/// Public so screens that create/revoke shares can `ref.invalidate(sharesProvider)`
+/// to refresh the list immediately.
+final sharesProvider = FutureProvider<MySharesResponse>((ref) {
   return ref.watch(apiClientProvider).listMyShares();
 });
 
@@ -30,7 +32,7 @@ class SharesTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sharesAsync = ref.watch(_sharesProvider);
+    final sharesAsync = ref.watch(sharesProvider);
 
     return sharesAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -54,7 +56,7 @@ class SharesTab extends ConsumerWidget {
 
         return RefreshIndicator(
           color: AppTheme.green,
-          onRefresh: () async => ref.invalidate(_sharesProvider),
+          onRefresh: () async => ref.invalidate(sharesProvider),
           child: ListView(
             children: [
               if (shares.shareLinks.isNotEmpty) ...[
@@ -65,7 +67,7 @@ class SharesTab extends ConsumerWidget {
                     link: link,
                     onRevoke: () async {
                       await ref.read(apiClientProvider).revokeShareLink(link.id);
-                      ref.invalidate(_sharesProvider);
+                      ref.invalidate(sharesProvider);
                     },
                   ),
               ],
@@ -79,7 +81,7 @@ class SharesTab extends ConsumerWidget {
                     onRevoke: () async {
                       await ref.read(apiClientProvider).revokeEntryShare(
                           share.resourceId, share.userId);
-                      ref.invalidate(_sharesProvider);
+                      ref.invalidate(sharesProvider);
                     },
                   ),
               ],
@@ -93,7 +95,7 @@ class SharesTab extends ConsumerWidget {
                     onRevoke: () async {
                       await ref.read(apiClientProvider).revokeFolderShare(
                           share.resourceId, share.userId);
-                      ref.invalidate(_sharesProvider);
+                      ref.invalidate(sharesProvider);
                     },
                   ),
               ],
@@ -153,8 +155,8 @@ class _ShareLinkTile extends StatelessWidget {
         color: isRevoked ? AppTheme.onBgDim : AppTheme.green,
       ),
       title: Text(
-        link.id.length > 16 ? '${link.id.substring(0, 16)}…' : link.id,
-        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        link.resourceName.isNotEmpty ? link.resourceName : 'Shared item',
+        style: const TextStyle(fontSize: 14),
       ),
       subtitle: Text(
         'Expires ${link.expiresAt.length > 10 ? link.expiresAt.substring(0, 10) : link.expiresAt}'

@@ -29,11 +29,16 @@ import (
 func (h *Handler) ListMyShares(w http.ResponseWriter, r *http.Request) {
 	claims := mw.ClaimsFromCtx(r.Context())
 
-	// Share links
+	// Share links (with the entry/folder name for display)
 	linkRows, err := h.pool.Query(r.Context(), `
-		SELECT id, token, entry_id, folder_id, password_hash, max_views, view_count,
-			expires_at::text, created_at::text, revoked_at::text
-		FROM share_links WHERE owner_id=$1 ORDER BY created_at DESC`, claims.UserID)
+		SELECT sl.id, sl.token, sl.entry_id, sl.folder_id,
+			COALESCE(e.name, f.name, '') AS resource_name,
+			sl.password_hash, sl.max_views, sl.view_count,
+			sl.expires_at::text, sl.created_at::text, sl.revoked_at::text
+		FROM share_links sl
+		LEFT JOIN entries e ON e.id = sl.entry_id
+		LEFT JOIN folders f ON f.id = sl.folder_id
+		WHERE sl.owner_id=$1 ORDER BY sl.created_at DESC`, claims.UserID)
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to list share links")
 		return
@@ -45,8 +50,8 @@ func (h *Handler) ListMyShares(w http.ResponseWriter, r *http.Request) {
 		var l models.ShareLinkResponse
 		var passwordHash []byte
 		var revokedAt *string
-		if err := linkRows.Scan(&l.ID, &l.Token, &l.EntryID, &l.FolderID, &passwordHash,
-			&l.MaxViews, &l.ViewCount, &l.ExpiresAt, &l.CreatedAt, &revokedAt); err != nil {
+		if err := linkRows.Scan(&l.ID, &l.Token, &l.EntryID, &l.FolderID, &l.ResourceName,
+			&passwordHash, &l.MaxViews, &l.ViewCount, &l.ExpiresAt, &l.CreatedAt, &revokedAt); err != nil {
 			continue
 		}
 		l.HasPassword = len(passwordHash) > 0

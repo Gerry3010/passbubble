@@ -52,4 +52,28 @@ void main() {
       throwsA(anything),
     );
   });
+
+  test('deriveShareLinkKey is deterministic per (owner, resource)', () async {
+    final priv = VaultCrypto.randomKey();
+    final k1 = await VaultCrypto.deriveShareLinkKey(priv, 'entry-1');
+    final k2 = await VaultCrypto.deriveShareLinkKey(priv, 'entry-1');
+    final kOther = await VaultCrypto.deriveShareLinkKey(priv, 'entry-2');
+    expect(k1, equals(k2)); // same → same link URL on re-share
+    expect(k1, isNot(equals(kOther))); // different resource → different key
+    expect(k1.length, 32);
+  });
+
+  test('deterministic-key payload round-trips through the viewer path', () async {
+    final priv = VaultCrypto.randomKey();
+    final linkKey = await VaultCrypto.deriveShareLinkKey(priv, 'entry-1');
+    final b64 = await VaultCrypto.encryptShareLinkPayload(
+      linkKey,
+      {'name': 'GitHub', 'data': {'password': 's3cret'}},
+    );
+    // Viewer: base64Url(linkKey) in the fragment → decrypt.
+    final key = SecretKey(base64Url.decode(base64Url.encode(linkKey)));
+    final plain = await VaultCrypto.decrypt(key, base64.decode(b64));
+    final decoded = jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
+    expect((decoded['data'] as Map)['password'], 's3cret');
+  });
 }

@@ -29,7 +29,7 @@ import '../../core/importexport/entry_record.dart' show CustomFieldType, CustomF
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
-import 'entries_list_screen.dart' show entriesProvider;
+import 'entries_list_screen.dart' show entriesProvider, foldersProvider;
 
 // ─── Custom field state ───────────────────────────────────────────────────────
 
@@ -112,6 +112,11 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   String _accountType = 'checking';
   String _titleValue = '';
 
+  /// The folder the entry lives in. On create this seeds from the folder the
+  /// user is currently browsing; on edit it is loaded from the entry and can be
+  /// changed via the folder picker to move the entry.
+  String? _selectedFolderId;
+
   bool get isEdit => widget.editId != null;
 
   @override
@@ -120,6 +125,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     _ctrl = {
       for (final key in _allFields) key: TextEditingController(),
     };
+    _selectedFolderId = widget.folderId;
     if (isEdit) _loadEntry();
   }
 
@@ -147,7 +153,10 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       final entry = await ref.read(apiClientProvider).getEntry(widget.editId!);
       _ctrl['name']!.text = entry.name;
       _ctrl['url']!.text = entry.url;
-      setState(() => _type = entry.type);
+      setState(() {
+        _type = entry.type;
+        _selectedFolderId = entry.folderId;
+      });
 
       final authSvc = ref.read(authServiceProvider);
       if (authSvc.privX25519 != null && entry.entryKey != null) {
@@ -276,6 +285,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         await ref.read(apiClientProvider).updateEntry(
           widget.editId!,
           UpdateEntryRequest(
+            folderId: _selectedFolderId,
             name: _ctrl['name']!.text.trim(),
             url: _ctrl['url']!.text.trim(),
             encryptedData: encryptedData,
@@ -292,7 +302,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
             encryptedData: encryptedData,
             dataNonce: dataNonce,
             entryKeys: [EntryKey(userId: myUserId ?? '', encryptedKey: encKey)],
-            folderId: widget.folderId,
+            folderId: _selectedFolderId,
           ),
         );
       }
@@ -303,6 +313,49 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  // ── Folder picker (move entry between folders) ────────────────────────────
+
+  Widget _folderPicker() {
+    final foldersAsync = ref.watch(foldersProvider);
+    return foldersAsync.maybeWhen(
+      data: (roots) {
+        // Flatten the folder tree into indented dropdown options.
+        final options = <({String? id, String label})>[
+          (id: null, label: '(No folder)'),
+        ];
+        void walk(List<FolderResponse> fs, int depth) {
+          for (final f in fs) {
+            options.add((id: f.id, label: '${'    ' * depth}${f.name}'));
+            walk(f.children, depth + 1);
+          }
+        }
+        walk(roots, 0);
+
+        final ids = options.map((o) => o.id).toSet();
+        final value = ids.contains(_selectedFolderId) ? _selectedFolderId : null;
+        return DropdownButtonFormField<String?>(
+          key: ValueKey(value),
+          initialValue: value,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Folder',
+            prefixIcon: Icon(Icons.folder_outlined),
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            for (final o in options)
+              DropdownMenuItem<String?>(
+                value: o.id,
+                child: Text(o.label, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: (v) => setState(() => _selectedFolderId = v),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
   }
 
   // ── Build type-specific form fields ───────────────────────────────────────
@@ -844,6 +897,10 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
                   prefixIcon: Icons.link,
                 ),
               ],
+
+              // Folder — pick where the entry lives (and move it between folders)
+              const SizedBox(height: 12),
+              _folderPicker(),
 
               // Type-specific fields
               ..._buildTypeFields(),

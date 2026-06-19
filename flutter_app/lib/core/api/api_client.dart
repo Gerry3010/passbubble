@@ -98,6 +98,15 @@ class ApiClient {
 
   String? get baseUrl => _baseUrl;
 
+  /// Base URL suitable for building shareable links. Falls back to the origin
+  /// the app was served from (web), where the configured base URL is often empty
+  /// because API calls go to the same origin.
+  String get publicBaseUrl {
+    if (_baseUrl != null && _baseUrl!.isNotEmpty) return _baseUrl!;
+    final origin = Uri.base.origin;
+    return origin.isNotEmpty ? origin : '';
+  }
+
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   Future<LoginResponse> login(String email, String password) async {

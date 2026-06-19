@@ -25,6 +25,7 @@ import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../manage/shares_tab.dart' show sharesProvider;
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
 
@@ -102,20 +103,25 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
         items.add({'name': e.name, 'type': e.type, 'url': e.url, 'data': data});
       }
       final payload = {'folder': folder.name, 'entries': items};
-      final enc = await VaultCrypto.encryptEntryData(payload);
+      // Deterministic link key → re-sharing the folder yields the same URL.
+      final linkKey =
+          await VaultCrypto.deriveShareLinkKey(authSvc.privX25519!, folder.id);
+      final encryptedPayload =
+          await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
       final exp = DateTime.now().toUtc().add(const Duration(days: 7));
       final expStr = '${exp.toIso8601String().split('.').first}Z';
       final link = await api.createFolderShareLink(
         folder.id,
         CreateShareLinkRequest(
-          encryptedPayload: enc.encryptedData,
-          payloadNonce: enc.dataNonce,
+          encryptedPayload: encryptedPayload,
+          payloadNonce: base64.encode(Uint8List(12)),
           expiresAt: expStr,
         ),
       );
-      final secret = base64Url.encode(enc.dataKey);
+      ref.invalidate(sharesProvider);
+      final secret = base64Url.encode(linkKey);
       final url =
-          '${api.baseUrl ?? ''}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
+          '${api.publicBaseUrl}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
       if (!mounted) return;
       await showDialog<void>(
         context: context,

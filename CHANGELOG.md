@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Einträge verschieben / Ordner beim Bearbeiten** — der Add/Edit-Screen hat jetzt einen **Ordner-Picker**; beim Speichern bleibt der Eintrag in seinem Ordner (vorher landete er beim Bearbeiten immer im Root) und lässt sich darüber verschieben
+- **Share-Links:** der Share-Button im Eintrag-Detail ist jetzt **immer sichtbar** (entschlüsselt bei Bedarf automatisch); die **URL enthält den Host** (vorher fehlte er bei der Web-App); öffentliche Links **öffnen im Inkognito ohne Login** (Deep-Link überlebt den Splash); der **Eintragsname** erscheint in der Share-Liste; und pro Eintrag gibt es **genau einen Link** — erneutes Teilen liefert dieselbe URL (deterministischer Link-Key + Server-Dedup) statt bei jedem Klick einen neuen
 - Flutter-App: **kein fälschliches „Session expired" mehr nach einem Server-Neustart**. Mehrere gleichzeitige Requests beim Resume lösten einen Refresh-Stampede aus (alle erneuerten mit demselben rotierenden Refresh-Token; die Verlierer löschten die frisch rotierte Session → Logout). Jetzt: **Single-Flight-Refresh** (nur ein Refresh gleichzeitig) und Logout **nur bei echter Token-Ablehnung** (401 vom Refresh-Endpoint); transiente Fehler (Neustart/Netz) lassen die Session bestehen und zeigen einen wiederholbaren Verbindungsfehler
 
 ### Added

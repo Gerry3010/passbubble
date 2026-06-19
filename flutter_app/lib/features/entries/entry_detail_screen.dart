@@ -28,6 +28,7 @@ import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../manage/shares_tab.dart' show sharesProvider;
 import 'entries_list_screen.dart' show entriesProvider;
 
 final _entryDetailProvider =
@@ -126,8 +127,16 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
   /// entry payload is encrypted with a fresh random key that is placed only in
   /// the URL fragment (after '#'), so the server never sees it.
   Future<void> _createShareLink(EntryResponse entry) async {
+    // Decrypt on demand so the share action works straight from the list/detail
+    // without the user having to tap DECRYPT first.
+    if (_decrypted == null) {
+      await _decrypt(entry);
+      if (!mounted) return;
+    }
     final d = _decrypted;
-    if (d == null) return;
+    if (d == null) return; // vault locked / decrypt failed
+    final priv = ref.read(authServiceProvider).privX25519;
+    if (priv == null) return;
     try {
       final payload = {
         'name': entry.name,
@@ -135,7 +144,10 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         'url': entry.url,
         'data': d,
       };
-      final enc = await VaultCrypto.encryptEntryData(payload);
+      // Deterministic link key → re-sharing the same entry yields the same URL.
+      final linkKey = await VaultCrypto.deriveShareLinkKey(priv, entry.id);
+      final encryptedPayload =
+          await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
       final exp = DateTime.now().toUtc().add(const Duration(days: 7));
       final expStr = '${exp.toIso8601String().split('.').first}Z';
 
@@ -143,18 +155,19 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       final link = await api.createEntryShareLink(
         entry.id,
         CreateShareLinkRequest(
-          encryptedPayload: enc.encryptedData,
-          payloadNonce: enc.dataNonce,
+          encryptedPayload: encryptedPayload,
+          payloadNonce: base64.encode(Uint8List(12)), // placeholder; nonce is in the ciphertext
           expiresAt: expStr,
         ),
       );
+      ref.invalidate(sharesProvider);
 
       // Zero-knowledge link: the decryption key (k) lives in the URL fragment
       // after '#', which (with the web app's hash routing) never reaches the
       // server. The server only ever sees the token when the viewer loads it.
-      final secret = base64Url.encode(enc.dataKey);
+      final secret = base64Url.encode(linkKey);
       final url =
-          '${api.baseUrl ?? ''}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
+          '${api.publicBaseUrl}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
       if (!mounted) return;
       await showDialog<void>(
         context: context,
@@ -232,12 +245,11 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ),
         actions: [
           if (async.hasValue) ...[
-            if (_decrypted != null)
-              IconButton(
-                icon: const Icon(Icons.link_outlined),
-                tooltip: 'Create share link',
-                onPressed: () => _createShareLink(async.value!),
-              ),
+            IconButton(
+              icon: const Icon(Icons.ios_share),
+              tooltip: 'Create share link',
+              onPressed: () => _createShareLink(async.value!),
+            ),
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               onPressed: () => context.go('/entries/${widget.id}/edit'),

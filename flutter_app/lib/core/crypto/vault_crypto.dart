@@ -102,6 +102,36 @@ class VaultCrypto {
     );
   }
 
+  /// Derives a *deterministic* 32-byte share-link key for a resource from the
+  /// owner's private key. Because it's deterministic, re-sharing the same entry
+  /// always yields the same key (and therefore the same link URL) instead of a
+  /// new one each time. It is distinct from the entry's data key (HKDF with a
+  /// dedicated salt + the resource id as info), so the real data key is never
+  /// exposed in the link.
+  static Future<Uint8List> deriveShareLinkKey(
+    Uint8List ownerPrivKey,
+    String resourceId,
+  ) async {
+    final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
+    final key = await hkdf.deriveKey(
+      secretKey: SecretKey(ownerPrivKey),
+      nonce: utf8.encode('passbubble-share-link-v1'),
+      info: utf8.encode(resourceId),
+    );
+    return Uint8List.fromList(await key.extractBytes());
+  }
+
+  /// Encrypts a share-link payload (JSON map) with the given link key and returns
+  /// the base64 ciphertext (nonce-prefixed), as the public share viewer expects.
+  static Future<String> encryptShareLinkPayload(
+    Uint8List linkKey,
+    Map<String, dynamic> data,
+  ) async {
+    final plaintext = Uint8List.fromList(utf8.encode(jsonEncode(data)));
+    final encrypted = await encrypt(SecretKey(linkKey), plaintext);
+    return base64.encode(encrypted);
+  }
+
   // ── Entry encryption ───────────────────────────────────────────────────────
 
   /// Encrypts entry data (JSON-encoded map) with a random data key.

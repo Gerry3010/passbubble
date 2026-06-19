@@ -98,6 +98,36 @@ func (h *Handler) createShareLink(w http.ResponseWriter, r *http.Request, table,
 		passwordHash = pbcrypto.DeriveKey(req.Password, params)
 	}
 
+	// Reuse an existing, still-valid link for this resource instead of piling up
+	// a new one on every click — just refresh its payload/expiry and keep the
+	// same token (so the shared URL stays stable).
+	var existingID, existingToken string
+	reuse := h.pool.QueryRow(r.Context(), `
+		SELECT id, token FROM share_links
+		WHERE owner_id=$1 AND `+column+`=$2 AND revoked_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at DESC LIMIT 1`,
+		claims.UserID, resourceID).Scan(&existingID, &existingToken)
+	if reuse == nil {
+		_, err = h.pool.Exec(r.Context(), `
+			UPDATE share_links SET encrypted_payload=$2, payload_nonce=$3,
+				password_salt=$4, password_hash=$5, max_views=$6, expires_at=$7
+			WHERE id=$1`,
+			existingID, payload, nonce, nullableBytes(passwordSalt), nullableBytes(passwordHash),
+			req.MaxViews, expiresAt)
+		if err != nil {
+			respondErr(w, http.StatusInternalServerError, "failed to update share link")
+			return
+		}
+		respond(w, http.StatusOK, models.ShareLinkResponse{
+			ID:          existingID,
+			Token:       existingToken,
+			HasPassword: req.Password != "",
+			MaxViews:    req.MaxViews,
+			ExpiresAt:   expiresAt.Format(time.RFC3339),
+		})
+		return
+	}
+
 	token, err := generateShareLinkToken()
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to create share link")
