@@ -35,6 +35,12 @@ class ApiClient {
   String? _baseUrl;
   VoidCallback? _onSessionExpired;
 
+  /// De-dupes concurrent token refreshes. When several requests hit 401 at the
+  /// same time (e.g. on resume after a server restart) they all await this one
+  /// refresh instead of each spending the single-use refresh token — which would
+  /// let the losers wipe the freshly-rotated session and force a spurious logout.
+  Future<bool>? _refreshInFlight;
+
   ApiClient() {
     _storage = const FlutterSecureStorage(
       aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -399,25 +405,83 @@ class ApiClient {
       return;
     }
 
-    if (err.response?.statusCode == 401) {
-      final refreshToken = await getRefreshToken();
-      if (refreshToken != null) {
-        try {
-          final resp = await refresh(refreshToken);
-          await setTokens(resp.accessToken, resp.refreshToken);
-          final opts = err.requestOptions;
-          opts.headers['Authorization'] = 'Bearer $_accessToken';
-          final retried = await _dio.fetch(opts);
-          handler.resolve(retried);
-          return;
-        } catch (_) {
-          // Refresh failed — session is gone. Clear everything and signal
-          // the app to return to the login screen.
-          await clearTokens();
-          _onSessionExpired?.call();
-        }
+    if (err.response?.statusCode != 401) {
+      handler.next(err);
+      return;
+    }
+
+    final RefreshResult result;
+    try {
+      result = await _refreshTokens();
+    } catch (_) {
+      // Transient failure (server restarting / offline): keep the session and
+      // surface a retryable connectivity error instead of forcing a logout.
+      handler.reject(DioException(
+        requestOptions: err.requestOptions,
+        type: DioExceptionType.connectionError,
+        error: err.error,
+      ));
+      return;
+    }
+
+    if (result == RefreshResult.refreshed) {
+      try {
+        final opts = err.requestOptions;
+        opts.headers['Authorization'] = 'Bearer $_accessToken';
+        final retried = await _dio.fetch(opts);
+        handler.resolve(retried);
+        return;
+      } catch (_) {
+        handler.next(err);
+        return;
       }
     }
+
+    // RefreshResult.rejected — the refresh token itself was rejected (genuine
+    // expiry): clear everything and return to the login screen.
+    await clearTokens();
+    _onSessionExpired?.call();
     handler.next(err);
   }
+
+  /// Single-flight token refresh: concurrent callers share one in-flight
+  /// refresh. Returns [RefreshResult.refreshed] on success or
+  /// [RefreshResult.rejected] when the refresh token is no longer valid;
+  /// rethrows on transient (network / 5xx) failures so the caller can keep the
+  /// session and retry later.
+  Future<RefreshResult> _refreshTokens() {
+    return _refreshInFlight == null
+        ? (_refreshInFlight = _doRefresh())
+            .whenComplete(() => _refreshInFlight = null)
+            .then((ok) => ok ? RefreshResult.refreshed : RefreshResult.rejected)
+        : _refreshInFlight!.then(
+            (ok) => ok ? RefreshResult.refreshed : RefreshResult.rejected);
+  }
+
+  Future<bool> _doRefresh() async {
+    final refreshToken = await getRefreshToken();
+    if (refreshToken == null) return false;
+    try {
+      // Call the endpoint directly (not via _apiCall) so we can inspect the
+      // raw status: only a 401 means the refresh token is genuinely rejected.
+      final resp = await _dio.post(
+        _url('/api/v1/auth/refresh'),
+        data: {'refresh_token': refreshToken},
+        options: Options(extra: {'skipAuth': true}),
+      );
+      final body = resp.data as Map<String, dynamic>;
+      await setTokens(
+        body['access_token'] as String,
+        body['refresh_token'] as String,
+      );
+      return true;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) return false; // genuinely rejected
+      rethrow; // transient — let the caller keep the session
+    }
+  }
 }
+
+/// Outcome of a token refresh attempt (transient failures are thrown, not
+/// represented here).
+enum RefreshResult { refreshed, rejected }

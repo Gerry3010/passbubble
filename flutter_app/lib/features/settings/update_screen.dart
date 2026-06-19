@@ -19,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/markdown_text.dart';
 import 'providers/version_provider.dart';
 
 const _updateCmd = 'docker compose pull && docker compose up -d';
@@ -66,14 +67,12 @@ class _VersionBody extends StatelessWidget {
           _SectionLabel(label: 'WHAT\'S NEW'),
           const SizedBox(height: 8),
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               border: Border.all(color: AppTheme.green.withValues(alpha: 0.3)),
             ),
-            child: SelectableText(
-              info.releaseNotes,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5),
-            ),
+            child: MarkdownText(info.releaseNotes),
           ),
           const SizedBox(height: 24),
         ],

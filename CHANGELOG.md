@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Flutter-App: **kein fälschliches „Session expired" mehr nach einem Server-Neustart**. Mehrere gleichzeitige Requests beim Resume lösten einen Refresh-Stampede aus (alle erneuerten mit demselben rotierenden Refresh-Token; die Verlierer löschten die frisch rotierte Session → Logout). Jetzt: **Single-Flight-Refresh** (nur ein Refresh gleichzeitig) und Logout **nur bei echter Token-Ablehnung** (401 vom Refresh-Endpoint); transiente Fehler (Neustart/Netz) lassen die Session bestehen und zeigen einen wiederholbaren Verbindungsfehler
+
 ### Added
+- Flutter-App: **Release-Notes/Changelog werden als formatiertes Markdown gerendert** (Überschriften, Listen, **fett**, `code`, anklickbare Links) statt als Rohtext im Update-Screen
 - **Account-2FA (TOTP) auf allen Plattformen** — der Login lässt sich mit einem zeitbasierten Einmalcode absichern. Zwei-Schritt-Login (Passwort → Code) über einen kurzlebigen `2fa_pending`-Token; Aktivieren/Bestätigen/Deaktivieren via Authenticator-App. **E-Mail-Reset**, falls der Authenticator verloren geht (Recovery-Link, nur nach erfolgreicher Passwortprüfung). Backend (`pquerna/otp`, Secret verschlüsselt at-rest), CLI (`account-2fa enable/disable` + Code-Schritt im Login mit Recovery-Option), Flutter (Code-Screen + Settings → Two-factor authentication) und Browser-Extension (Code-Schritt im Popup)
 - **Share-Links (zero-knowledge)** — Einträge **und ganze Ordner** per Link teilen, ohne dass der Server den Inhalt sieht: der Payload wird mit einem Zufallsschlüssel verschlüsselt, der nur im URL-Fragment (`#…`) lebt. Optionales **Link-Passwort**, **maximale Aufrufzahl** und **Ablaufdatum**; Widerruf über Manage → Shares. Backend (Migration `share_links`, Handler) + Flutter (Erstellen im Eintrag-Detail bzw. in der Ordner-Ansicht, **öffentlicher Viewer** unter `/share/{token}`, Listen/Widerrufen)
 - **Import/Export-Job-Ledger** — server-seitige Fortschritts-Verfolgung (verarbeitet/erstellt/aktualisiert/übersprungen/fehlgeschlagen) mit geräteübergreifender Sichtbarkeit (`POST/GET/PATCH /jobs`); der Flutter-Import legt den Job an und finalisiert ihn mit den Zählern
