@@ -63,7 +63,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: 'new',
-            builder: (_, _) => const AddEditScreen(),
+            builder: (_, state) => AddEditScreen(
+              folderId: state.uri.queryParameters['folderId'],
+            ),
           ),
           GoRoute(
             path: ':id/edit',

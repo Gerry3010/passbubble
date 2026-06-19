@@ -88,7 +88,8 @@ const _allTypes = [
 
 class AddEditScreen extends ConsumerStatefulWidget {
   final String? editId;
-  const AddEditScreen({super.key, this.editId});
+  final String? folderId;
+  const AddEditScreen({super.key, this.editId, this.folderId});
 
   @override
   ConsumerState<AddEditScreen> createState() => _AddEditScreenState();
@@ -291,6 +292,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
             encryptedData: encryptedData,
             dataNonce: dataNonce,
             entryKeys: [EntryKey(userId: myUserId ?? '', encryptedKey: encKey)],
+            folderId: widget.folderId,
           ),
         );
       }

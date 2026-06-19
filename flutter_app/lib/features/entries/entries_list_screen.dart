@@ -188,7 +188,10 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
           ),
         ),
         floatingActionButton: FloatingActionButton(
-          onPressed: () => context.go('/entries/new'),
+          onPressed: () {
+            final fid = _currentFolder?.id;
+            context.go(fid != null ? '/entries/new?folderId=$fid' : '/entries/new');
+          },
           child: const Icon(Icons.add),
         ),
         bottomNavigationBar: const PbBottomNav(currentIndex: 0),
