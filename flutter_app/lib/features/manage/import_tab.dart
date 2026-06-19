@@ -31,6 +31,7 @@ import '../../core/importexport/entry_record.dart';
 import '../../core/importexport/onepassword_format.dart';
 import '../../core/importexport/psono_format.dart';
 import '../../core/theme/app_theme.dart';
+import '../entries/entries_list_screen.dart' show entriesProvider, foldersProvider;
 import '../../shared/widgets/pb_button.dart';
 
 enum _ImportFormat {
@@ -187,6 +188,10 @@ class _ImportTabState extends ConsumerState<ImportTab> {
       final doneMsg = _failed > 0
           ? 'Done with errors: $_created created, $_updated updated, $_skipped skipped, $_failed failed'
           : 'Done: $_created created, $_updated updated, $_skipped skipped';
+
+      // Refresh vault so new entries appear immediately.
+      ref.invalidate(entriesProvider);
+      ref.invalidate(foldersProvider);
 
       setState(() {
         _running = false;
