@@ -149,8 +149,12 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ),
       );
 
+      // Zero-knowledge link: the decryption key (k) lives in the URL fragment
+      // after '#', which (with the web app's hash routing) never reaches the
+      // server. The server only ever sees the token when the viewer loads it.
       final secret = base64Url.encode(enc.dataKey);
-      final url = '${api.baseUrl ?? ''}/share/${link.token}#$secret';
+      final url =
+          '${api.baseUrl ?? ''}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
       if (!mounted) return;
       await showDialog<void>(
         context: context,

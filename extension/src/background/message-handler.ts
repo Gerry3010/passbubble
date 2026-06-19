@@ -249,12 +249,55 @@ export function buildHandlers(): Record<string, Handler> {
       return client.generate(payload as Parameters<typeof client.generate>[0]);
     },
 
+    // A form submission was detected on a page with no matching entry. Stash the
+    // credentials so the popup can offer to save them (consent-based — we never
+    // create an entry silently).
+    [MessageType.OFFER_SAVE]: async (payload) => {
+      const { name, url, username, password } = payload as {
+        name: string;
+        url: string;
+        username: string;
+        password: string;
+      };
+      await browser.storage.session.set({
+        [STORAGE_KEYS.PENDING_SAVE]: { name, url, username, password },
+      });
+      return { ok: true };
+    },
+
+    [MessageType.GET_PENDING_SAVE]: async () => {
+      const stored = await browser.storage.session.get(STORAGE_KEYS.PENDING_SAVE);
+      return (stored[STORAGE_KEYS.PENDING_SAVE] as unknown) ?? null;
+    },
+
+    // The user confirmed the save in the popup: create the entry and clear the
+    // pending offer.
+    [MessageType.CONFIRM_SAVE]: async () => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const stored = await browser.storage.session.get(STORAGE_KEYS.PENDING_SAVE);
+      const pending = stored[STORAGE_KEYS.PENDING_SAVE] as
+        | { name: string; url: string; username: string; password: string }
+        | undefined;
+      if (!pending) return { ok: false };
+
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const data = { username: pending.username, password: pending.password } as EntryData;
+      const result = await createEntry(client, pending.name || pending.url, 'password', pending.url, data, session);
+      setEntriesCache(await client.listEntries());
+      await browser.storage.session.remove(STORAGE_KEYS.PENDING_SAVE);
+      return { ok: true, ...result };
+    },
+
     [MessageType.DISMISS_SAVE]: async (payload) => {
-      const { host } = payload as { host: string };
-      const stored = await browser.storage.session.get(STORAGE_KEYS.DISMISSED_SAVE_HOSTS);
-      const list = (stored[STORAGE_KEYS.DISMISSED_SAVE_HOSTS] as string[] | undefined) ?? [];
-      if (!list.includes(host)) {
-        await browser.storage.session.set({ [STORAGE_KEYS.DISMISSED_SAVE_HOSTS]: [...list, host] });
+      const { host } = payload as { host?: string };
+      await browser.storage.session.remove(STORAGE_KEYS.PENDING_SAVE);
+      if (host) {
+        const stored = await browser.storage.session.get(STORAGE_KEYS.DISMISSED_SAVE_HOSTS);
+        const list = (stored[STORAGE_KEYS.DISMISSED_SAVE_HOSTS] as string[] | undefined) ?? [];
+        if (!list.includes(host)) {
+          await browser.storage.session.set({ [STORAGE_KEYS.DISMISSED_SAVE_HOSTS]: [...list, host] });
+        }
       }
       return { ok: true };
     },

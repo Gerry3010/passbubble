@@ -22,7 +22,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/api/models.dart' show CreateEntryRequest, CreateFolderRequest, EntryKey, FolderResponse, UpdateEntryRequest;
+import '../../core/api/models.dart'
+    show
+        CreateEntryRequest,
+        CreateFolderRequest,
+        CreateJobRequest,
+        EntryKey,
+        FolderResponse,
+        UpdateEntryRequest,
+        UpdateJobRequest;
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/importexport/bitwarden_format.dart';
@@ -55,6 +63,17 @@ extension on _ImportFormat {
         _ImportFormat.bitwarden => 'Bitwarden JSON',
         _ImportFormat.psono => 'Psono JSON',
         _ImportFormat.onepassword1pux => '1Password (1PUX)',
+      };
+
+  /// Format identifier sent to the server job ledger (POST /jobs).
+  String get apiFormat => switch (this) {
+        _ImportFormat.csvGeneric => 'csv-generic',
+        _ImportFormat.csvChrome => 'csv-chrome',
+        _ImportFormat.csvLastPass => 'csv-lastpass',
+        _ImportFormat.csv1Password => 'csv-1password',
+        _ImportFormat.bitwarden => 'bitwarden',
+        _ImportFormat.psono => 'psono',
+        _ImportFormat.onepassword1pux => 'onepassword',
       };
 }
 
@@ -148,6 +167,22 @@ class _ImportTabState extends ConsumerState<ImportTab> {
 
       if (!mounted) return;
 
+      // Record the import in the server-side job ledger (best-effort: a ledger
+      // failure must not abort the import itself).
+      String? jobId;
+      try {
+        final job = await api.createJob(CreateJobRequest(
+          type: 'import',
+          format: _format.apiFormat,
+          dupStrategy: _dupStrategy.name,
+          totalItems: records.length,
+          clientName: 'Flutter',
+        ));
+        jobId = job.id;
+      } catch (_) {
+        // Ledger unavailable — continue without it.
+      }
+
       // Process each record
       int i = 0;
       for (final rec in records) {
@@ -188,6 +223,25 @@ class _ImportTabState extends ConsumerState<ImportTab> {
       final doneMsg = _failed > 0
           ? 'Done with errors: $_created created, $_updated updated, $_skipped skipped, $_failed failed'
           : 'Done: $_created created, $_updated updated, $_skipped skipped';
+
+      // Finalize the job ledger entry (best-effort).
+      if (jobId != null) {
+        try {
+          await api.updateJob(
+            jobId,
+            UpdateJobRequest(
+              status: (_failed > 0 && _created + _updated == 0) ? 'failed' : 'completed',
+              processedItems: records.length,
+              createdItems: _created,
+              updatedItems: _updated,
+              skippedItems: _skipped,
+              failedItems: _failed,
+            ),
+          );
+        } catch (_) {
+          // Ledger update failed — non-fatal.
+        }
+      }
 
       // Refresh vault so new entries appear immediately.
       ref.invalidate(entriesProvider);

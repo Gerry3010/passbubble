@@ -37,6 +37,8 @@ var validJobFormats = map[string]bool{
 	"csv-1password": true,
 	"bitwarden":     true,
 	"keepass":       true,
+	"psono":         true,
+	"onepassword":   true,
 	"csv":           true,
 }
 

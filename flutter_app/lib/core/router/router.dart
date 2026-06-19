@@ -19,6 +19,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/auth/auth_service.dart';
 import '../../features/setup/setup_screen.dart';
 import '../../features/auth/login_screen.dart';
+import '../../features/share/share_viewer_screen.dart';
 import '../../features/auth/unlock_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/entries/entries_list_screen.dart';
@@ -38,6 +39,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isSetup = path.startsWith('/setup');
       final isLogin = path.startsWith('/login');
       final isRegister = path.startsWith('/register');
+      // Public share-link viewer is reachable without an account.
+      if (path.startsWith('/share')) return null;
 
       if (!auth.isLoggedIn && !isSetup && !isLogin && !isRegister) {
         return '/login';
@@ -57,6 +60,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
       GoRoute(path: '/unlock', builder: (_, _) => const UnlockScreen()),
+      GoRoute(
+        path: '/share/:token',
+        builder: (_, state) => ShareViewerScreen(
+          token: state.pathParameters['token'] ?? '',
+          k: state.uri.queryParameters['k'] ?? '',
+        ),
+      ),
       GoRoute(
         path: '/entries',
         builder: (_, _) => const EntriesListScreen(),

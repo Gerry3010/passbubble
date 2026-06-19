@@ -435,6 +435,62 @@ class InvitationResponse {
       );
 }
 
+/// Request body for POST /api/v1/jobs (start an import/export job).
+class CreateJobRequest {
+  final String type; // "import" | "export"
+  final String format;
+  final String dupStrategy; // "skip" | "overwrite"
+  final int totalItems;
+  final String? clientName;
+
+  const CreateJobRequest({
+    required this.type,
+    required this.format,
+    required this.dupStrategy,
+    required this.totalItems,
+    this.clientName,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'format': format,
+        'dup_strategy': dupStrategy,
+        'total_items': totalItems,
+        if (clientName != null) 'client_name': clientName,
+      };
+}
+
+/// Partial update for PATCH /api/v1/jobs/{id}.
+class UpdateJobRequest {
+  final String? status; // "running" | "completed" | "failed" | "cancelled"
+  final int? processedItems;
+  final int? createdItems;
+  final int? updatedItems;
+  final int? skippedItems;
+  final int? failedItems;
+  final String? errorMessage;
+
+  const UpdateJobRequest({
+    this.status,
+    this.processedItems,
+    this.createdItems,
+    this.updatedItems,
+    this.skippedItems,
+    this.failedItems,
+    this.errorMessage,
+  });
+
+  Map<String, dynamic> toJson() => {
+        if (status != null) 'status': status,
+        if (processedItems != null) 'processed_items': processedItems,
+        if (createdItems != null) 'created_items': createdItems,
+        if (updatedItems != null) 'updated_items': updatedItems,
+        if (skippedItems != null) 'skipped_items': skippedItems,
+        if (failedItems != null) 'failed_items': failedItems,
+        if (errorMessage != null) 'error_message': errorMessage,
+      };
+}
+
 class JobResponse {
   final String id;
   final String status;

@@ -34,6 +34,8 @@ export const MessageType = {
   // Save detection
   OFFER_SAVE: 'OFFER_SAVE',
   DISMISS_SAVE: 'DISMISS_SAVE',
+  GET_PENDING_SAVE: 'GET_PENDING_SAVE',
+  CONFIRM_SAVE: 'CONFIRM_SAVE',
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -56,4 +58,5 @@ export const STORAGE_KEYS = {
   PUB_X25519: 'pub_x25519',
   PUB_MLKEM: 'pub_mlkem',
   DISMISSED_SAVE_HOSTS: 'dismissed_save_hosts',
+  PENDING_SAVE: 'pending_save',
 } as const;

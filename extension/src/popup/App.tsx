@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { useSessionStore } from './store/session.js';
 import { LoginForm } from './components/LoginForm.js';
 import { TotpCodeForm } from './components/TotpCodeForm.js';
+import { SavePrompt } from './components/SavePrompt.js';
 import { MasterPasswordPrompt } from './components/MasterPasswordPrompt.js';
 import { EntryList } from './components/EntryList.js';
 import { GeneratorPanel } from './components/GeneratorPanel.js';
@@ -133,6 +134,9 @@ export function App() {
           </button>
         ))}
       </div>
+
+      {/* Save-credentials offer (only on the vault tab) */}
+      {tab === 'vault' && <SavePrompt />}
 
       {/* Content */}
       <div style={{ padding: '12px', flex: 1, overflowY: 'auto' }}>

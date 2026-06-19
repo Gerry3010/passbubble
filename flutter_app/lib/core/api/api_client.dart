@@ -61,6 +61,14 @@ class ApiClient {
     _dio.options.baseUrl = _baseUrl!;
   }
 
+  /// Sets the base URL in memory only (not persisted). Used by the public share
+  /// viewer when the app has no configured server yet (falls back to the origin
+  /// it was served from).
+  void setBaseUrlEphemeral(String url) {
+    _baseUrl = url.replaceAll(RegExp(r'/$'), '');
+    _dio.options.baseUrl = _baseUrl!;
+  }
+
   Future<void> setTokens(String access, String refresh) async {
     _accessToken = access;
     await _storage.write(key: _kAccessTokenKey, value: access);
@@ -252,6 +260,16 @@ class ApiClient {
         .toList();
   }
 
+  Future<JobResponse> createJob(CreateJobRequest req) async {
+    final resp = await _post('/api/v1/jobs', req.toJson());
+    return JobResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  Future<JobResponse> updateJob(String id, UpdateJobRequest req) async {
+    final resp = await _patch('/api/v1/jobs/$id', req.toJson());
+    return JobResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
+
   // ── Shares ────────────────────────────────────────────────────────────────
 
   Future<MySharesResponse> listMyShares() async {
@@ -354,6 +372,9 @@ class ApiClient {
 
   Future<Response<dynamic>> _put(String path, Map<String, dynamic> data) =>
       _apiCall(() => _dio.put(_url(path), data: data));
+
+  Future<Response<dynamic>> _patch(String path, Map<String, dynamic> data) =>
+      _apiCall(() => _dio.patch(_url(path), data: data));
 
   Future<Response<dynamic>> _delete(String path) =>
       _apiCall(() => _dio.delete(_url(path)));

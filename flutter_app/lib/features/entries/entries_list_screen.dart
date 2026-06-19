@@ -13,12 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
+import '../../core/auth/auth_service.dart';
+import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
@@ -64,6 +69,95 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
     return all.where((e) => e.folderId == id).toList();
   }
 
+  /// Creates a zero-knowledge share link for an entire folder: every entry in it
+  /// is decrypted and re-encrypted into a single payload under a random link key
+  /// that only ever lives in the URL fragment.
+  Future<void> _createFolderShareLink(FolderResponse folder) async {
+    final api = ref.read(apiClientProvider);
+    final authSvc = ref.read(authServiceProvider);
+    if (authSvc.privX25519 == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vault is locked — unlock first')),
+      );
+      return;
+    }
+    final all = ref.read(entriesProvider).valueOrNull ?? const <EntryResponse>[];
+    final inFolder = all.where((e) => e.folderId == folder.id).toList();
+    if (inFolder.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This folder has no entries to share')),
+      );
+      return;
+    }
+    try {
+      final items = <Map<String, dynamic>>[];
+      for (final e in inFolder) {
+        final full = await api.getEntry(e.id);
+        final encKey = full.entryKey;
+        if (encKey == null) continue;
+        final dataKey =
+            await VaultCrypto.decryptDataKey(encKey.encryptedKey, authSvc.privX25519!);
+        final data = await VaultCrypto.decryptEntryData(
+            full.encryptedData, Uint8List.fromList(dataKey));
+        items.add({'name': e.name, 'type': e.type, 'url': e.url, 'data': data});
+      }
+      final payload = {'folder': folder.name, 'entries': items};
+      final enc = await VaultCrypto.encryptEntryData(payload);
+      final exp = DateTime.now().toUtc().add(const Duration(days: 7));
+      final expStr = '${exp.toIso8601String().split('.').first}Z';
+      final link = await api.createFolderShareLink(
+        folder.id,
+        CreateShareLinkRequest(
+          encryptedPayload: enc.encryptedData,
+          payloadNonce: enc.dataNonce,
+          expiresAt: expStr,
+        ),
+      );
+      final secret = base64Url.encode(enc.dataKey);
+      final url =
+          '${api.baseUrl ?? ''}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Share "${folder.name}"'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${items.length} entries, viewable for 7 days. The decryption key '
+                'is in the link (after #) and never reaches the server.',
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              SelectableText(url, style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: url));
+                ctx.pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Link copied')),
+                );
+              },
+              child: const Text('Copy link'),
+            ),
+            TextButton(onPressed: () => ctx.pop(), child: const Text('Close')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not create link: $e')),
+        );
+      }
+    }
+  }
+
   List<EntryResponse> _searchEntries(List<EntryResponse> all) {
     final q = _searchQuery.toLowerCase();
     return all
@@ -99,6 +193,12 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
                   onPressed: () => setState(() => _stack.removeLast()),
                 ),
           actions: [
+            if (_currentFolder != null)
+              IconButton(
+                icon: const Icon(Icons.link_outlined),
+                tooltip: 'Share this folder',
+                onPressed: () => _createFolderShareLink(_currentFolder!),
+              ),
             IconButton(
               icon: const Icon(Icons.settings_outlined),
               onPressed: () => context.go('/settings'),
