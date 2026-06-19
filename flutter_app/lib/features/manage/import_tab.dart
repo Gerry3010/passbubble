@@ -22,7 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/api/models.dart';
+import '../../core/api/models.dart' show CreateEntryRequest, CreateFolderRequest, EntryKey, FolderResponse, UpdateEntryRequest;
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/importexport/bitwarden_format.dart';
@@ -134,6 +134,13 @@ class _ImportTabState extends ConsumerState<ImportTab> {
 
       if (!mounted) return;
 
+      // Load existing folders to seed the resolver cache.
+      setState(() => _statusText = 'Loading folders…');
+      _folderIdCache.clear();
+      _buildFolderCache(await api.listFolders(), '');
+
+      if (!mounted) return;
+
       // Fetch+decrypt all existing entries for duplicate detection
       setState(() => _statusText = 'Loading existing vault…');
       final existing = await _loadExisting(api, auth);
@@ -163,7 +170,8 @@ class _ImportTabState extends ConsumerState<ImportTab> {
           }
         } else {
           try {
-            final entryId = await _createEntry(api, auth, rec);
+            final folderId = await _resolveFolder(api, rec.folderPath);
+            final entryId = await _createEntry(api, auth, rec, folderId: folderId);
             existing.add((id: entryId, name: rec.name, username: rec.username));
             _created++;
           } catch (_) {
@@ -237,6 +245,38 @@ class _ImportTabState extends ConsumerState<ImportTab> {
   // In-process list of (id, name, username) for fast dedupe without re-fetching.
   List<({String id, String name, String username})> _existingCache = [];
 
+  // Folder path → id cache built at import start from existing tree + newly created folders.
+  final Map<String, String> _folderIdCache = {};
+
+  void _buildFolderCache(List<FolderResponse> folders, String prefix) {
+    for (final f in folders) {
+      final key = prefix.isEmpty ? f.name : '$prefix/${f.name}';
+      _folderIdCache[key] = f.id;
+      if (f.children.isNotEmpty) _buildFolderCache(f.children, key);
+    }
+  }
+
+  Future<String?> _resolveFolder(ApiClient api, List<String> path) async {
+    if (path.isEmpty) return null;
+    String? parentId;
+    for (int i = 0; i < path.length; i++) {
+      final cacheKey = path.sublist(0, i + 1).join('/');
+      if (_folderIdCache.containsKey(cacheKey)) {
+        parentId = _folderIdCache[cacheKey];
+      } else {
+        try {
+          final newId = await api.createFolder(
+              CreateFolderRequest(name: path[i], parentId: parentId));
+          _folderIdCache[cacheKey] = newId;
+          parentId = newId;
+        } catch (_) {
+          return parentId; // best-effort: use closest ancestor
+        }
+      }
+    }
+    return parentId;
+  }
+
   Future<List<({String id, String name, String username})>> _loadExisting(
     ApiClient api,
     AuthService auth,
@@ -308,7 +348,7 @@ class _ImportTabState extends ConsumerState<ImportTab> {
   }
 
   Future<String> _createEntry(
-      ApiClient api, AuthService auth, EntryRecord rec) async {
+      ApiClient api, AuthService auth, EntryRecord rec, {String? folderId}) async {
     final dataKey = VaultCrypto.randomKey();
     final plaintext = utf8.encode(jsonEncode(_recordToPayload(rec)));
     final ciphertext =
@@ -319,6 +359,7 @@ class _ImportTabState extends ConsumerState<ImportTab> {
     final userId = await auth.getUserId();
 
     return api.createEntry(CreateEntryRequest(
+      folderId: folderId,
       type: rec.type.isEmpty ? 'password' : rec.type,
       name: rec.name,
       url: rec.url.isNotEmpty ? rec.url : null,

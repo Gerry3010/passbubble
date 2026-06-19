@@ -100,11 +100,8 @@ func (s *Server) buildRouter() http.Handler {
 				// r.Delete("/entries/{id}/share/{userId}", h.RevokeEntryShare)
 				// r.Delete("/folders/{id}/share/{userId}", h.RevokeFolderShare)
 
-				// // Job ledger
-				// r.Post("/jobs", h.CreateJob)
-				// r.Get("/jobs", h.ListJobs)
-				// r.Get("/jobs/{id}", h.GetJob)
-				// r.Patch("/jobs/{id}", h.UpdateJob)
+				// Job ledger
+				r.Get("/jobs", h.ListJobs)
 
 			// User public keys (for sharing)
 			r.Get("/users/{id}/keys", h.GetUserKeys)

@@ -105,6 +105,7 @@ class EntryRecord {
   final String licenseKey;
   final String productName;
   final List<CustomFieldRecord> customFields;
+  final List<String> folderPath; // root→leaf, e.g. ['Work', 'Dev']; empty = root
 
   const EntryRecord({
     required this.name,
@@ -132,6 +133,7 @@ class EntryRecord {
     this.licenseKey = '',
     this.productName = '',
     this.customFields = const [],
+    this.folderPath = const [],
   });
 
   /// Duplicate detection: same name AND username (case-insensitive, trimmed).

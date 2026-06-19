@@ -178,6 +178,16 @@ class FolderResponse {
       );
 }
 
+class CreateFolderRequest {
+  final String name;
+  final String? parentId;
+  const CreateFolderRequest({required this.name, this.parentId});
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        if (parentId != null) 'parent_id': parentId,
+      };
+}
+
 class EntryKey {
   final String userId;
   final String encryptedKey;

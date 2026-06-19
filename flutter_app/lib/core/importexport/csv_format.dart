@@ -59,7 +59,7 @@ EntryRecord? _convertRow(List<String> row, CsvImportFormat format) {
 
     case CsvImportFormat.onePassword:
       // Title, Username, Password, URL, Notes, Type
-      final name = col(0);
+      final name = col(0).isNotEmpty ? col(0) : col(3);
       if (name.isEmpty) return null;
       return EntryRecord(
         name: name,

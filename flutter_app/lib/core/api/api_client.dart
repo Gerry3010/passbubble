@@ -176,6 +176,11 @@ class ApiClient {
         .toList();
   }
 
+  Future<String> createFolder(CreateFolderRequest req) async {
+    final resp = await _post('/api/v1/folders', req.toJson());
+    return (resp.data as Map<String, dynamic>)['id'] as String;
+  }
+
   // ── Users ─────────────────────────────────────────────────────────────────
 
   Future<UserPublicKeys> getUserKeys(String userId) async {

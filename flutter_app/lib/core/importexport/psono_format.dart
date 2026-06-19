@@ -35,13 +35,13 @@ PsonoParseResult parsePsono(String content) {
   // Root-level items
   final rootItems = json['items'] as List? ?? [];
   for (final item in rootItems) {
-    _convertItem(item as Map<String, dynamic>, records, warnings);
+    _convertItem(item as Map<String, dynamic>, records, warnings, const []);
   }
 
   // Recursive folders
   final folders = json['folders'] as List? ?? [];
   for (final folder in folders) {
-    _walkFolder(folder as Map<String, dynamic>, records, warnings);
+    _walkFolder(folder as Map<String, dynamic>, records, warnings, const []);
   }
 
   return PsonoParseResult(records: records, warnings: warnings);
@@ -51,14 +51,18 @@ void _walkFolder(
   Map<String, dynamic> folder,
   List<EntryRecord> records,
   List<String> warnings,
+  List<String> parentPath,
 ) {
+  final folderName = folder['name'] as String? ?? '';
+  final path = folderName.isNotEmpty ? [...parentPath, folderName] : parentPath;
+
   final items = folder['items'] as List? ?? [];
   for (final item in items) {
-    _convertItem(item as Map<String, dynamic>, records, warnings);
+    _convertItem(item as Map<String, dynamic>, records, warnings, path);
   }
   final subFolders = folder['folders'] as List? ?? [];
   for (final sub in subFolders) {
-    _walkFolder(sub as Map<String, dynamic>, records, warnings);
+    _walkFolder(sub as Map<String, dynamic>, records, warnings, path);
   }
 }
 
@@ -66,6 +70,7 @@ void _convertItem(
   Map<String, dynamic> item,
   List<EntryRecord> records,
   List<String> warnings,
+  List<String> folderPath,
 ) {
   String s(String key) => item[key] as String? ?? '';
 
@@ -76,56 +81,65 @@ void _convertItem(
 
   switch (entryType) {
     case 'website_password':
-      final title = s('website_password_title').isNotEmpty ? s('website_password_title') : name;
+      final url = s('website_password_url');
+      final rawTitle = s('website_password_title').isNotEmpty ? s('website_password_title') : name;
+      final title = rawTitle.isNotEmpty ? rawTitle : url;
       final totp = s('website_password_totp_code');
       rec = EntryRecord(
         name: title,
         type: totp.isNotEmpty ? 'totp' : 'password',
-        url: s('website_password_url'),
+        url: url,
         username: s('website_password_username'),
         password: s('website_password_password'),
         totpSecret: totp,
         notes: s('website_password_notes'),
         customFields: _parseCustomFields(item),
+        folderPath: folderPath,
       );
 
     case 'application_password':
-      final title =
+      final rawTitle =
           s('application_password_title').isNotEmpty ? s('application_password_title') : name;
       rec = EntryRecord(
-        name: title,
+        name: rawTitle,
         type: 'password',
         username: s('application_password_username'),
         password: s('application_password_password'),
         customFields: _parseCustomFields(item),
+        folderPath: folderPath,
       );
 
     case 'note':
-      final title = s('note_title').isNotEmpty ? s('note_title') : name;
+      final rawTitle = s('note_title').isNotEmpty ? s('note_title') : name;
       rec = EntryRecord(
-        name: title,
+        name: rawTitle,
         type: 'note',
         notes: s('note_notes'),
         customFields: _parseCustomFields(item),
+        folderPath: folderPath,
       );
 
     case 'bookmark':
-      final title = s('bookmark_title').isNotEmpty ? s('bookmark_title') : name;
+      final url = s('bookmark_url');
+      final rawTitle = s('bookmark_title').isNotEmpty ? s('bookmark_title') : name;
+      final title = rawTitle.isNotEmpty ? rawTitle : url;
       rec = EntryRecord(
         name: title,
         type: 'password',
-        url: s('bookmark_url'),
+        url: url,
         customFields: _parseCustomFields(item),
+        folderPath: folderPath,
       );
 
     case 'totp':
-      final title = s('totp_title').isNotEmpty ? s('totp_title') : name;
+      final rawTitle = s('totp_title').isNotEmpty ? s('totp_title') : name;
       rec = EntryRecord(
-        name: title,
+        name: rawTitle,
         type: 'totp',
         totpSecret: s('totp_code'),
         notes: s('totp_notes'),
         customFields: _parseCustomFields(item),
+        folderPath: folderPath,
       );
 
     default:
