@@ -51,3 +51,6 @@ extension/icons/
 
 # pipepush deployment token (do not commit)
 gh-dockerhub-deployment-key
+
+# Local deployment helper (contains server host — keep out of git)
+deploy.local.mk

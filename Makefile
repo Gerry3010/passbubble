@@ -9,6 +9,10 @@ LDFLAGS     = -ldflags="-s -w \
   -X $(_VER_PKG).Commit=$(COMMIT) \
   -X $(_VER_PKG).BuildTime=$(BUILD_TIME)"
 
+# Optional local-only deployment targets (gitignored; see deploy.local.mk).
+# The leading '-' makes this a no-op when the file is absent (CI, fresh clones).
+-include deploy.local.mk
+
 .PHONY: help up down up-prod dev \
         build-backend build-cli build-all \
         test test-backend test-cli test-flutter test-all \
