@@ -125,3 +125,37 @@ tests → CLI binaries → Flutter apps → Docker image (DockerHub: `gerre01/pa
 
 The Flutter app's **Version & Updates** screen (Settings → Check for updates) fetches the server version from
 `GET /health` and the latest release from the GitHub Releases API, then shows the update command.
+
+## Deploying to the test server (local, gitignored)
+
+For quickly testing the **current working tree** on the live server — without pushing or going
+through DockerHub — there is a **gitignored** `deploy.local.mk` providing a `make deploy` target
+(wired into the Makefile via `-include deploy.local.mk`; the leading `-` makes it a no-op for CI
+and fresh clones). It builds the image, ships it over SSH, and recreates the backend container:
+
+```bash
+make deploy          # build amd64 image → docker save/scp → load + recreate backend → verify
+make deploy-build    # just build the image locally (linux/amd64)
+make deploy-ship     # docker save | gzip + scp to the server
+make deploy-restart  # docker load + `docker compose up -d --force-recreate backend` on the server
+make deploy-verify   # wait for healthy, print /health version + last migration log line
+make deploy-logs     # tail backend logs on the server
+```
+
+How it works:
+- The image **embeds the Flutter web app and the DB migrations** (`go:embed`), so a single image
+  ships everything. **Migrations run automatically on container start** (`db.Migrate` in
+  `cmd/server/main.go`) — no separate migrate step needed.
+- The server runs `docker compose` in `/opt/passbubble` against `gerre01/passbubble-server:latest`
+  (services `postgres` / `redis` / `backend`). `docker load` replaces the local `:latest` image,
+  then `--force-recreate backend` picks it up. Postgres data persists in its volume.
+- **No new env vars** were introduced by share-links / jobs / account-2FA — 2FA reuses `JWT_SECRET`
+  (pending token + at-rest TOTP-secret key) and the existing `SMTP_*` / `APP_BASE_URL` for the 2FA
+  recovery email. Just ensure SMTP stays configured for recovery mails to send.
+
+`deploy.local.mk` holds the server host/dir (`DEPLOY_HOST`, `DEPLOY_DIR`) and is **kept out of
+git**. If it's missing, recreate it from the variables above (host, `/opt/passbubble`, image
+`gerre01/passbubble-server:latest`, service `backend`).
+
+> This is a fast test-deploy path. The canonical release path is still tagging `vX.Y.Z`
+> (`release.yml` → DockerHub).
