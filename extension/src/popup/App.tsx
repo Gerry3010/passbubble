@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react';
 import { useSessionStore } from './store/session.js';
 import { LoginForm } from './components/LoginForm.js';
+import { TotpCodeForm } from './components/TotpCodeForm.js';
 import { MasterPasswordPrompt } from './components/MasterPasswordPrompt.js';
 import { EntryList } from './components/EntryList.js';
 import { GeneratorPanel } from './components/GeneratorPanel.js';
@@ -25,7 +26,8 @@ import { STORAGE_KEYS } from '../shared/constants.js';
 type Tab = 'vault' | 'generator';
 
 export function App() {
-  const { isLoggedIn, isUnlocked, userName, lock, checkSession, isLoading } = useSessionStore();
+  const { isLoggedIn, isUnlocked, userName, lock, checkSession, isLoading, totpRequired } =
+    useSessionStore();
   const [tab, setTab] = useState<Tab>('vault');
   const [hasServerUrl, setHasServerUrl] = useState<boolean | null>(null);
 
@@ -70,7 +72,7 @@ export function App() {
   if (!isLoggedIn) {
     return (
       <div style={{ padding: '16px' }}>
-        <LoginForm />
+        {totpRequired ? <TotpCodeForm /> : <LoginForm />}
       </div>
     );
   }

@@ -31,6 +31,12 @@ class LoginResponse {
   final int kdfTime;
   final int kdfMemory;
 
+  /// Set when the account has 2FA enabled: the password step succeeded but the
+  /// caller must complete /auth/verify-totp with [pendingToken]. When this is
+  /// true the key/token fields above are empty.
+  final String status;
+  final String pendingToken;
+
   const LoginResponse({
     required this.accessToken,
     required this.refreshToken,
@@ -46,7 +52,11 @@ class LoginResponse {
     required this.kdfSalt,
     required this.kdfTime,
     required this.kdfMemory,
+    this.status = '',
+    this.pendingToken = '',
   });
+
+  bool get requiresTotp => status == '2fa_required';
 
   factory LoginResponse.fromJson(Map<String, dynamic> j) => LoginResponse(
         accessToken: j['access_token'] as String? ?? '',
@@ -63,6 +73,69 @@ class LoginResponse {
         kdfSalt: j['kdf_salt'] as String? ?? '',
         kdfTime: j['kdf_time'] as int? ?? 3,
         kdfMemory: j['kdf_memory'] as int? ?? 65536,
+        status: j['status'] as String? ?? '',
+        pendingToken: j['pending_token'] as String? ?? '',
+      );
+}
+
+/// Returned by POST /api/v1/auth/totp/setup.
+class SetupTotpResponse {
+  final String secret;
+  final String otpauthUrl;
+
+  const SetupTotpResponse({required this.secret, required this.otpauthUrl});
+
+  factory SetupTotpResponse.fromJson(Map<String, dynamic> j) =>
+      SetupTotpResponse(
+        secret: j['secret'] as String? ?? '',
+        otpauthUrl: j['otpauth_url'] as String? ?? '',
+      );
+}
+
+/// Request body for creating a share link. [encryptedPayload]/[payloadNonce]
+/// are the entry JSON encrypted with a random link key that never leaves the
+/// client (it is carried in the URL fragment instead).
+class CreateShareLinkRequest {
+  final String encryptedPayload;
+  final String payloadNonce;
+  final String expiresAt; // RFC3339
+  final int? maxViews;
+  final String? password;
+
+  const CreateShareLinkRequest({
+    required this.encryptedPayload,
+    required this.payloadNonce,
+    required this.expiresAt,
+    this.maxViews,
+    this.password,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'encrypted_payload': encryptedPayload,
+        'payload_nonce': payloadNonce,
+        'expires_at': expiresAt,
+        if (maxViews != null) 'max_views': maxViews,
+        if (password != null && password!.isNotEmpty) 'password': password,
+      };
+}
+
+/// Returned by the public GET /api/v1/share/{token}.
+class PublicShareLinkResponse {
+  final bool requiresPassword;
+  final String encryptedPayload;
+  final String payloadNonce;
+
+  const PublicShareLinkResponse({
+    required this.requiresPassword,
+    required this.encryptedPayload,
+    required this.payloadNonce,
+  });
+
+  factory PublicShareLinkResponse.fromJson(Map<String, dynamic> j) =>
+      PublicShareLinkResponse(
+        requiresPassword: j['requires_password'] as bool? ?? false,
+        encryptedPayload: j['encrypted_payload'] as String? ?? '',
+        payloadNonce: j['payload_nonce'] as String? ?? '',
       );
 }
 
@@ -124,12 +197,14 @@ class UserResponse {
   final String name;
   final String role;
   final String? status;
+  final bool totpEnabled;
   const UserResponse({
     required this.id,
     required this.email,
     required this.name,
     required this.role,
     this.status,
+    this.totpEnabled = false,
   });
   factory UserResponse.fromJson(Map<String, dynamic> j) => UserResponse(
         id: j['id'] as String,
@@ -137,6 +212,7 @@ class UserResponse {
         name: j['name'] as String,
         role: j['role'] as String? ?? 'user',
         status: j['status'] as String?,
+        totpEnabled: j['totp_enabled'] as bool? ?? false,
       );
 }
 
@@ -412,19 +488,31 @@ class JobResponse {
 
 class ShareLinkResponse {
   final String id;
+  final String token; // present on create; the URL is /share/{token}#{key}
   final String expiresAt;
+  final bool hasPassword;
+  final int? maxViews;
+  final int viewCount;
   final String? revokedAt;
 
   const ShareLinkResponse({
     required this.id,
+    this.token = '',
     required this.expiresAt,
+    this.hasPassword = false,
+    this.maxViews,
+    this.viewCount = 0,
     this.revokedAt,
   });
 
   factory ShareLinkResponse.fromJson(Map<String, dynamic> j) =>
       ShareLinkResponse(
         id: j['id'] as String,
+        token: j['token'] as String? ?? '',
         expiresAt: j['expires_at'] as String? ?? '',
+        hasPassword: j['has_password'] as bool? ?? false,
+        maxViews: j['max_views'] as int?,
+        viewCount: j['view_count'] as int? ?? 0,
         revokedAt: j['revoked_at'] as String?,
       );
 }

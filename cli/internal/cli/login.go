@@ -70,6 +70,14 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("login failed: %w", err)
 		}
 
+		// Account-level 2FA: the password step succeeded but a TOTP code is required.
+		if resp.RequiresTOTP() {
+			resp, err = completeTOTPLogin(client, resp.PendingToken)
+			if err != nil {
+				return err
+			}
+		}
+
 		cfgPath := config.ConfigPath(cfgFile)
 		newCfg := &config.Config{
 			ServerURL:       serverURL,
@@ -96,6 +104,33 @@ var loginCmd = &cobra.Command{
 		fmt.Printf("Role: %s\n", resp.Role)
 		return nil
 	},
+}
+
+// completeTOTPLogin drives the interactive second step of a 2FA login. The user
+// enters a 6-digit code, or types "recover" to receive a reset email.
+func completeTOTPLogin(client *apiclient.Client, pendingToken string) (*apiclient.LoginResponse, error) {
+	for {
+		code, err := promptInput("2FA code (6 digits, or 'recover' if you lost your authenticator): ")
+		if err != nil {
+			return nil, err
+		}
+		code = strings.TrimSpace(code)
+
+		if strings.EqualFold(code, "recover") {
+			if err := client.RequestTOTPRecovery(pendingToken); err != nil {
+				return nil, fmt.Errorf("recovery request failed: %w", err)
+			}
+			fmt.Println("If the account exists, a reset link has been emailed. Open it, then log in again.")
+			return nil, fmt.Errorf("2fa recovery email sent — re-run login after disabling 2FA")
+		}
+
+		resp, err := client.VerifyTOTP(pendingToken, code)
+		if err != nil {
+			fmt.Printf("Invalid code: %v\n", err)
+			continue
+		}
+		return resp, nil
+	}
 }
 
 var logoutCmd = &cobra.Command{

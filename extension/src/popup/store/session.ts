@@ -22,15 +22,20 @@ interface SessionState extends SessionInfo {
   serverUrl: string;
   isLoading: boolean;
   error: string | null;
+  /** True after the password step when the account requires a 2FA code. */
+  totpRequired: boolean;
+  pendingToken: string | null;
 
   checkSession: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
+  verifyTotp: (code: string) => Promise<void>;
+  cancelTotp: () => void;
   unlock: (masterPassword: string) => Promise<void>;
   lock: () => Promise<void>;
   clearError: () => void;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>((set, get) => ({
   isLoggedIn: false,
   isUnlocked: false,
   userEmail: undefined,
@@ -38,6 +43,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   serverUrl: '',
   isLoading: false,
   error: null,
+  totpRequired: false,
+  pendingToken: null,
 
   checkSession: async () => {
     set({ isLoading: true, error: null });
@@ -55,15 +62,46 @@ export const useSessionStore = create<SessionState>((set) => ({
   login: async (email, password) => {
     set({ isLoading: true, error: null });
     try {
-      await browser.runtime.sendMessage({
+      const resp = (await browser.runtime.sendMessage({
         type: MessageType.LOGIN,
         payload: { email, password },
-      });
+      })) as { requiresTotp?: boolean; pendingToken?: string };
+      if (resp?.requiresTotp) {
+        set({
+          isLoading: false,
+          totpRequired: true,
+          pendingToken: resp.pendingToken ?? null,
+        });
+        return;
+      }
       set({ isLoggedIn: true, isLoading: false });
     } catch (e) {
       set({ isLoading: false, error: String(e) });
     }
   },
+
+  verifyTotp: async (code) => {
+    const pendingToken = get().pendingToken;
+    if (!pendingToken) return;
+    set({ isLoading: true, error: null });
+    try {
+      await browser.runtime.sendMessage({
+        type: MessageType.VERIFY_TOTP,
+        payload: { pendingToken, code },
+      });
+      set({
+        isLoggedIn: true,
+        isLoading: false,
+        totpRequired: false,
+        pendingToken: null,
+      });
+    } catch (e) {
+      set({ isLoading: false, error: String(e) });
+    }
+  },
+
+  cancelTotp: () =>
+    set({ totpRequired: false, pendingToken: null, error: null }),
 
   unlock: async (masterPassword) => {
     set({ isLoading: true, error: null });

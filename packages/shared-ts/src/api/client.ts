@@ -109,6 +109,16 @@ export class PassbubbleClient {
     return this.request<LoginResponse>('POST', '/api/v1/auth/login', body, true);
   }
 
+  /** Completes the second step of a 2FA login, returning the full session. */
+  async verifyTotp(pendingToken: string, code: string): Promise<LoginResponse> {
+    return this.request<LoginResponse>(
+      'POST',
+      '/api/v1/auth/verify-totp',
+      { pending_token: pendingToken, code },
+      true,
+    );
+  }
+
   async refresh(refreshToken: string): Promise<RefreshResponse> {
     return this.request<RefreshResponse>(
       'POST',

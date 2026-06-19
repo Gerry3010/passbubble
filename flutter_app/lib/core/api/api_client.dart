@@ -129,6 +129,35 @@ class ApiClient {
     return UserResponse.fromJson(resp.data as Map<String, dynamic>);
   }
 
+  // ── Account 2FA (TOTP) ──────────────────────────────────────────────────────
+
+  /// Completes the second step of a 2FA login and returns the full session.
+  Future<LoginResponse> verifyTotp(String pendingToken, String code) async {
+    final resp = await _post('/api/v1/auth/verify-totp', {
+      'pending_token': pendingToken,
+      'code': code,
+    }, skipAuth: true);
+    return LoginResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Starts 2FA enrollment. Nothing is enabled until [confirmTotp] succeeds.
+  Future<SetupTotpResponse> setupTotp() async {
+    final resp = await _post('/api/v1/auth/totp/setup', {});
+    return SetupTotpResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  Future<void> confirmTotp(String secret, String code) =>
+      _post('/api/v1/auth/totp/confirm', {'secret': secret, 'code': code});
+
+  Future<void> disableTotp({String code = '', String password = ''}) =>
+      _post('/api/v1/auth/totp/disable', {'code': code, 'password': password});
+
+  /// Requests an email link that disables 2FA (used when the authenticator is
+  /// lost). Only valid with a pending token from the failed-2FA login step.
+  Future<void> requestTotpRecovery(String pendingToken) =>
+      _post('/api/v1/auth/totp/recover', {'pending_token': pendingToken},
+          skipAuth: true);
+
   // ── Entries ───────────────────────────────────────────────────────────────
 
   Future<List<EntryResponse>> listEntries() async {
@@ -238,6 +267,30 @@ class ApiClient {
 
   Future<void> revokeFolderShare(String folderId, String userId) =>
       _delete('/api/v1/folders/$folderId/share/$userId');
+
+  Future<ShareLinkResponse> createEntryShareLink(
+      String entryId, CreateShareLinkRequest req) async {
+    final resp =
+        await _post('/api/v1/entries/$entryId/share-link', req.toJson());
+    return ShareLinkResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  Future<ShareLinkResponse> createFolderShareLink(
+      String folderId, CreateShareLinkRequest req) async {
+    final resp =
+        await _post('/api/v1/folders/$folderId/share-link', req.toJson());
+    return ShareLinkResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Public, unauthenticated retrieval of a share-link payload by token.
+  Future<PublicShareLinkResponse> getPublicShareLink(String token,
+      {String? password}) async {
+    final q = (password != null && password.isNotEmpty)
+        ? '?password=${Uri.encodeQueryComponent(password)}'
+        : '';
+    final resp = await _get('/api/v1/share/$token$q');
+    return PublicShareLinkResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
 
   // ── Admin ─────────────────────────────────────────────────────────────────
 

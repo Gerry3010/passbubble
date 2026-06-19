@@ -49,6 +49,41 @@ type LoginResponse struct {
 	KDFSalt         string `json:"kdf_salt"`
 	KDFTime         int    `json:"kdf_time"`
 	KDFMemory       int    `json:"kdf_memory"`
+
+	// Set only when the account has 2FA enabled: the password step succeeded but
+	// the caller must complete /auth/verify-totp with PendingToken before tokens
+	// are issued. Status == "2fa_required".
+	Status       string `json:"status,omitempty"`
+	PendingToken string `json:"pending_token,omitempty"`
+}
+
+// RequiresTOTP reports whether the login response is the intermediate 2FA step.
+func (r *LoginResponse) RequiresTOTP() bool { return r.Status == "2fa_required" }
+
+// --- Account 2FA ---
+
+type VerifyTOTPRequest struct {
+	PendingToken string `json:"pending_token"`
+	Code         string `json:"code"`
+}
+
+type ConfirmTOTPRequest struct {
+	Secret string `json:"secret"`
+	Code   string `json:"code"`
+}
+
+type DisableTOTPRequest struct {
+	Code     string `json:"code,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+type RequestTOTPRecoveryRequest struct {
+	PendingToken string `json:"pending_token"`
+}
+
+type SetupTOTPResponse struct {
+	Secret     string `json:"secret"`
+	OTPAuthURL string `json:"otpauth_url"`
 }
 
 type RefreshRequest struct {
@@ -135,17 +170,17 @@ type EntryResponse struct {
 
 type ShareEntryRequest struct {
 	UserID       string `json:"user_id"`
-	Permission   string `json:"permission"` // "read" or "write"
+	Permission   string `json:"permission"`    // "read" or "write"
 	EncryptedKey string `json:"encrypted_key"` // base64
 }
 
 // --- Generate ---
 
 type GenerateRequest struct {
-	Length      int    `json:"length"`
-	Type        string `json:"type"`
-	Count       int    `json:"count"`
-	NoAmbiguous bool   `json:"no_ambiguous"`
+	Length       int    `json:"length"`
+	Type         string `json:"type"`
+	Count        int    `json:"count"`
+	NoAmbiguous  bool   `json:"no_ambiguous"`
 	ExcludeChars string `json:"exclude_chars,omitempty"`
 }
 

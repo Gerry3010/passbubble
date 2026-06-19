@@ -122,6 +122,78 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     );
   }
 
+  /// Creates a zero-knowledge share link for the (already decrypted) entry. The
+  /// entry payload is encrypted with a fresh random key that is placed only in
+  /// the URL fragment (after '#'), so the server never sees it.
+  Future<void> _createShareLink(EntryResponse entry) async {
+    final d = _decrypted;
+    if (d == null) return;
+    try {
+      final payload = {
+        'name': entry.name,
+        'type': entry.type,
+        'url': entry.url,
+        'data': d,
+      };
+      final enc = await VaultCrypto.encryptEntryData(payload);
+      final exp = DateTime.now().toUtc().add(const Duration(days: 7));
+      final expStr = '${exp.toIso8601String().split('.').first}Z';
+
+      final api = ref.read(apiClientProvider);
+      final link = await api.createEntryShareLink(
+        entry.id,
+        CreateShareLinkRequest(
+          encryptedPayload: enc.encryptedData,
+          payloadNonce: enc.dataNonce,
+          expiresAt: expStr,
+        ),
+      );
+
+      final secret = base64Url.encode(enc.dataKey);
+      final url = '${api.baseUrl ?? ''}/share/${link.token}#$secret';
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Share link created'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Anyone with this link can view the entry for 7 days. The '
+                'decryption key lives only in the link (after #) and never '
+                'reaches the server. Revoke it any time under Manage › Shares.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              SelectableText(url, style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: url));
+                ctx.pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Link copied')),
+                );
+              },
+              child: const Text('Copy link'),
+            ),
+            TextButton(onPressed: () => ctx.pop(), child: const Text('Close')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not create link: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _delete(String id) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -156,6 +228,12 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ),
         actions: [
           if (async.hasValue) ...[
+            if (_decrypted != null)
+              IconButton(
+                icon: const Icon(Icons.link_outlined),
+                tooltip: 'Create share link',
+                onPressed: () => _createShareLink(async.value!),
+              ),
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               onPressed: () => context.go('/entries/${widget.id}/edit'),

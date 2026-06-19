@@ -57,6 +57,7 @@ type UserResponse struct {
 	Role        string `json:"role"`
 	Status      string `json:"status"`
 	CreatedAt   string `json:"created_at"`
+	TOTPEnabled bool   `json:"totp_enabled"`
 }
 
 type UserPublicKeys struct {
@@ -135,17 +136,17 @@ type UpdateEntryRequest struct {
 }
 
 type EntryResponse struct {
-	ID            string     `json:"id"`
-	FolderID      *string    `json:"folder_id,omitempty"`
-	OwnerID       string     `json:"owner_id"`
-	Type          string     `json:"type"`
-	Name          string     `json:"name"`
-	URL           string     `json:"url,omitempty"`
-	EncryptedData string     `json:"encrypted_data,omitempty"` // only on single GET
-	DataNonce     string     `json:"data_nonce,omitempty"`
-	EntryKey      *EntryKey  `json:"entry_key,omitempty"` // caller's key on single GET
-	CreatedAt     string     `json:"created_at"`
-	UpdatedAt     string     `json:"updated_at"`
+	ID            string    `json:"id"`
+	FolderID      *string   `json:"folder_id,omitempty"`
+	OwnerID       string    `json:"owner_id"`
+	Type          string    `json:"type"`
+	Name          string    `json:"name"`
+	URL           string    `json:"url,omitempty"`
+	EncryptedData string    `json:"encrypted_data,omitempty"` // only on single GET
+	DataNonce     string    `json:"data_nonce,omitempty"`
+	EntryKey      *EntryKey `json:"entry_key,omitempty"` // caller's key on single GET
+	CreatedAt     string    `json:"created_at"`
+	UpdatedAt     string    `json:"updated_at"`
 }
 
 type ShareEntryRequest struct {
@@ -154,13 +155,134 @@ type ShareEntryRequest struct {
 	EncryptedKey string `json:"encrypted_key"` // base64: data_key encrypted with recipient's pub key
 }
 
+// ─── Share Links ───────────────────────────────────────────────────────────
+
+type CreateShareLinkRequest struct {
+	EncryptedPayload string `json:"encrypted_payload"` // base64: AES-256-GCM ciphertext encrypted with the link key (key never sent to server)
+	PayloadNonce     string `json:"payload_nonce"`     // base64: 12-byte GCM nonce
+	ExpiresAt        string `json:"expires_at"`        // RFC3339
+	MaxViews         *int   `json:"max_views,omitempty"`
+	Password         string `json:"password,omitempty"` // optional extra layer, hashed server-side, never stored in plaintext
+}
+
+type ShareLinkResponse struct {
+	ID          string  `json:"id"`
+	Token       string  `json:"token"`
+	EntryID     *string `json:"entry_id,omitempty"`
+	FolderID    *string `json:"folder_id,omitempty"`
+	HasPassword bool    `json:"has_password"`
+	MaxViews    *int    `json:"max_views,omitempty"`
+	ViewCount   int     `json:"view_count"`
+	ExpiresAt   string  `json:"expires_at"`
+	CreatedAt   string  `json:"created_at"`
+	RevokedAt   *string `json:"revoked_at,omitempty"`
+}
+
+// PublicShareLinkResponse is returned by the unauthenticated GET /share/{token}.
+// RequiresPassword=true with no payload means the caller must resubmit with ?password=.
+type PublicShareLinkResponse struct {
+	RequiresPassword bool   `json:"requires_password"`
+	EncryptedPayload string `json:"encrypted_payload,omitempty"`
+	PayloadNonce     string `json:"payload_nonce,omitempty"`
+}
+
+// ─── Shares aggregation ────────────────────────────────────────────────────
+
+type DirectShareResponse struct {
+	ResourceID   string `json:"resource_id"`
+	ResourceName string `json:"resource_name"`
+	UserID       string `json:"user_id"`
+	UserEmail    string `json:"user_email"`
+	Permission   string `json:"permission"`
+	CreatedAt    string `json:"created_at"`
+}
+
+type MySharesResponse struct {
+	ShareLinks   []ShareLinkResponse   `json:"share_links"`
+	EntryShares  []DirectShareResponse `json:"entry_shares"`
+	FolderShares []DirectShareResponse `json:"folder_shares"`
+}
+
+// ─── Jobs (import/export progress ledger) ──────────────────────────────────
+
+type CreateJobRequest struct {
+	Type        string `json:"type"`         // "import" | "export"
+	Format      string `json:"format"`       // "csv-generic","csv-chrome","csv-lastpass","csv-1password","bitwarden","keepass","csv"
+	DupStrategy string `json:"dup_strategy"` // "skip" | "overwrite"
+	TotalItems  int    `json:"total_items"`
+	ClientName  string `json:"client_name,omitempty"`
+}
+
+type UpdateJobRequest struct {
+	Status         string `json:"status,omitempty"`
+	ProcessedItems *int   `json:"processed_items,omitempty"`
+	CreatedItems   *int   `json:"created_items,omitempty"`
+	UpdatedItems   *int   `json:"updated_items,omitempty"`
+	SkippedItems   *int   `json:"skipped_items,omitempty"`
+	FailedItems    *int   `json:"failed_items,omitempty"`
+	ErrorMessage   string `json:"error_message,omitempty"`
+}
+
+type JobResponse struct {
+	ID             string  `json:"id"`
+	Type           string  `json:"type"`
+	Format         string  `json:"format"`
+	Status         string  `json:"status"`
+	DupStrategy    string  `json:"dup_strategy"`
+	TotalItems     int     `json:"total_items"`
+	ProcessedItems int     `json:"processed_items"`
+	CreatedItems   int     `json:"created_items"`
+	UpdatedItems   int     `json:"updated_items"`
+	SkippedItems   int     `json:"skipped_items"`
+	FailedItems    int     `json:"failed_items"`
+	ErrorMessage   *string `json:"error_message,omitempty"`
+	ClientName     *string `json:"client_name,omitempty"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+	FinishedAt     *string `json:"finished_at,omitempty"`
+}
+
+// ─── Account 2FA (TOTP) ────────────────────────────────────────────────────
+
+type VerifyTOTPRequest struct {
+	PendingToken string `json:"pending_token"`
+	Code         string `json:"code"`
+}
+
+type ConfirmTOTPRequest struct {
+	Secret string `json:"secret"`
+	Code   string `json:"code"`
+}
+
+type DisableTOTPRequest struct {
+	Code     string `json:"code,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+type RequestTOTPRecoveryRequest struct {
+	PendingToken string `json:"pending_token"`
+}
+
+type SetupTOTPResponse struct {
+	Secret     string `json:"secret"`      // base32, shown to user / encoded in QR
+	OTPAuthURL string `json:"otpauth_url"` // otpauth:// URI for authenticator apps
+}
+
+// TwoFARequiredResponse is returned by Login (HTTP 202) when the account has
+// 2FA enabled: the client must call /auth/verify-totp with the pending token.
+type TwoFARequiredResponse struct {
+	Status       string `json:"status"` // always "2fa_required"
+	PendingToken string `json:"pending_token"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
 // ─── Generate ──────────────────────────────────────────────────────────────
 
 type GenerateRequest struct {
-	Length      int    `json:"length,omitempty"`
-	Type        string `json:"type,omitempty"`
-	Count       int    `json:"count,omitempty"`
-	NoAmbiguous bool   `json:"no_ambiguous,omitempty"`
+	Length       int    `json:"length,omitempty"`
+	Type         string `json:"type,omitempty"`
+	Count        int    `json:"count,omitempty"`
+	NoAmbiguous  bool   `json:"no_ambiguous,omitempty"`
 	ExcludeChars string `json:"exclude_chars,omitempty"`
 }
 

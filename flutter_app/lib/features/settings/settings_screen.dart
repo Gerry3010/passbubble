@@ -22,6 +22,7 @@ import '../../core/auth/auto_lock_provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import 'providers/version_provider.dart';
+import 'two_factor_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -88,6 +89,15 @@ class SettingsScreen extends ConsumerWidget {
               style: const TextStyle(color: AppTheme.green),
             ),
             onTap: () => _showAutoLockPicker(context, ref),
+          ),
+          ListTile(
+            leading: const Icon(Icons.shield_outlined),
+            title: const Text('Two-factor authentication'),
+            subtitle: const Text('Require a TOTP code at login'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TwoFactorScreen()),
+            ),
           ),
           ListTile(
             leading: const Icon(Icons.fingerprint),

@@ -16,6 +16,7 @@
 export const MessageType = {
   // Auth
   LOGIN: 'LOGIN',
+  VERIFY_TOTP: 'VERIFY_TOTP',
   UNLOCK: 'UNLOCK',
   LOCK: 'LOCK',
   GET_SESSION: 'GET_SESSION',

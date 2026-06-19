@@ -37,6 +37,10 @@ export interface LoginResponse {
   kdf_salt: string;
   kdf_time: number;
   kdf_memory: number;
+  // Present only on the intermediate 2FA step (HTTP 202): the password was
+  // accepted but the caller must complete /auth/verify-totp with pending_token.
+  status?: string;
+  pending_token?: string;
 }
 
 export interface RefreshResponse {

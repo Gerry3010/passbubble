@@ -28,7 +28,7 @@ import {
   setSession,
 } from './session-store.js';
 import { matchEntriesForUrl } from './autofill-service.js';
-import type { EntryData, SessionInfo, UnlockedSession } from '@passbubble/shared-ts';
+import type { EntryData, LoginResponse, SessionInfo, UnlockedSession } from '@passbubble/shared-ts';
 
 function makeClient(serverUrl: string, accessToken?: string): PassbubbleClient {
   const c = new PassbubbleClient(serverUrl);
@@ -58,6 +58,28 @@ async function loadSessionData() {
   ]);
 }
 
+/**
+ * Persists the non-secret session material from a successful login (the master
+ * password and plaintext private keys are never stored). Shared by the LOGIN
+ * and VERIFY_TOTP handlers.
+ */
+async function persistLoginResponse(resp: LoginResponse): Promise<void> {
+  await browser.storage.session.set({
+    [STORAGE_KEYS.REFRESH_TOKEN]: resp.refresh_token,
+    [STORAGE_KEYS.ENC_PRIV_X25519]: resp.enc_priv_x25519,
+    [STORAGE_KEYS.ENC_PRIV_MLKEM]: resp.enc_priv_mlkem768,
+    [STORAGE_KEYS.KDF_SALT]: resp.kdf_salt,
+    [STORAGE_KEYS.KDF_TIME]: resp.kdf_time,
+    [STORAGE_KEYS.KDF_MEMORY]: resp.kdf_memory,
+    [STORAGE_KEYS.USER_ID]: resp.user_id,
+    [STORAGE_KEYS.USER_EMAIL]: resp.email,
+    [STORAGE_KEYS.USER_NAME]: resp.name,
+    [STORAGE_KEYS.ROLE]: resp.role,
+    [STORAGE_KEYS.PUB_X25519]: resp.pub_x25519,
+    [STORAGE_KEYS.PUB_MLKEM]: resp.pub_mlkem768,
+  });
+}
+
 type Handler = (payload: Record<string, unknown>) => Promise<unknown>;
 
 export function buildHandlers(): Record<string, Handler> {
@@ -82,21 +104,22 @@ export function buildHandlers(): Record<string, Handler> {
       if (!serverUrl) throw new Error('Server URL not configured');
       const client = makeClient(serverUrl);
       const resp = await client.login(email, password);
-      // Persist session data (NOT the master password or plaintext private keys)
-      await browser.storage.session.set({
-        [STORAGE_KEYS.REFRESH_TOKEN]: resp.refresh_token,
-        [STORAGE_KEYS.ENC_PRIV_X25519]: resp.enc_priv_x25519,
-        [STORAGE_KEYS.ENC_PRIV_MLKEM]: resp.enc_priv_mlkem768,
-        [STORAGE_KEYS.KDF_SALT]: resp.kdf_salt,
-        [STORAGE_KEYS.KDF_TIME]: resp.kdf_time,
-        [STORAGE_KEYS.KDF_MEMORY]: resp.kdf_memory,
-        [STORAGE_KEYS.USER_ID]: resp.user_id,
-        [STORAGE_KEYS.USER_EMAIL]: resp.email,
-        [STORAGE_KEYS.USER_NAME]: resp.name,
-        [STORAGE_KEYS.ROLE]: resp.role,
-        [STORAGE_KEYS.PUB_X25519]: resp.pub_x25519,
-        [STORAGE_KEYS.PUB_MLKEM]: resp.pub_mlkem768,
-      });
+      // Account-level 2FA: the password step succeeded but a TOTP code is
+      // required. Do NOT persist anything yet (the response carries no keys).
+      if (resp.status === '2fa_required') {
+        return { ok: true, requiresTotp: true, pendingToken: resp.pending_token };
+      }
+      await persistLoginResponse(resp);
+      return { ok: true, needsUnlock: true };
+    },
+
+    [MessageType.VERIFY_TOTP]: async (payload) => {
+      const { pendingToken, code } = payload as { pendingToken: string; code: string };
+      const serverUrl = await getServerUrl();
+      if (!serverUrl) throw new Error('Server URL not configured');
+      const client = makeClient(serverUrl);
+      const resp = await client.verifyTotp(pendingToken, code);
+      await persistLoginResponse(resp);
       return { ok: true, needsUnlock: true };
     },
 

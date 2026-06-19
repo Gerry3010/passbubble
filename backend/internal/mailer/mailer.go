@@ -69,14 +69,49 @@ func (m *Mailer) SendVerificationEmail(toEmail, token string) error {
 </body>
 </html>`, link, link, link)
 
+	return m.send(toEmail, "Verify your Passbubble account", body)
+}
+
+// SendTOTPRecoveryEmail sends a one-time link that disables two-factor
+// authentication for the account (used when the authenticator is lost).
+func (m *Mailer) SendTOTPRecoveryEmail(toEmail, token string) error {
+	link := fmt.Sprintf("%s/api/v1/auth/reset-totp?token=%s", m.baseURL, token)
+
+	body := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;max-width:560px;margin:40px auto;color:#222">
+  <h2>Reset two-factor authentication</h2>
+  <p>You asked to disable 2FA for your Passbubble account because you lost access to
+     your authenticator. Click the button below — the link expires in 30 minutes.</p>
+  <p style="margin:32px 0">
+    <a href="%s"
+       style="background:#dc2626;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600">
+      Disable 2FA
+    </a>
+  </p>
+  <p style="font-size:13px;color:#666">
+    Or copy this link into your browser:<br>
+    <a href="%s">%s</a>
+  </p>
+  <p style="font-size:12px;color:#999;margin-top:40px">
+    If you did not request this, ignore this email and your 2FA stays enabled.
+  </p>
+</body>
+</html>`, link, link, link)
+
+	return m.send(toEmail, "Reset Passbubble two-factor authentication", body)
+}
+
+// send delivers an HTML email to a single recipient. Port 465 uses implicit
+// TLS (SMTPS); all other ports use STARTTLS via smtp.SendMail.
+func (m *Mailer) send(toEmail, subject, htmlBody string) error {
 	msg := fmt.Sprintf(
-		"From: Passbubble <%s>\r\nTo: %s\r\nSubject: Verify your Passbubble account\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",
-		m.from, toEmail, body,
+		"From: Passbubble <%s>\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",
+		m.from, toEmail, subject, htmlBody,
 	)
 
 	addr := net.JoinHostPort(m.host, m.port)
 
-	// Port 465 uses implicit TLS (SMTPS); all other ports use STARTTLS via smtp.SendMail.
 	if m.port == "465" {
 		return m.sendImplicitTLS(addr, toEmail, []byte(msg))
 	}

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Account-2FA (TOTP) auf allen Plattformen** — der Login lässt sich mit einem zeitbasierten Einmalcode absichern. Zwei-Schritt-Login (Passwort → Code) über einen kurzlebigen `2fa_pending`-Token; Aktivieren/Bestätigen/Deaktivieren via Authenticator-App. **E-Mail-Reset**, falls der Authenticator verloren geht (Recovery-Link, nur nach erfolgreicher Passwortprüfung). Backend (`pquerna/otp`, Secret verschlüsselt at-rest), CLI (`account-2fa enable/disable` + Code-Schritt im Login mit Recovery-Option), Flutter (Code-Screen + Settings → Two-factor authentication) und Browser-Extension (Code-Schritt im Popup)
+- **Share-Links (zero-knowledge)** — Einträge per Link teilen, ohne dass der Server den Inhalt sieht: der Payload wird mit einem Zufallsschlüssel verschlüsselt, der nur im URL-Fragment (`#…`) lebt. Optionales **Link-Passwort**, **maximale Aufrufzahl** und **Ablaufdatum**; Widerruf über Manage → Shares. Backend (Migration `share_links`, Handler) + Flutter (Erstellen im Eintrag-Detail, Listen/Widerrufen)
+- **Import/Export-Job-Ledger** — server-seitige Fortschritts-Verfolgung (verarbeitet/erstellt/aktualisiert/übersprungen/fehlgeschlagen) mit geräteübergreifender Sichtbarkeit (`POST/GET/PATCH /jobs`)
 - Settings: **konfigurierbares Auto-Lock-Intervall** in CLI und Flutter-App. CLI: im Settings-Screen mit Taste `t` durch die Presets (Off/1/5/10/15/30/60 Min) schalten, Wert wird in der Config gespeichert. Flutter-App: Settings → **Auto-lock** öffnet eine Auswahl; die App sperrt den Vault jetzt überhaupt erst bei Inaktivität (Standard 10 Min) und kehrt zum Entsperr-Screen zurück. `0`/`Off` deaktiviert das Auto-Lock
 - Flutter-App: **„Lock vault"** im Settings-Screen funktioniert jetzt (löscht die privaten Schlüssel aus dem Speicher und führt zum Entsperr-Screen) statt nur eine Snackbar zu zeigen
 

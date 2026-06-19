@@ -64,12 +64,27 @@ func (s *Server) buildRouter() http.Handler {
 			r.Get("/auth/verify-email", h.VerifyEmail)
 		})
 
+		// Public, unauthenticated endpoints (zero-knowledge share-link retrieval
+		// and the second step of 2FA login), rate-limited per IP.
+		r.Group(func(r chi.Router) {
+			r.Use(mw.PerIPRateLimiter(rate.Limit(10.0/60.0), 10)) // 10 req/min
+			r.Get("/share/{token}", h.GetShareLink)
+			r.Post("/auth/verify-totp", h.VerifyTOTP)
+			r.Post("/auth/totp/recover", h.RequestTOTPRecovery)
+			r.Get("/auth/reset-totp", h.ResetTOTP)
+		})
+
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(mw.JWTAuth(s.cfg.JWTSecret))
 
 			r.Post("/auth/logout", h.Logout)
 			r.Get("/auth/me", h.Me)
+
+			// Account 2FA management (TOTP)
+			r.Post("/auth/totp/setup", h.SetupTOTP)
+			r.Post("/auth/totp/confirm", h.ConfirmTOTP)
+			r.Post("/auth/totp/disable", h.DisableTOTP)
 
 			// Entries
 			r.Get("/entries", h.ListEntries)
@@ -79,7 +94,8 @@ func (s *Server) buildRouter() http.Handler {
 			r.Put("/entries/{id}", h.UpdateEntry)
 			r.Delete("/entries/{id}", h.DeleteEntry)
 			r.Post("/entries/{id}/share", h.ShareEntry)
-				// r.Post("/entries/{id}/share-link", h.CreateEntryShareLink)
+			r.Post("/entries/{id}/share-link", h.CreateEntryShareLink)
+			r.Delete("/entries/{id}/share/{userId}", h.RevokeEntryShare)
 
 			// Folders
 			r.Get("/folders", h.ListFolders)
@@ -87,21 +103,18 @@ func (s *Server) buildRouter() http.Handler {
 			r.Put("/folders/{id}", h.UpdateFolder)
 			r.Delete("/folders/{id}", h.DeleteFolder)
 			r.Post("/folders/{id}/share", h.ShareFolder)
-				// r.Post("/folders/{id}/share-link", h.CreateFolderShareLink)
+			r.Post("/folders/{id}/share-link", h.CreateFolderShareLink)
+			r.Delete("/folders/{id}/share/{userId}", h.RevokeFolderShare)
 
+			// Shares aggregation + share-link management
+			r.Get("/shares", h.ListMyShares)
+			r.Delete("/shares/links/{id}", h.RevokeShareLink)
 
-				// TODO: share-links, shares, jobs not yet implemented
-				// // Share links (owner management)
-				// r.Get("/share-links", h.ListShareLinks)
-				// r.Delete("/share-links/{id}", h.RevokeShareLink)
-
-				// // Shares aggregation + revoke
-				// r.Get("/shares", h.ListMyShares)
-				// r.Delete("/entries/{id}/share/{userId}", h.RevokeEntryShare)
-				// r.Delete("/folders/{id}/share/{userId}", h.RevokeFolderShare)
-
-				// Job ledger
-				r.Get("/jobs", h.ListJobs)
+			// Import/export job ledger
+			r.Post("/jobs", h.CreateJob)
+			r.Get("/jobs", h.ListJobs)
+			r.Get("/jobs/{id}", h.GetJob)
+			r.Patch("/jobs/{id}", h.UpdateJob)
 
 			// User public keys (for sharing)
 			r.Get("/users/{id}/keys", h.GetUserKeys)

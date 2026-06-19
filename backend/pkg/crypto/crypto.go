@@ -39,11 +39,15 @@ import (
 )
 
 const (
-	argon2Time    uint32 = 3
-	argon2Memory  uint32 = 64 * 1024
-	argon2Threads uint8  = 4
-	argon2KeyLen  uint32 = 32
-	SaltLen              = 32
+	// Argon2DefaultTime and Argon2DefaultMemory are the default Argon2id cost
+	// parameters used wherever a password is hashed (master key derivation,
+	// share-link password protection, ...). Exported so callers building a
+	// KDFParams from stored Time/Memory values use the same defaults.
+	Argon2DefaultTime   uint32 = 3
+	Argon2DefaultMemory uint32 = 64 * 1024
+	argon2Threads       uint8  = 4
+	argon2KeyLen        uint32 = 32
+	SaltLen                    = 32
 )
 
 // KDFParams holds Argon2id parameters stored per user.
@@ -59,7 +63,7 @@ func NewKDFParams() (*KDFParams, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return nil, err
 	}
-	return &KDFParams{Salt: salt, Time: argon2Time, Memory: argon2Memory}, nil
+	return &KDFParams{Salt: salt, Time: Argon2DefaultTime, Memory: Argon2DefaultMemory}, nil
 }
 
 // DeriveKey derives a 32-byte key from a password using Argon2id.

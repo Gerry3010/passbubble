@@ -173,27 +173,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		userID          string
-		name            string
-		role            string
-		status          string
-		passwordHash    string
-		pubX25519       string
-		pubMLKEM768     string
-		encPrivX25519   string
-		encPrivMLKEM768 string
-		kdfSalt         string
-		kdfTime         uint32
-		kdfMemory       uint32
+		userID       string
+		role         string
+		status       string
+		passwordHash string
+		totpEnabled  bool
 	)
 	err = h.pool.QueryRow(r.Context(), `
-		SELECT id, name, role, status, password_hash, pub_x25519, pub_mlkem768,
-			enc_priv_x25519, enc_priv_mlkem768, kdf_salt, kdf_time, kdf_memory
+		SELECT id, role, status, password_hash, totp_enabled
 		FROM users WHERE email = $1`, req.Email,
-	).Scan(&userID, &name, &role, &status, &passwordHash,
-		&pubX25519, &pubMLKEM768,
-		&encPrivX25519, &encPrivMLKEM768,
-		&kdfSalt, &kdfTime, &kdfMemory)
+	).Scan(&userID, &role, &status, &passwordHash, &totpEnabled)
 	if err != nil {
 		respondErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
@@ -212,22 +201,59 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.issueTokens(r.Context(), userID, role)
+	// Account-level 2FA: stop here and require a TOTP code via /auth/verify-totp.
+	if totpEnabled {
+		pending, err := h.issuePendingToken(userID, role)
+		if err != nil {
+			respondErr(w, http.StatusInternalServerError, "failed to start 2fa")
+			return
+		}
+		respond(w, http.StatusAccepted, models.TwoFARequiredResponse{
+			Status:       "2fa_required",
+			PendingToken: pending,
+			ExpiresIn:    int(pendingTokenTTL.Seconds()),
+		})
+		return
+	}
+
+	h.respondWithSession(w, r.Context(), userID)
+}
+
+// respondWithSession issues fresh tokens for the user and writes the full login
+// payload (tokens + encrypted private keys + KDF params). Shared by Login and
+// the second step of 2FA (VerifyTOTP).
+func (h *Handler) respondWithSession(w http.ResponseWriter, ctx context.Context, userID string) {
+	var (
+		email, name, role              string
+		encPrivX25519, encPrivMLKEM768 string
+		pubX25519, pubMLKEM768         string
+		kdfSalt                        string
+		kdfTime, kdfMemory             uint32
+	)
+	err := h.pool.QueryRow(ctx, `
+		SELECT email, name, role, enc_priv_x25519, enc_priv_mlkem768,
+			pub_x25519, pub_mlkem768, kdf_salt, kdf_time, kdf_memory
+		FROM users WHERE id = $1`, userID,
+	).Scan(&email, &name, &role, &encPrivX25519, &encPrivMLKEM768,
+		&pubX25519, &pubMLKEM768, &kdfSalt, &kdfTime, &kdfMemory)
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to load user")
+		return
+	}
+
+	tokens, err := h.issueTokens(ctx, userID, role)
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to issue tokens")
 		return
 	}
 
-	// Return tokens + encrypted private keys so client can decrypt them locally.
-	// user_id/email/name/role are required so the client can address
-	// entry_keys to itself when creating entries.
 	respond(w, http.StatusOK, map[string]any{
 		"access_token":      tokens.AccessToken,
 		"refresh_token":     tokens.RefreshToken,
 		"expires_in":        tokens.ExpiresIn,
 		"token_type":        "Bearer",
 		"user_id":           userID,
-		"email":             req.Email,
+		"email":             email,
 		"name":              name,
 		"role":              role,
 		"enc_priv_x25519":   encPrivX25519,

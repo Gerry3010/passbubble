@@ -34,15 +34,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _form = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _totpCtrl = TextEditingController();
   final _passFocus = FocusNode();
   bool _loading = false;
   bool _obscure = true;
   String? _error;
 
+  /// Non-null once the password step returned "2fa_required"; holds the
+  /// short-lived pending token used to complete the second step.
+  String? _pendingToken;
+
   @override
   void dispose() {
     _emailCtrl.dispose();
     _passCtrl.dispose();
+    _totpCtrl.dispose();
     _passFocus.dispose();
     super.dispose();
   }
@@ -51,10 +57,57 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (!_form.currentState!.validate()) return;
     setState(() { _loading = true; _error = null; });
     try {
-      await ref.read(authStateProvider.notifier).login(
+      final pending = await ref.read(authStateProvider.notifier).login(
             _emailCtrl.text.trim(),
             _passCtrl.text,
           );
+      if (pending != null && mounted) {
+        setState(() => _pendingToken = pending);
+      }
+    } catch (e) {
+      setState(() => _error = e is Exception
+          ? e.toString().replaceFirst('Exception: ', '')
+          : 'An unexpected error occurred.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _verifyTotp() async {
+    final code = _totpCtrl.text.trim();
+    if (code.isEmpty) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      await ref.read(authStateProvider.notifier).verifyTotp(
+            _pendingToken!,
+            code,
+            _passCtrl.text,
+          );
+    } catch (e) {
+      setState(() => _error = e is Exception
+          ? e.toString().replaceFirst('Exception: ', '')
+          : 'An unexpected error occurred.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _recover() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      await ref
+          .read(authStateProvider.notifier)
+          .requestTotpRecovery(_pendingToken!);
+      if (mounted) {
+        setState(() {
+          _pendingToken = null;
+          _error = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'If the account exists, a reset link has been emailed. Open it, then sign in again.'),
+        ));
+      }
     } catch (e) {
       setState(() => _error = e is Exception
           ? e.toString().replaceFirst('Exception: ', '')
@@ -113,32 +166,47 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ],
                   const SizedBox(height: 32),
-                  PbTextField(
-                    label: 'Email',
-                    controller: _emailCtrl,
-                    keyboardType: TextInputType.emailAddress,
-                    prefixIcon: Icons.alternate_email,
-                    validator: (v) => v!.isEmpty ? 'Required' : null,
-                    textInputAction: TextInputAction.next,
-                    onSubmitted: (_) => _passFocus.requestFocus(),
-                  ),
-                  const SizedBox(height: 16),
-                  PbTextField(
-                    label: 'Master Password',
-                    controller: _passCtrl,
-                    focusNode: _passFocus,
-                    obscureText: _obscure,
-                    prefixIcon: Icons.lock_outline,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscure ? Icons.visibility_off : Icons.visibility,
-                        color: AppTheme.onBgDim,
-                      ),
-                      onPressed: () => setState(() => _obscure = !_obscure),
+                  if (_pendingToken == null) ...[
+                    PbTextField(
+                      label: 'Email',
+                      controller: _emailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      prefixIcon: Icons.alternate_email,
+                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                      textInputAction: TextInputAction.next,
+                      onSubmitted: (_) => _passFocus.requestFocus(),
                     ),
-                    validator: (v) => v!.isEmpty ? 'Required' : null,
-                    onSubmitted: (_) => _login(),
-                  ),
+                    const SizedBox(height: 16),
+                    PbTextField(
+                      label: 'Master Password',
+                      controller: _passCtrl,
+                      focusNode: _passFocus,
+                      obscureText: _obscure,
+                      prefixIcon: Icons.lock_outline,
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscure ? Icons.visibility_off : Icons.visibility,
+                          color: AppTheme.onBgDim,
+                        ),
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                      ),
+                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                      onSubmitted: (_) => _login(),
+                    ),
+                  ] else ...[
+                    Text(
+                      'Enter the 6-digit code from your authenticator app.',
+                      style: const TextStyle(color: AppTheme.onBgDim, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    PbTextField(
+                      label: '2FA Code',
+                      controller: _totpCtrl,
+                      keyboardType: TextInputType.number,
+                      prefixIcon: Icons.pin_outlined,
+                      onSubmitted: (_) => _verifyTotp(),
+                    ),
+                  ],
                   if (_error != null) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -154,29 +222,60 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ],
                   const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: PbButton(
-                      label: 'Sign In',
-                      onPressed: _loading ? null : _login,
-                      loading: _loading,
-                      icon: Icons.login,
+                  if (_pendingToken == null) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: PbButton(
+                        label: 'Sign In',
+                        onPressed: _loading ? null : _login,
+                        loading: _loading,
+                        icon: Icons.login,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      TextButton(
-                        onPressed: () => context.go('/setup'),
-                        child: const Text('Change server'),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () => context.go('/setup'),
+                          child: const Text('Change server'),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => context.go('/register'),
+                          child: const Text('Register'),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: PbButton(
+                        label: 'Verify',
+                        onPressed: _loading ? null : _verifyTotp,
+                        loading: _loading,
+                        icon: Icons.check,
                       ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () => context.go('/register'),
-                        child: const Text('Register'),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: _loading
+                              ? null
+                              : () => setState(() {
+                                    _pendingToken = null;
+                                    _error = null;
+                                  }),
+                          child: const Text('Back'),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: _loading ? null : _recover,
+                          child: const Text('Lost authenticator?'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

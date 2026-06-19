@@ -102,8 +102,28 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  Future<void> login(String email, String password) async {
-    final session = await _svc.login(email, password);
+  /// Performs the password step. Returns a non-empty pending token when the
+  /// account requires a 2FA code (caller should then prompt and call
+  /// [verifyTotp]); returns null when login completed directly.
+  Future<String?> login(String email, String password) async {
+    final result = await _svc.login(email, password);
+    if (result.session == null) return result.pendingToken;
+    _applySession(result.session!);
+    return null;
+  }
+
+  /// Completes a 2FA login with the user's code.
+  Future<void> verifyTotp(
+      String pendingToken, String code, String password) async {
+    final session = await _svc.completeTotp(pendingToken, code, password);
+    _applySession(session);
+  }
+
+  /// Requests a 2FA recovery email for an account stuck at the TOTP step.
+  Future<void> requestTotpRecovery(String pendingToken) =>
+      _svc.requestTotpRecovery(pendingToken);
+
+  void _applySession(AuthSession session) {
     state = AuthState(
       isLoggedIn: true,
       isUnlocked: true,
@@ -189,8 +209,33 @@ class AuthService {
     return (userId != null, userId, email, name, role);
   }
 
-  Future<AuthSession> login(String email, String password) async {
+  /// Performs the password step. When the account has 2FA enabled the returned
+  /// record has a null [session] and a non-empty [pendingToken]; the caller must
+  /// then call [completeTotp] with the user's code. Otherwise the session is
+  /// fully established (tokens persisted, vault unlocked).
+  Future<({AuthSession? session, String pendingToken})> login(
+      String email, String password) async {
     final resp = await _api.login(email, password);
+    if (resp.requiresTotp) {
+      return (session: null, pendingToken: resp.pendingToken);
+    }
+    return (session: await _establishSession(password, resp), pendingToken: '');
+  }
+
+  /// Completes a 2FA login: verifies the code, then establishes the session.
+  /// [password] is needed to re-derive the master key for the local unlock.
+  Future<AuthSession> completeTotp(
+      String pendingToken, String code, String password) async {
+    final resp = await _api.verifyTotp(pendingToken, code);
+    return _establishSession(password, resp);
+  }
+
+  /// Requests a 2FA recovery email for an account stuck at the TOTP step.
+  Future<void> requestTotpRecovery(String pendingToken) =>
+      _api.requestTotpRecovery(pendingToken);
+
+  Future<AuthSession> _establishSession(
+      String password, LoginResponse resp) async {
     await _api.setTokens(resp.accessToken, resp.refreshToken);
     await _persistKeyMaterial(resp);
 
