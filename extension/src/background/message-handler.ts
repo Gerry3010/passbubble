@@ -192,6 +192,14 @@ export function buildHandlers(): Record<string, Handler> {
       if (!session) return { locked: true };
       const { query } = payload as { query: string };
       const client = makeClient(session.serverUrl, session.accessToken);
+      // The popup loads the full vault with an empty query; the backend search
+      // endpoint deliberately returns [] for a blank q, so list everything
+      // instead (and refresh the cache used for URL matching while we're here).
+      if (!query.trim()) {
+        const entries = await client.listEntries();
+        setEntriesCache(entries);
+        return entries;
+      }
       return client.searchEntries(query);
     },
 

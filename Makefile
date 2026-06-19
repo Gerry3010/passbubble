@@ -125,13 +125,13 @@ sync-assets: ## Copy SVG sources from assets/svg/ into sub-projects
 	mkdir -p flutter_app/assets/svg extension/icons
 	cp assets/svg/icon.svg flutter_app/assets/svg/icon.svg
 	cp assets/svg/icon.svg flutter_app/web/favicon.svg
-	cp assets/svg/icon.svg extension/icons/icon.svg
+	cp assets/svg/icon-extension.svg extension/icons/icon.svg
 
 icons: sync-assets ## Rasterize SVG → extension PNG icons (requires rsvg-convert)
 	mkdir -p extension/public/icons
-	rsvg-convert -w 16  -h 16  assets/svg/icon.svg -o extension/public/icons/icon16.png
-	rsvg-convert -w 48  -h 48  assets/svg/icon.svg -o extension/public/icons/icon48.png
-	rsvg-convert -w 128 -h 128 assets/svg/icon.svg -o extension/public/icons/icon128.png
+	rsvg-convert -w 16  -h 16  assets/svg/icon-extension.svg -o extension/public/icons/icon16.png
+	rsvg-convert -w 48  -h 48  assets/svg/icon-extension.svg -o extension/public/icons/icon48.png
+	rsvg-convert -w 128 -h 128 assets/svg/icon-extension.svg -o extension/public/icons/icon128.png
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

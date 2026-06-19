@@ -14,17 +14,18 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { ServerUrlForm } from './components/ServerUrlForm.js';
+import { term } from '../shared/theme.js';
 
 export function App() {
   return (
-    <div style={{ padding: '32px 0' }}>
-      <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: '#2d3748' }}>
-        🔐 Passbubble Settings
+    <div style={{ padding: '8px 0' }}>
+      <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px', color: term.green, fontFamily: term.font }}>
+        <span style={{ color: term.muted }}>passbubble:~$</span> settings
       </h1>
       <ServerUrlForm />
-      <section style={{ color: '#718096', fontSize: '13px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#4a5568', marginBottom: '8px' }}>
-          Security
+      <section style={{ color: term.muted, fontSize: '13px' }}>
+        <h2 style={{ fontSize: '16px', fontWeight: 700, color: term.green, marginBottom: '8px', fontFamily: term.font }}>
+          # security
         </h2>
         <p>Your master password is never stored. The vault locks when the browser closes.</p>
       </section>

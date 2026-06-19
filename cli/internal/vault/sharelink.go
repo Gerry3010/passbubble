@@ -53,6 +53,44 @@ func (v *Vault) CreateEntryShareLink(entryID string, validity time.Duration) (st
 	})
 }
 
+// CreateFolderShareLink builds a zero-knowledge share link for every entry
+// directly inside a folder (subfolders are not included, matching the Flutter
+// client) and returns the full shareable URL. validity <= 0 means never expires.
+func (v *Vault) CreateFolderShareLink(folderID, folderName string, validity time.Duration) (string, error) {
+	if !v.IsUnlocked() {
+		return "", fmt.Errorf("vault is locked")
+	}
+	all, err := v.ListEntries()
+	if err != nil {
+		return "", err
+	}
+	entries := make([]map[string]any, 0)
+	for _, e := range all {
+		if e.FolderID == nil || *e.FolderID != folderID {
+			continue
+		}
+		full, err := v.GetEntry(e.ID) // decrypts
+		if err != nil {
+			return "", fmt.Errorf("read %q: %w", e.Name, err)
+		}
+		entries = append(entries, map[string]any{
+			"name": full.Name,
+			"type": full.Type,
+			"url":  full.URL,
+			"data": full.Data,
+		})
+	}
+	if len(entries) == 0 {
+		return "", fmt.Errorf("folder has no entries to share")
+	}
+	return v.buildShareLink(validity, map[string]any{
+		"folder":  folderName,
+		"entries": entries,
+	}, func(req apiclient.CreateShareLinkRequest) (*apiclient.ShareLinkResponse, error) {
+		return v.client.CreateFolderShareLink(folderID, req)
+	})
+}
+
 // buildShareLink encrypts payload under a random key, registers the link via
 // create, and assembles the public URL (`<server>/web/#/share/<token>?k=<key>`).
 func (v *Vault) buildShareLink(

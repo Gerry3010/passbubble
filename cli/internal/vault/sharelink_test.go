@@ -101,6 +101,60 @@ func TestBuildShareLink_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildShareLink_FolderPayload(t *testing.T) {
+	var captured apiclient.CreateShareLinkRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/folders/f1/share-link" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&captured)
+		_ = json.NewEncoder(w).Encode(apiclient.ShareLinkResponse{Token: "FOLDERTOKEN"})
+	}))
+	defer srv.Close()
+
+	v := New(&config.Config{ServerURL: srv.URL}, "")
+	payload := map[string]any{
+		"folder": "Work",
+		"entries": []map[string]any{
+			{"name": "GitHub", "type": "password", "url": "https://github.com", "data": map[string]any{"password": "p1"}},
+			{"name": "GitLab", "type": "password", "url": "https://gitlab.com", "data": map[string]any{"password": "p2"}},
+		},
+	}
+	link, err := v.buildShareLink(0, payload, func(req apiclient.CreateShareLinkRequest) (*apiclient.ShareLinkResponse, error) {
+		return v.client.CreateFolderShareLink("f1", req)
+	})
+	if err != nil {
+		t.Fatalf("buildShareLink: %v", err)
+	}
+	if !strings.Contains(link, "/web/#/share/FOLDERTOKEN?k=") {
+		t.Fatalf("unexpected folder link: %s", link)
+	}
+
+	_, after, _ := strings.Cut(link, "?k=")
+	k, _ := url.QueryUnescape(after)
+	linkKey, err := base64.URLEncoding.DecodeString(k)
+	if err != nil {
+		t.Fatalf("decode k: %v", err)
+	}
+	ct, _ := crypto.B64Dec(captured.EncryptedPayload)
+	plain, err := crypto.Decrypt(linkKey, ct)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(plain, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["folder"] != "Work" {
+		t.Errorf("folder = %v, want Work", got["folder"])
+	}
+	entries, _ := got["entries"].([]any)
+	if len(entries) != 2 {
+		t.Fatalf("entries len = %d, want 2", len(entries))
+	}
+}
+
 func TestBuildShareLink_NeverExpiry(t *testing.T) {
 	var captured apiclient.CreateShareLinkRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

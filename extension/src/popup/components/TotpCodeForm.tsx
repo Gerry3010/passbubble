@@ -15,6 +15,7 @@
 
 import { useState } from 'react';
 import { useSessionStore } from '../store/session.js';
+import { term, input, buttonPrimary, link, muted, errorText, withDisabled } from '../../shared/theme.js';
 
 /** Second step of a 2FA login: prompts for the 6-digit TOTP code. */
 export function TotpCodeForm() {
@@ -28,11 +29,11 @@ export function TotpCodeForm() {
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <h2 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Two-factor code</h2>
-      <p style={{ color: '#718096', fontSize: '12px', margin: 0 }}>
+      <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: term.green }}>$ 2fa code</h2>
+      <p style={muted}>
         Enter the 6-digit code from your authenticator app.
       </p>
-      {error && <p style={{ color: '#e53e3e', fontSize: '12px', margin: 0 }}>{error}</p>}
+      {error && <p style={errorText}>{error}</p>}
       <input
         type="text"
         inputMode="numeric"
@@ -41,30 +42,21 @@ export function TotpCodeForm() {
         onChange={(e) => setCode(e.target.value)}
         required
         autoFocus
-        style={{ padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px', letterSpacing: '4px' }}
+        style={{ ...input, letterSpacing: '4px' }}
       />
       <button
         type="submit"
         disabled={isLoading}
-        style={{
-          padding: '8px',
-          background: '#4299e1',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: isLoading ? 'not-allowed' : 'pointer',
-          fontSize: '13px',
-          fontWeight: 500,
-        }}
+        style={withDisabled(buttonPrimary, isLoading)}
       >
         {isLoading ? 'Verifying…' : 'Verify'}
       </button>
       <button
         type="button"
         onClick={() => cancelTotp()}
-        style={{ background: 'none', border: 'none', color: '#718096', fontSize: '12px', cursor: 'pointer' }}
+        style={{ ...link, color: term.muted }}
       >
-        Back to sign in
+        ‹ Back to sign in
       </button>
     </form>
   );

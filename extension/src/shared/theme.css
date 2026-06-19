@@ -1,0 +1,84 @@
+/* Copyright (C) 2026 Gerald Hofbauer <info@geraldhofbauer.net>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>. */
+
+/* Global terminal theme for the popup + options surfaces. */
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background: #0a0a0a;
+  color: #00ff41;
+  font-family: 'Courier New', 'Lucida Console', Monaco, monospace;
+}
+
+input,
+button,
+select,
+textarea {
+  font-family: inherit;
+}
+
+::placeholder {
+  color: #3f6b48;
+}
+
+::selection {
+  background: #00ff41;
+  color: #0a0a0a;
+}
+
+/* Inputs glow green on focus instead of the default UA outline. */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: #00ff41 !important;
+  box-shadow: 0 0 0 1px #00ff4155;
+}
+
+button {
+  transition: filter 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+button:not(:disabled):hover {
+  filter: brightness(1.25);
+}
+
+/* Range slider + checkbox accent */
+input[type='range'],
+input[type='checkbox'] {
+  accent-color: #00ff41;
+}
+
+/* Terminal-style scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+::-webkit-scrollbar-thumb {
+  background: #1d3a24;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00ff41;
+}
+
+a {
+  color: #00ff41;
+}

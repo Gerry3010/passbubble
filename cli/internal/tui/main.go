@@ -149,6 +149,7 @@ type Model struct {
 	// Share-link overlays: expiry picker, then the QR/URL result.
 	showShareMenu  bool
 	showShareQR    bool
+	shareIsFolder  bool
 	shareEntryID   string
 	shareEntryName string
 	shareURL       string
@@ -800,12 +801,23 @@ func (m Model) runAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case actShareLink:
-		if item, ok := m.selectedItem(); ok && item.kind == entryKind {
-			m.shareEntryID = item.entry.ID
-			m.shareEntryName = item.entry.Service
-			m.showShareMenu = true
-			m.status = "Share link — choose how long it stays valid"
-			m.statusType = "info"
+		if item, ok := m.selectedItem(); ok {
+			switch item.kind {
+			case entryKind:
+				m.shareIsFolder = false
+				m.shareEntryID = item.entry.ID
+				m.shareEntryName = item.entry.Service
+				m.showShareMenu = true
+				m.status = "Share link — choose how long it stays valid"
+				m.statusType = "info"
+			case folderKind:
+				m.shareIsFolder = true
+				m.shareEntryID = item.folder.ID
+				m.shareEntryName = item.folder.Name
+				m.showShareMenu = true
+				m.status = "Share folder — choose how long the link stays valid"
+				m.statusType = "info"
+			}
 		}
 		return m, nil
 

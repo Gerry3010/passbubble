@@ -16,6 +16,7 @@
 import { useState, useEffect } from 'react';
 import { useEntriesStore } from '../store/entries.js';
 import type { EntryResponse } from '@passbubble/shared-ts';
+import { term, input, buttonPrimary, buttonGhost, muted } from '../../shared/theme.js';
 
 interface CopyState {
   entryId: string;
@@ -53,30 +54,24 @@ export function EntryList({
       <div style={{ display: 'flex', gap: '6px' }}>
         <input
           type="search"
-          placeholder="Search entries…"
+          placeholder="grep entries…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          style={{
-            padding: '8px',
-            borderRadius: '4px',
-            border: '1px solid #e2e8f0',
-            fontSize: '13px',
-            flex: 1,
-          }}
+          style={{ ...input, flex: 1 }}
         />
         {onCreate && (
           <button
             onClick={onCreate}
             title="New entry"
-            style={{ padding: '0 12px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#4299e1', color: '#fff', cursor: 'pointer', fontSize: '16px' }}
+            style={{ ...buttonPrimary, padding: '0 12px', fontSize: '16px' }}
           >
             +
           </button>
         )}
       </div>
-      {isLoading && <p style={{ color: '#718096', fontSize: '12px' }}>Loading…</p>}
+      {isLoading && <p style={muted}>Loading…</p>}
       {!isLoading && entries.length === 0 && (
-        <p style={{ color: '#718096', fontSize: '12px' }}>No entries found</p>
+        <p style={muted}>No entries found</p>
       )}
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
         {entries.map((entry: EntryResponse) => (
@@ -111,8 +106,9 @@ function EntryItem({
     <li
       style={{
         padding: '8px',
-        borderRadius: '6px',
-        border: '1px solid #e2e8f0',
+        borderRadius: '4px',
+        border: `1px solid ${term.border}`,
+        background: term.surface,
         display: 'flex',
         flexDirection: 'column',
         gap: '4px',
@@ -120,12 +116,12 @@ function EntryItem({
     >
       <span
         onClick={onSelect ? () => onSelect(entry) : undefined}
-        style={{ fontWeight: 600, fontSize: '13px', color: '#2d3748', cursor: onSelect ? 'pointer' : 'default' }}
+        style={{ fontWeight: 700, fontSize: '13px', color: term.green, cursor: onSelect ? 'pointer' : 'default' }}
       >
         {entry.name}
       </span>
       {entry.url && (
-        <span style={{ color: '#718096', fontSize: '11px' }}>{entry.url}</span>
+        <span style={{ color: term.muted, fontSize: '11px' }}>{entry.url}</span>
       )}
       <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
         <CopyButton
@@ -158,16 +154,9 @@ function CopyButton({
   return (
     <button
       onClick={onClick}
-      style={{
-        padding: '3px 8px',
-        fontSize: '11px',
-        borderRadius: '3px',
-        border: '1px solid #e2e8f0',
-        background: copied ? '#48bb78' : '#fff',
-        color: copied ? '#fff' : '#4a5568',
-        cursor: 'pointer',
-        transition: 'background 0.2s',
-      }}
+      style={copied
+        ? { ...buttonPrimary, padding: '3px 8px', fontSize: '11px' }
+        : { ...buttonGhost, padding: '3px 8px', fontSize: '11px' }}
     >
       {label}
     </button>

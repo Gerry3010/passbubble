@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
 import { MessageType } from '../../shared/constants.js';
+import { term, buttonPrimary, buttonGhost, withDisabled } from '../../shared/theme.js';
 
 interface PendingSave {
   name: string;
@@ -76,14 +77,15 @@ export function SavePrompt({ onSaved }: { onSaved?: () => void }) {
       style={{
         margin: '8px',
         padding: '10px 12px',
-        border: '1px solid #4299e1',
-        background: '#ebf8ff',
-        borderRadius: '6px',
+        border: `1px solid ${term.green}`,
+        background: term.surface,
+        borderRadius: '4px',
         fontSize: '12px',
+        boxShadow: `0 0 0 1px ${term.borderBright}`,
       }}
     >
-      <div style={{ fontWeight: 600, marginBottom: '4px' }}>Save this login?</div>
-      <div style={{ color: '#2d3748' }}>
+      <div style={{ fontWeight: 700, marginBottom: '4px', color: term.green }}>Save this login?</div>
+      <div style={{ color: term.muted }}>
         {hostOf(pending.url)}
         {pending.username ? ` — ${pending.username}` : ''}
       </div>
@@ -91,30 +93,14 @@ export function SavePrompt({ onSaved }: { onSaved?: () => void }) {
         <button
           onClick={() => void save()}
           disabled={busy}
-          style={{
-            padding: '6px 12px',
-            background: '#4299e1',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: busy ? 'not-allowed' : 'pointer',
-            fontSize: '12px',
-          }}
+          style={withDisabled({ ...buttonPrimary, padding: '6px 12px', fontSize: '12px' }, busy)}
         >
           Save
         </button>
         <button
           onClick={() => void dismiss()}
           disabled={busy}
-          style={{
-            padding: '6px 12px',
-            background: 'none',
-            color: '#718096',
-            border: '1px solid #e2e8f0',
-            borderRadius: '4px',
-            cursor: busy ? 'not-allowed' : 'pointer',
-            fontSize: '12px',
-          }}
+          style={withDisabled({ ...buttonGhost, padding: '6px 12px', fontSize: '12px', color: term.muted }, busy)}
         >
           Not now
         </button>

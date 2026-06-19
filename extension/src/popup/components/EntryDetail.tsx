@@ -18,8 +18,7 @@ import browser from 'webextension-polyfill';
 import { generateTotp } from '@passbubble/shared-ts';
 import type { EntryData, EntryResponse } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
-
-const link = { background: 'none', border: 'none', color: '#4299e1', cursor: 'pointer', fontSize: '12px', padding: 0 };
+import { term, link, muted, errorText } from '../../shared/theme.js';
 
 export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: () => void }) {
   const [data, setData] = useState<EntryData | null>(null);
@@ -69,11 +68,11 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <button onClick={onBack} style={link}>‹ Back</button>
-      <h3 style={{ margin: 0, fontSize: '15px' }}>{entry.name}</h3>
-      {entry.url && <div style={{ color: '#718096', fontSize: '11px' }}>{entry.url}</div>}
+      <h3 style={{ margin: 0, fontSize: '15px', color: term.green }}>{entry.name}</h3>
+      {entry.url && <div style={{ color: term.muted, fontSize: '11px' }}>{entry.url}</div>}
 
-      {error && <p style={{ color: '#e53e3e', fontSize: '12px' }}>{error}</p>}
-      {!data && !error && <p style={{ color: '#718096', fontSize: '12px' }}>Loading…</p>}
+      {error && <p style={errorText}>{error}</p>}
+      {!data && !error && <p style={muted}>Loading…</p>}
 
       {data && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -112,15 +111,15 @@ function Field({
   extra?: React.ReactNode;
 }) {
   return (
-    <div style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '6px 8px' }}>
-      <div style={{ fontSize: '10px', color: '#718096', display: 'flex', justifyContent: 'space-between' }}>
+    <div style={{ border: `1px solid ${term.border}`, background: term.surface, borderRadius: '4px', padding: '6px 8px' }}>
+      <div style={{ fontSize: '10px', color: term.muted, display: 'flex', justifyContent: 'space-between' }}>
         <span>{label}</span>
         <span style={{ display: 'flex', gap: '8px' }}>
           {extra}
           <button onClick={onCopy} style={link}>Copy</button>
         </span>
       </div>
-      <div style={{ fontSize: '13px', wordBreak: 'break-all', fontFamily: 'monospace' }}>{value}</div>
+      <div style={{ fontSize: '13px', wordBreak: 'break-all', fontFamily: term.font, color: term.green }}>{value}</div>
     </div>
   );
 }

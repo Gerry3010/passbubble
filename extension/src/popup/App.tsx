@@ -23,6 +23,7 @@ import { VaultPanel } from './components/VaultPanel.js';
 import { GeneratorPanel } from './components/GeneratorPanel.js';
 import browser from 'webextension-polyfill';
 import { STORAGE_KEYS } from '../shared/constants.js';
+import { term, buttonPrimary } from '../shared/theme.js';
 
 type Tab = 'vault' | 'generator';
 
@@ -43,26 +44,18 @@ export function App() {
 
   if (hasServerUrl === null || isLoading) {
     return (
-      <div style={{ padding: '16px', color: '#718096', fontSize: '13px' }}>Loading…</div>
+      <div style={{ padding: '16px', color: term.muted, fontSize: '13px' }}>Loading…</div>
     );
   }
 
   if (!hasServerUrl) {
     return (
       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Welcome to Passbubble</h2>
-        <p style={{ color: '#718096', fontSize: '12px' }}>Configure your server URL to get started.</p>
+        <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: term.green }}>Welcome to Passbubble</h2>
+        <p style={{ color: term.muted, fontSize: '12px' }}>Configure your server URL to get started.</p>
         <button
           onClick={() => browser.runtime.openOptionsPage()}
-          style={{
-            padding: '8px',
-            background: '#4299e1',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '13px',
-          }}
+          style={buttonPrimary}
         >
           Open Settings
         </button>
@@ -95,24 +88,26 @@ export function App() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '10px 14px',
-          borderBottom: '1px solid #e2e8f0',
-          background: '#f7fafc',
+          borderBottom: `1px solid ${term.border}`,
+          background: term.surface,
         }}
       >
-        <span style={{ fontWeight: 700, fontSize: '14px', color: '#2d3748' }}>🔐 Passbubble</span>
+        <span style={{ fontWeight: 700, fontSize: '14px', color: term.green }}>
+          <span style={{ color: term.muted }}>&gt;_</span> passbubble
+        </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {userName && <span style={{ fontSize: '11px', color: '#718096' }}>{userName}</span>}
+          {userName && <span style={{ fontSize: '11px', color: term.muted }}>{userName}</span>}
           <button
             onClick={() => void lock()}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#718096', fontSize: '11px' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: term.muted, fontSize: '11px', fontFamily: term.font }}
           >
-            Lock
+            [lock]
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
+      <div style={{ display: 'flex', borderBottom: `1px solid ${term.border}` }}>
         {(['vault', 'generator'] as Tab[]).map((t) => (
           <button
             key={t}
@@ -120,17 +115,17 @@ export function App() {
             style={{
               flex: 1,
               padding: '8px',
-              background: tab === t ? '#fff' : '#f7fafc',
+              background: tab === t ? term.bg : term.surface,
               border: 'none',
-              borderBottom: tab === t ? '2px solid #4299e1' : '2px solid transparent',
+              borderBottom: tab === t ? `2px solid ${term.green}` : '2px solid transparent',
               cursor: 'pointer',
+              fontFamily: term.font,
               fontSize: '12px',
-              fontWeight: tab === t ? 600 : 400,
-              color: tab === t ? '#4299e1' : '#718096',
-              textTransform: 'capitalize',
+              fontWeight: tab === t ? 700 : 400,
+              color: tab === t ? term.green : term.muted,
             }}
           >
-            {t === 'vault' ? 'Vault' : 'Generator'}
+            {t === 'vault' ? './vault' : './generator'}
           </button>
         ))}
       </div>

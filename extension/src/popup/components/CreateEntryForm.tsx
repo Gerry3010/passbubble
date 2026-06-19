@@ -16,15 +16,7 @@
 import { useState } from 'react';
 import browser from 'webextension-polyfill';
 import { MessageType } from '../../shared/constants.js';
-
-const input = {
-  padding: '8px',
-  borderRadius: '4px',
-  border: '1px solid #e2e8f0',
-  fontSize: '13px',
-  width: '100%',
-  boxSizing: 'border-box' as const,
-};
+import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled } from '../../shared/theme.js';
 
 export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
   const [name, setName] = useState('');
@@ -74,11 +66,11 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <button type="button" onClick={onCancel} style={{ background: 'none', border: 'none', color: '#4299e1', cursor: 'pointer', fontSize: '12px', padding: 0, alignSelf: 'flex-start' }}>
+      <button type="button" onClick={onCancel} style={{ ...link, alignSelf: 'flex-start' }}>
         ‹ Back
       </button>
-      <h3 style={{ margin: 0, fontSize: '15px' }}>New entry</h3>
-      {error && <p style={{ color: '#e53e3e', fontSize: '12px', margin: 0 }}>{error}</p>}
+      <h3 style={{ margin: 0, fontSize: '15px', color: term.green }}># new entry</h3>
+      {error && <p style={errorText}>{error}</p>}
       <input style={input} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
       <input style={input} placeholder="URL" value={url} onChange={(e) => setUrl(e.target.value)} />
       <input style={input} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -89,14 +81,14 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <button type="button" onClick={() => void generate()} style={{ padding: '0 10px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '12px' }}>
+        <button type="button" onClick={() => void generate()} style={{ ...buttonGhost, padding: '0 10px', fontSize: '12px', whiteSpace: 'nowrap' }}>
           Generate
         </button>
       </div>
       <button
         type="submit"
         disabled={busy}
-        style={{ padding: '8px', background: '#4299e1', color: '#fff', border: 'none', borderRadius: '4px', cursor: busy ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 500 }}
+        style={withDisabled(buttonPrimary, busy)}
       >
         {busy ? 'Saving…' : 'Save entry'}
       </button>

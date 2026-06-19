@@ -104,7 +104,7 @@ describe('EntryList', () => {
     mockUseStore.mockReturnValue(defaultStore({ search: searchMock }));
     render(<EntryList />);
 
-    fireEvent.change(screen.getByPlaceholderText(/search/i), {
+    fireEvent.change(screen.getByPlaceholderText(/grep entries/i), {
       target: { value: 'github' },
     });
 

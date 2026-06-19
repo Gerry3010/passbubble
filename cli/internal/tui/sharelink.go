@@ -60,20 +60,28 @@ func (m Model) handleShareMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showShareMenu = false
 			m.status = "Creating share link…"
 			m.statusType = "info"
-			return m, m.createShareLinkCmd(m.shareEntryID, opt.d)
+			return m, m.createShareLinkCmd(m.shareEntryID, m.shareIsFolder, m.shareEntryName, opt.d)
 		}
 	}
 	return m, nil
 }
 
-// createShareLinkCmd builds a share link off the UI thread.
-func (m Model) createShareLinkCmd(entryID string, validity time.Duration) tea.Cmd {
+// createShareLinkCmd builds an entry or folder share link off the UI thread.
+func (m Model) createShareLinkCmd(id string, isFolder bool, name string, validity time.Duration) tea.Cmd {
 	v := m.vault
 	return func() tea.Msg {
 		if v == nil {
 			return ShareLinkCreatedMsg{err: fmt.Errorf("vault is locked")}
 		}
-		url, err := v.CreateEntryShareLink(entryID, validity)
+		var (
+			url string
+			err error
+		)
+		if isFolder {
+			url, err = v.CreateFolderShareLink(id, name, validity)
+		} else {
+			url, err = v.CreateEntryShareLink(id, validity)
+		}
 		return ShareLinkCreatedMsg{url: url, err: err}
 	}
 }
@@ -88,10 +96,14 @@ func renderQR(s string) string {
 
 // renderShareMenu renders the expiry picker overlay.
 func (m Model) renderShareMenu() string {
+	kind := "Entry"
+	if m.shareIsFolder {
+		kind = "Folder"
+	}
 	var b strings.Builder
 	b.WriteString(m.titleStyle.Render("🔗 Share link"))
 	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "Entry: %s\n\n", m.shareEntryName)
+	fmt.Fprintf(&b, "%s: %s\n\n", kind, m.shareEntryName)
 	b.WriteString("Valid for:\n")
 	for _, opt := range shareExpiryOptions {
 		fmt.Fprintf(&b, "  [%s] %s\n", opt.key, opt.label)
