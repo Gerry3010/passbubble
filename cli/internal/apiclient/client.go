@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -115,7 +116,7 @@ func (c *Client) DeleteEntry(id string) error {
 
 func (c *Client) SearchEntries(query string) ([]EntryResponse, error) {
 	var resp []EntryResponse
-	return resp, c.get("/api/v1/entries/search?q="+query, &resp)
+	return resp, c.get("/api/v1/entries/search?q="+url.QueryEscape(query), &resp)
 }
 
 func (c *Client) ShareEntry(id string, req ShareEntryRequest) error {
@@ -131,7 +132,7 @@ func (c *Client) GetUserKeys(userID string) (*UserPublicKeys, error) {
 
 func (c *Client) SearchUsers(query string) ([]UserResponse, error) {
 	var resp []UserResponse
-	return resp, c.get("/api/v1/users/search?q="+query, &resp)
+	return resp, c.get("/api/v1/users/search?q="+url.QueryEscape(query), &resp)
 }
 
 // --- Generate ---
@@ -146,6 +147,24 @@ func (c *Client) Generate(req GenerateRequest) (*GenerateResponse, error) {
 func (c *Client) ListFolders() ([]FolderResponse, error) {
 	var resp []FolderResponse
 	return resp, c.get("/api/v1/folders", &resp)
+}
+
+// CreateFolder creates a folder and returns its new ID.
+func (c *Client) CreateFolder(req CreateFolderRequest) (string, error) {
+	var resp struct {
+		ID string `json:"id"`
+	}
+	return resp.ID, c.post("/api/v1/folders", req, &resp)
+}
+
+// UpdateFolder renames or re-parents a folder.
+func (c *Client) UpdateFolder(id string, req CreateFolderRequest) error {
+	return c.put("/api/v1/folders/"+id, req, nil)
+}
+
+// DeleteFolder removes a folder.
+func (c *Client) DeleteFolder(id string) error {
+	return c.delete("/api/v1/folders/" + id)
 }
 
 // --- HTTP helpers ---

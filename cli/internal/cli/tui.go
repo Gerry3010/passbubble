@@ -16,6 +16,7 @@
 package cli
 
 import (
+	"github.com/Gerry3010/passbubble/cli/internal/config"
 	"github.com/Gerry3010/passbubble/cli/internal/tui"
 	vaultpkg "github.com/Gerry3010/passbubble/cli/internal/vault"
 	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
@@ -30,16 +31,17 @@ var tuiCmd = &cobra.Command{
 	Use:   "tui",
 	Short: "Launch interactive TUI",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := ensureUnlocked(); err != nil {
-			return err
-		}
+		// The TUI handles login / unlock itself, so no ensureUnlocked() here.
 		return runTUI(v)
 	},
 }
 
-// runTUI authenticates, wires the vault adapter into the keyring shim, and starts the TUI.
+// runTUI wires the vault adapter into the keyring shim (if logged in) and starts the TUI.
+// The vault may be nil (not logged in) — the TUI shows its login screen in that case.
 func runTUI(vlt *vaultpkg.Vault) error {
-	// Register the vault adapter so the TUI's keyring.New() calls work.
-	keyring.SetGlobal(vaultpkg.NewKeyringAdapter(vlt))
-	return tui.StartTUI()
+	if vlt != nil {
+		// Register the vault adapter so the TUI's keyring.New() calls work.
+		keyring.SetGlobal(vaultpkg.NewKeyringAdapter(vlt))
+	}
+	return tui.StartTUI(vlt, cfg, config.ConfigPath(cfgFile))
 }

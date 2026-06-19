@@ -119,6 +119,10 @@ type CreateEntryRequest struct {
 	EncryptedData string     `json:"encrypted_data"` // base64: AES-256-GCM encrypted JSON payload
 	DataNonce     string     `json:"data_nonce"`     // base64: 12-byte GCM nonce
 	EntryKeys     []EntryKey `json:"entry_keys"`     // one per authorized user
+	// Optional original timestamps (used by import to preserve source dates).
+	// Omitted/empty → server uses NOW().
+	CreatedAt *string `json:"created_at,omitempty"`
+	UpdatedAt *string `json:"updated_at,omitempty"`
 }
 
 type UpdateEntryRequest struct {

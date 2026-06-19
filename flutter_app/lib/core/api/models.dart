@@ -210,6 +210,10 @@ class CreateEntryRequest {
   final String encryptedData;
   final String dataNonce;
   final List<EntryKey> entryKeys;
+  // Optional original timestamps (RFC3339). Used by import to preserve source
+  // dates; empty/null → server uses NOW().
+  final String? createdAt;
+  final String? updatedAt;
   const CreateEntryRequest({
     this.folderId,
     required this.type,
@@ -218,6 +222,8 @@ class CreateEntryRequest {
     required this.encryptedData,
     required this.dataNonce,
     required this.entryKeys,
+    this.createdAt,
+    this.updatedAt,
   });
   Map<String, dynamic> toJson() => {
         if (folderId != null) 'folder_id': folderId,
@@ -227,6 +233,8 @@ class CreateEntryRequest {
         'encrypted_data': encryptedData,
         'data_nonce': dataNonce,
         'entry_keys': entryKeys.map((k) => k.toJson()).toList(),
+        if (createdAt != null && createdAt!.isNotEmpty) 'created_at': createdAt,
+        if (updatedAt != null && updatedAt!.isNotEmpty) 'updated_at': updatedAt,
       };
 }
 

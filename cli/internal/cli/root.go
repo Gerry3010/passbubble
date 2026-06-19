@@ -48,10 +48,7 @@ Usage:
   pwmgr list      List all entries
   pwmgr generate  Generate a secure password`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := ensureUnlocked(); err != nil {
-			fmt.Println("Not logged in. Run 'pwmgr login' to connect to your server.")
-			return err
-		}
+		// Launch the TUI directly; it handles login / unlock on its own.
 		return runTUI(v)
 	},
 }

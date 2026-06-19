@@ -67,7 +67,7 @@ Examples:
 			return err
 		}
 
-		entry, err := v.CreateEntry(name, entryType, url, data, nil)
+		entry, err := v.CreateEntry(name, entryType, url, data, nil, "", "")
 		if err != nil {
 			return fmt.Errorf("create entry: %w", err)
 		}

@@ -18,11 +18,14 @@ package tui
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/Gerry3010/passbubble/cli/internal/config"
+	vaultpkg "github.com/Gerry3010/passbubble/cli/internal/vault"
 	"github.com/Gerry3010/passbubble/cli/pkg/backup"
 	"github.com/Gerry3010/passbubble/cli/pkg/generator"
 	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
@@ -38,24 +41,130 @@ const (
 	AddScreen
 	EditScreen
 	GenerateScreen
+	LoginScreen
+	RegisterScreen
+	UnlockScreen
+	SettingsScreen
 )
+
+// isAuthScreen reports whether a screen is part of the login/unlock gate.
+func isAuthScreen(s Screen) bool {
+	return s == LoginScreen || s == RegisterScreen || s == UnlockScreen
+}
 
 // Entry represents a stored secret entry
 type Entry struct {
-	Service  string
-	Username string
-	Type     string // password, totp, api-key, note
+	ID        string
+	Service   string
+	Username  string
+	URL       string
+	Type      string // password, totp, api-key, note
+	FolderID  *string
+	CreatedAt string // RFC3339 metadata timestamp
+	UpdatedAt string // RFC3339 metadata timestamp
+}
+
+// itemKind distinguishes folders from entries in the navigable list.
+type itemKind int
+
+const (
+	folderKind itemKind = iota
+	entryKind
+)
+
+// listItem is one row in the current folder level: either a folder or an entry.
+type listItem struct {
+	kind   itemKind
+	folder *vaultpkg.Folder
+	entry  *Entry
+}
+
+// sortField selects which attribute the list is ordered by.
+type sortField int
+
+const (
+	sortByName sortField = iota
+	sortByCreated
+	sortByUpdated
+	sortByURL
+)
+
+func (s sortField) String() string {
+	switch s {
+	case sortByCreated:
+		return "created"
+	case sortByUpdated:
+		return "updated"
+	case sortByURL:
+		return "url"
+	default:
+		return "name"
+	}
+}
+
+func parseSortField(s string) sortField {
+	switch s {
+	case "created":
+		return sortByCreated
+	case "updated":
+		return sortByUpdated
+	case "url":
+		return sortByURL
+	default:
+		return sortByName
+	}
 }
 
 // Model represents the main TUI model
 type Model struct {
 	screen      Screen
-	entries     []Entry
 	cursor      int
 	selected    map[int]struct{}
 	width       int
 	height      int
 	err         error
+
+	// Vault session (wired in by StartTUI)
+	vault   *vaultpkg.Vault
+	cfg     *config.Config
+	cfgPath string
+
+	// Folder/entry data
+	allEntries  []Entry            // every entry (metadata only)
+	folders     []*vaultpkg.Folder // folder tree roots
+	folderStack []*vaultpkg.Folder // drill-down path; empty = root level
+
+	// Sorting
+	sortField    sortField
+	sortAsc      bool
+	folderFirst  bool
+	showSortMenu bool
+
+	// Move-entry overlay
+	showMoveMenu bool
+	moveEntryID  string
+	moveCursor   int
+	moveTargets  []moveTarget
+
+	// Auth screens (login / register / unlock)
+	authFields []authField
+	authCursor int
+	authBusy   bool
+	authErr    string
+
+	// Keybindings + help/settings UI
+	keymap      map[string]string // action -> key
+	showHelp    bool
+	kbCursor    int  // selected action in the keybinding editor
+	kbCapturing bool // capturing the next key for a rebind
+
+	// Search / filter
+	showSearch bool   // search input is active
+	filter     string // active filter query ("" = no filter)
+
+	// Auto-lock
+	lastActivity time.Time
+	idleTimeout  time.Duration
 	
 	// Detail screen state
 	detailEntry Entry
@@ -96,13 +205,20 @@ type Model struct {
 	hiddenStyle      lipgloss.Style
 }
 
-// NewModel creates a new TUI model
-func NewModel() Model {
-	return Model{
+// NewModel creates a new TUI model bound to an authenticated vault session.
+func NewModel(v *vaultpkg.Vault, cfg *config.Config, cfgPath string) Model {
+	m := Model{
 		screen:        MainScreen,
 		selected:      make(map[int]struct{}),
+		vault:         v,
+		cfg:           cfg,
+		cfgPath:       cfgPath,
+		sortAsc:       true,
+		folderFirst:   true,
+		lastActivity:  time.Now(),
+		idleTimeout:   10 * time.Minute,
 			maskPasswords: true, // Mask passwords by default
-		
+
 		// Styles
 		titleStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39")).
@@ -143,16 +259,47 @@ func NewModel() Model {
 			Foreground(lipgloss.Color("238")).
 			Italic(true),
 	}
+
+	// Keybindings + sort preferences from config (with sensible defaults).
+	if cfg != nil {
+		m.keymap = buildKeymap(cfg.Keybindings)
+		if cfg.SortField != "" {
+			m.sortField = parseSortField(cfg.SortField)
+		}
+		if cfg.SortAsc != nil {
+			m.sortAsc = *cfg.SortAsc
+		}
+		if cfg.FolderFirst != nil {
+			m.folderFirst = *cfg.FolderFirst
+		}
+	} else {
+		m.keymap = defaultKeymap()
+	}
+
+	// Gate: pick the initial screen based on session state.
+	switch {
+	case v == nil || cfg == nil || !cfg.IsLoggedIn():
+		m.screen = LoginScreen
+		m.authFields = newLoginFields(cfg)
+	case !v.IsUnlocked():
+		m.screen = UnlockScreen
+		m.authFields = newUnlockFields()
+	default:
+		m.screen = MainScreen
+	}
+	return m
 }
 
 // Init initializes the model
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		m.loadEntries(),
-		tea.Every(time.Second, func(t time.Time) tea.Msg {
-			return TickMsg{Time: t}
-		}),
-	)
+	tick := tea.Every(time.Second, func(t time.Time) tea.Msg {
+		return TickMsg{Time: t}
+	})
+	// Only load entries once the vault is unlocked; otherwise the auth gate runs first.
+	if m.screen == MainScreen {
+		return tea.Batch(m.loadEntries(), tick)
+	}
+	return tick
 }
 
 // TickMsg represents a time tick for TOTP updates
@@ -160,9 +307,10 @@ type TickMsg struct {
 	Time time.Time
 }
 
-// LoadEntriesMsg represents loaded entries
+// LoadEntriesMsg represents loaded entries + folder tree
 type LoadEntriesMsg struct {
 	Entries []Entry
+	Folders []*vaultpkg.Folder
 	Err     error
 }
 
@@ -179,8 +327,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg := msg.(type) {
 		case FormSubmittedMsg:
 			m.showingForm = false
-			return m, processFormSubmission(msg)
-			
+			// Folder forms need vault access, so they are handled here rather
+			// than in the vault-less processFormSubmission helper.
+			switch msg.Type {
+			case NewFolderForm:
+				return m, m.createFolderCmd(msg.Fields["folder_name"], msg.ParentID)
+			case RenameFolderForm:
+				return m, m.renameFolderCmd(msg.FolderID, msg.Fields["folder_name"], msg.ParentID)
+			default:
+				return m, processFormSubmission(msg)
+			}
+
 		case FormCancelledMsg:
 			m.showingForm = false
 			m.status = "Action cancelled"
@@ -189,9 +346,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 		case ConfirmationMsg:
 			m.showingForm = false
-			if msg.Confirmed && msg.Action == "delete" {
-				if entry, ok := msg.Data.(*Entry); ok {
-					return m, handleDeleteEntry(entry)
+			if msg.Confirmed {
+				switch msg.Action {
+				case "delete":
+					if entry, ok := msg.Data.(*Entry); ok {
+						return m, handleDeleteEntry(entry)
+					}
+				case "delete_folder":
+					if id, ok := msg.Data.(string); ok {
+						return m, m.deleteFolderCmd(id)
+					}
 				}
 			} else {
 				m.status = "Action cancelled"
@@ -214,17 +378,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		m.lastActivity = time.Now()
 		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
+		m.lastActivity = time.Now()
 		return m.handleKeyPress(msg)
-		
+
+	case AuthResultMsg:
+		m.authBusy = false
+		if msg.err != nil {
+			m.authErr = msg.err.Error()
+			return m, nil
+		}
+		if msg.vault != nil {
+			m.vault = msg.vault
+		}
+		if msg.cfg != nil {
+			m.cfg = msg.cfg
+		}
+		// Point the keyring shim at the freshly authenticated vault so the
+		// detail/TOTP/store paths use the current session.
+		keyring.SetGlobal(vaultpkg.NewKeyringAdapter(m.vault))
+		m.screen = MainScreen
+		m.authErr = ""
+		m.authFields = nil
+		m.lastActivity = time.Now()
+		return m, m.loadEntries()
+
 	case LoadEntriesMsg:
 		if msg.Err != nil {
 			m.err = msg.Err
 			return m, nil
 		}
-		m.entries = msg.Entries
+		m.allEntries = msg.Entries
+		m.folders = msg.Folders
+		m.clampCursor()
 		m.status = "Entries refreshed"
 		m.statusType = "success"
 		return m, nil
@@ -262,16 +451,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = msg.Message
 		if msg.Success {
 			m.statusType = "success"
-			// Refresh entries after successful add/edit/delete
-			if msg.Action == "add_password" || msg.Action == "add_totp" || 
-			   msg.Action == "edit_entry" || msg.Action == "delete_entry" {
+			// Refresh entries after successful add/edit/delete/folder ops
+			if msg.Action == "add_password" || msg.Action == "add_totp" ||
+				msg.Action == "edit_entry" || msg.Action == "delete_entry" ||
+				msg.Action == "folder" {
 				return m, m.loadEntries()
 			}
 		} else {
 			m.statusType = "error"
 		}
 		return m, nil
-		
+
+	case ClipboardClearMsg:
+		return m, clearClipboardIfMatches(msg.value)
+
+	case CopiedSecretMsg:
+		if msg.err != nil {
+			m.status = "Copy failed: " + msg.err.Error()
+			m.statusType = "error"
+			return m, nil
+		}
+		m.status = fmt.Sprintf("%s copied — clears in %ds", msg.label, int(clipboardClearDelay.Seconds()))
+		m.statusType = "success"
+		return m, tea.Tick(clipboardClearDelay, func(time.Time) tea.Msg {
+			return ClipboardClearMsg{value: msg.value}
+		})
+
 	case BackupCreatedMsg:
 		if msg.Error != nil {
 			m.status = fmt.Sprintf("Backup failed: %v", msg.Error)
@@ -303,7 +508,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nextTickCmd := tea.Every(time.Second, func(t time.Time) tea.Msg {
 			return TickMsg{Time: t}
 		})
-		
+
+		// Auto-lock: if the vault is unlocked and idle past the timeout, lock it.
+		if m.idleTimeout > 0 && m.vault != nil && m.vault.IsUnlocked() &&
+			!isAuthScreen(m.screen) && time.Since(m.lastActivity) >= m.idleTimeout {
+			locked := m.lockVault()
+			locked.status = "Vault locked (idle timeout)"
+			locked.statusType = "info"
+			return locked, nextTickCmd
+		}
+
 		if m.screen == DetailScreen && m.detailEntry.Type == "totp" && m.showSecrets {
 			// Decrement remaining time if we have an active TOTP code
 			if m.totpRemaining > 0 {
@@ -348,17 +562,39 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleBackupScreen(msg)
 	case GenerateScreen:
 		return m.handleGenerateScreen(msg)
+	case LoginScreen, RegisterScreen, UnlockScreen:
+		return m.handleAuthScreen(msg)
+	case SettingsScreen:
+		return m.handleSettingsScreen(msg)
 	default:
 		return m, nil
 	}
 }
 
-// handleMainScreen handles main screen key presses
+// handleMainScreen handles main screen key presses. Navigation keys are fixed;
+// action keys are resolved through the (rebindable) keymap.
 func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "ctrl+c":
+	if m.showSortMenu {
+		return m.handleSortMenu(msg)
+	}
+	if m.showMoveMenu {
+		return m.handleMoveMenu(msg)
+	}
+	if m.showHelp {
+		m.showHelp = false // any key closes the help overlay
+		return m, nil
+	}
+	if m.showSearch {
+		return m.handleSearchInput(msg)
+	}
+
+	key := msg.String()
+
+	// Fixed navigation keys (not rebindable).
+	switch key {
+	case "ctrl+c":
 		return m, tea.Quit
-		
+
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
@@ -366,29 +602,108 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.listOffset = m.cursor
 			}
 		}
+		return m, nil
 
 	case "down", "j":
-		if m.cursor < len(m.entries)-1 {
+		if m.cursor < len(m.currentItems())-1 {
 			m.cursor++
 			listHeight := m.listVisibleHeight()
 			if m.cursor >= m.listOffset+listHeight {
 				m.listOffset = m.cursor - listHeight + 1
 			}
 		}
-		
-	case "enter":
-		if len(m.entries) > 0 {
-			m.detailEntry = m.entries[m.cursor]
-			m.screen = DetailScreen
-			m.showSecrets = false
-			// Auto-load passwords for password entries
-			if m.detailEntry.Type == "password" {
-				return m, m.loadPasswordReal()
-			}
-			return m, m.loadSecretDetails()
+		return m, nil
+
+	case "esc", "left", "h":
+		// Clear an active filter first, then drill out of the current folder.
+		if m.filter != "" {
+			m.filter = ""
+			m.clampCursor()
+			return m, nil
 		}
-		
-	case "p":
+		if len(m.folderStack) > 0 {
+			m.folderStack = m.folderStack[:len(m.folderStack)-1]
+			m.cursor = 0
+			m.listOffset = 0
+		}
+		return m, nil
+
+	case "enter", "right", "l":
+		item, ok := m.selectedItem()
+		if !ok {
+			return m, nil
+		}
+		if item.kind == folderKind {
+			m.folderStack = append(m.folderStack, item.folder)
+			m.cursor = 0
+			m.listOffset = 0
+			return m, nil
+		}
+		m.detailEntry = *item.entry
+		m.screen = DetailScreen
+		m.showSecrets = false
+		if m.detailEntry.Type == "password" {
+			return m, m.loadPasswordReal()
+		}
+		return m, m.loadSecretDetails()
+	}
+
+	// Rebindable actions.
+	action, ok := m.actionForKey(key)
+	if !ok {
+		return m, nil
+	}
+	return m.runAction(action)
+}
+
+// runAction executes a resolved main-screen action.
+func (m Model) runAction(action string) (tea.Model, tea.Cmd) {
+	switch action {
+	case actQuit:
+		return m, tea.Quit
+
+	case actSortCycle:
+		m.sortField = (m.sortField + 1) % 4
+		m.persistSortPrefs()
+		m.status = "Sort: " + m.sortLabel()
+		m.statusType = "info"
+		return m, nil
+
+	case actSortDir:
+		m.sortAsc = !m.sortAsc
+		m.persistSortPrefs()
+		m.status = "Sort: " + m.sortLabel()
+		m.statusType = "info"
+		return m, nil
+
+	case actFolderFirst:
+		m.folderFirst = !m.folderFirst
+		m.persistSortPrefs()
+		m.status = "Sort: " + m.sortLabel()
+		m.statusType = "info"
+		return m, nil
+
+	case actSortMenu:
+		m.showSortMenu = true
+		return m, nil
+
+	case actSearch:
+		m.showSearch = true
+		m.status = ""
+		return m, nil
+
+	case actHelp:
+		m.showHelp = true
+		return m, nil
+
+	case actSettings:
+		m.screen = SettingsScreen
+		m.kbCursor = 0
+		m.kbCapturing = false
+		m.status = ""
+		return m, nil
+
+	case actAddPassword:
 		m.showingForm = true
 		m.form = CreateAddPasswordForm()
 		m.form.width = m.width
@@ -396,7 +711,7 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusType = "info"
 		return m, nil
 
-	case "t":
+	case actAddTOTP:
 		m.showingForm = true
 		m.form = CreateAddTOTPForm()
 		m.form.width = m.width
@@ -404,56 +719,187 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusType = "info"
 		return m, nil
 
-	case "e":
-		if len(m.entries) > 0 {
+	case actNewFolder:
+		m.showingForm = true
+		m.form = CreateNewFolderForm(m.currentFolderID())
+		m.form.width = m.width
+		m.status = "New folder"
+		m.statusType = "info"
+		return m, nil
+
+	case actEdit:
+		if item, ok := m.selectedItem(); ok {
 			m.showingForm = true
-			m.form = CreateEditEntryForm(m.entries[m.cursor])
+			if item.kind == folderKind {
+				m.form = CreateRenameFolderForm(item.folder.ID, item.folder.Name, item.folder.ParentID)
+				m.status = "Renaming folder"
+			} else {
+				m.form = CreateEditEntryForm(*item.entry)
+				m.status = "Editing entry"
+			}
 			m.form.width = m.width
-			m.status = "Editing entry"
 			m.statusType = "info"
 		}
 		return m, nil
 
-	case "d":
-		if len(m.entries) > 0 {
-			m.showingForm = true
-			m.form = CreateConfirmDeleteForm(m.entries[m.cursor])
-			m.form.width = m.width
-			m.status = "Confirm deletion"
+	case actMove:
+		if item, ok := m.selectedItem(); ok && item.kind == entryKind {
+			m.openMoveMenu(item.entry)
+		}
+		return m, nil
+
+	case actCopyPass:
+		if item, ok := m.selectedItem(); ok && item.kind == entryKind {
+			m.status = "Copying password…"
+			m.statusType = "info"
+			return m, m.copyEntryFieldCmd(item.entry.ID, "password")
+		}
+		return m, nil
+
+	case actCopyUser:
+		if item, ok := m.selectedItem(); ok && item.kind == entryKind {
+			m.status = "Copying username…"
+			m.statusType = "info"
+			return m, m.copyEntryFieldCmd(item.entry.ID, "username")
+		}
+		return m, nil
+
+	case actDelete:
+		if item, ok := m.selectedItem(); ok {
+			if item.kind == folderKind {
+				if n := m.folderContentCount(item.folder); n > 0 {
+					m.status = fmt.Sprintf("Folder '%s' is not empty (%d items) — move or delete its contents first", item.folder.Name, n)
+					m.statusType = "error"
+					return m, nil
+				}
+				m.showingForm = true
+				m.form = CreateConfirmDeleteFolderForm(item.folder.ID, item.folder.Name)
+				m.form.width = m.width
+				m.status = "Confirm folder deletion"
+			} else {
+				m.showingForm = true
+				m.form = CreateConfirmDeleteForm(*item.entry)
+				m.form.width = m.width
+				m.status = "Confirm deletion"
+			}
 			m.statusType = "info"
 		}
 		return m, nil
 
-	case "c":
+	case actBackup:
 		m.showingForm = true
 		m.form = CreateCreateBackupForm()
 		m.form.width = m.width
 		m.status = "Creating backup"
 		m.statusType = "info"
 		return m, nil
-		
-	case "b":
-		// Show backups
+
+	case actBackups:
 		m.screen = BackupScreen
 		m.backupCursor = 0
 		return m, m.loadBackups()
-		
-	case "g":
-		// Generate password
+
+	case actGenerate:
 		m.screen = GenerateScreen
 		m.generatedPassword = ""
 		m.generateType = ""
 		m.status = "Password Generator"
 		m.statusType = "info"
 		return m, nil
-		
-	case "r":
-		// Refresh entries
+
+	case actRefresh:
 		m.status = "Refreshing entries..."
 		return m, m.loadEntries()
 	}
-	
 	return m, nil
+}
+
+// persistSortPrefs writes the current sort settings back to the config file.
+func (m Model) persistSortPrefs() {
+	if m.cfg == nil {
+		return
+	}
+	asc, ff := m.sortAsc, m.folderFirst
+	m.cfg.SortField = m.sortField.String()
+	m.cfg.SortAsc = &asc
+	m.cfg.FolderFirst = &ff
+	_ = m.cfg.Save(m.cfgPath)
+}
+
+// handleSortMenu handles key input while the sort overlay is open.
+func (m Model) handleSortMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "o", "enter", "q":
+		m.showSortMenu = false
+	case "1":
+		m.sortField = sortByName
+	case "2":
+		m.sortField = sortByCreated
+	case "3":
+		m.sortField = sortByUpdated
+	case "4":
+		m.sortField = sortByURL
+	case "d":
+		m.sortAsc = !m.sortAsc
+	case "f":
+		m.folderFirst = !m.folderFirst
+	}
+	return m, nil
+}
+
+// sortLabel returns a human-readable description of the active sort settings.
+func (m Model) sortLabel() string {
+	dir := "↑ asc"
+	if !m.sortAsc {
+		dir = "↓ desc"
+	}
+	s := fmt.Sprintf("%s, %s", m.sortField, dir)
+	if m.folderFirst {
+		s += ", folders first"
+	}
+	return s
+}
+
+// renderSortMenu renders the sort overlay.
+func (m Model) renderSortMenu() string {
+	check := func(active bool) string {
+		if active {
+			return "●"
+		}
+		return "○"
+	}
+	onOff := func(b bool) string {
+		if b {
+			return "on"
+		}
+		return "off"
+	}
+
+	var b strings.Builder
+	b.WriteString(m.titleStyle.Render("⇅ Sort"))
+	b.WriteString("\n\n")
+	b.WriteString("Field:\n")
+	fmt.Fprintf(&b, "  [1] %s Name\n", check(m.sortField == sortByName))
+	fmt.Fprintf(&b, "  [2] %s Created\n", check(m.sortField == sortByCreated))
+	fmt.Fprintf(&b, "  [3] %s Updated\n", check(m.sortField == sortByUpdated))
+	fmt.Fprintf(&b, "  [4] %s URL\n", check(m.sortField == sortByURL))
+	b.WriteString("\n")
+	dir := "ascending"
+	if !m.sortAsc {
+		dir = "descending"
+	}
+	fmt.Fprintf(&b, "  [d] Direction: %s\n", dir)
+	fmt.Fprintf(&b, "  [f] Folders first: %s\n", onOff(m.folderFirst))
+	b.WriteString("\n")
+	b.WriteString(m.helpStyle.Render("1-4: field  d: direction  f: folders  Esc/Enter: close"))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Render(b.String())
+
+	return lipgloss.JoinVertical(lipgloss.Left, box)
 }
 
 // handleDetailScreen handles detail screen key presses
@@ -484,13 +930,13 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.detailEntry.Type {
 		case "password":
 			if m.password != "" {
-				return m, copyToClipboard(m.password)
+				return m, copyWithClear(m.password, "Password")
 			}
 			m.status = "Password not loaded yet"
 			m.statusType = "info"
 		case "totp":
 			if m.totpCode != "" {
-				return m, copyToClipboard(m.totpCode)
+				return m, copyWithClear(m.totpCode, "TOTP code")
 			}
 			m.status = "No TOTP code available"
 			m.statusType = "info"
@@ -602,7 +1048,19 @@ func (m Model) View() string {
 	if m.showingForm {
 		return m.form.View()
 	}
-	
+	// Show sort overlay if active
+	if m.showSortMenu {
+		return m.renderSortMenu()
+	}
+	// Show move overlay if active
+	if m.showMoveMenu {
+		return m.renderMoveMenu()
+	}
+	// Show help overlay if active
+	if m.showHelp {
+		return m.renderHelp()
+	}
+
 	switch m.screen {
 	case MainScreen:
 		return m.renderMainScreen()
@@ -612,6 +1070,10 @@ func (m Model) View() string {
 		return m.renderBackupScreen()
 	case GenerateScreen:
 		return m.renderGenerateScreen()
+	case LoginScreen, RegisterScreen, UnlockScreen:
+		return m.renderAuthScreen()
+	case SettingsScreen:
+		return m.renderSettingsScreen()
 	default:
 		return "Unknown screen"
 	}
@@ -623,63 +1085,82 @@ func (m Model) renderMainScreen() string {
 		return fmt.Sprintf("Error: %v", m.err)
 	}
 
-	title := m.titleStyle.Render("🔐 Passbubble")
+	title := m.titleStyle.Render(m.breadcrumb())
 
-	// Visible slice of entries
+	items := m.sortedItems()
+
+	// Visible slice of items
 	listHeight := m.listVisibleHeight()
 	end := m.listOffset + listHeight
-	if end > len(m.entries) {
-		end = len(m.entries)
+	if end > len(items) {
+		end = len(items)
 	}
-	visible := m.entries
-	if len(m.entries) > 0 {
-		visible = m.entries[m.listOffset:end]
+	visible := items
+	if len(items) > 0 {
+		visible = items[m.listOffset:end]
 	}
 
-	var entries []string
-	for i, entry := range visible {
+	var rows []string
+	for i, item := range visible {
 		absIdx := m.listOffset + i
 		cursor := " "
 		if absIdx == m.cursor {
 			cursor = ">"
 		}
 
-		typeIcon := m.getTypeIcon(entry.Type)
-		line := fmt.Sprintf("%s %s %s", cursor, typeIcon, entry.Service)
-		if entry.Username != "" {
-			line += fmt.Sprintf(" (%s)", entry.Username)
+		var line string
+		if item.kind == folderKind {
+			label := fmt.Sprintf("%s 📁 %s", cursor, item.folder.Name)
+			if n := len(item.folder.Children); n > 0 {
+				label += fmt.Sprintf("  (%d)", n)
+			}
+			line = label
+		} else {
+			line = fmt.Sprintf("%s %s %s", cursor, m.getTypeIcon(item.entry.Type), item.entry.Service)
+			if item.entry.Username != "" {
+				line += fmt.Sprintf(" (%s)", item.entry.Username)
+			}
 		}
 
 		if absIdx == m.cursor {
 			line = m.selectedStyle.Render(line)
 		}
-		entries = append(entries, line)
+		rows = append(rows, line)
 	}
 
-	if len(m.entries) == 0 {
-		entries = append(entries, m.helpStyle.Render("No entries found. Press 'p' to add a password or 't' to add a TOTP."))
+	if len(items) == 0 {
+		rows = append(rows, m.helpStyle.Render("Empty. Press 'p' to add a password, 't' for TOTP, 'n' for a folder."))
 	}
 
 	// Scroll indicator
-	if len(m.entries) > listHeight {
-		scrollInfo := fmt.Sprintf(" %d–%d / %d", m.listOffset+1, end, len(m.entries))
-		entries = append(entries, m.helpStyle.Render(scrollInfo))
+	if len(items) > listHeight {
+		scrollInfo := fmt.Sprintf(" %d–%d / %d", m.listOffset+1, end, len(items))
+		rows = append(rows, m.helpStyle.Render(scrollInfo))
 	}
 
 	listWidth := m.width - 4
 	if listWidth < 20 {
 		listWidth = 20
 	}
-	list := m.listStyle.Width(listWidth).Render(strings.Join(entries, "\n"))
+	list := m.listStyle.Width(listWidth).Render(strings.Join(rows, "\n"))
 
-	help1 := m.helpStyle.Render("↑/↓ j/k: navigate  Enter/click: open  p: add password  t: add TOTP  e: edit  d: delete")
-	help2 := m.helpStyle.Render("g: generate  c: create backup  b: backups  r: refresh  q: quit")
+	searchLine := ""
+	switch {
+	case m.showSearch:
+		searchLine = m.titleStyle.Render("🔎 " + m.filter + "█")
+	case m.filter != "":
+		searchLine = m.helpStyle.Render(fmt.Sprintf("🔎 filter: %q  (Esc to clear)", m.filter))
+	}
+
+	help1 := m.helpStyle.Render(fmt.Sprintf("Enter: open  Esc: up/clear  %s: search  %s: keys/help  %s: settings  %s: quit",
+		m.keyFor(actSearch), m.keyFor(actHelp), m.keyFor(actSettings), m.keyFor(actQuit)))
+	help2 := m.helpStyle.Render("sort: " + m.sortLabel())
 
 	status := m.renderStatus()
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
-		"",
+		searchLine,
 		list,
 		"",
 		help1,
@@ -887,26 +1368,185 @@ func (m Model) renderProgressBar(current, max int) string {
 	return m.progressStyle.Render(bar.String())
 }
 
-// loadEntries loads all entries from the keyring
+// loadEntries loads all entry metadata and the folder tree from the vault.
 func (m Model) loadEntries() tea.Cmd {
 	return func() tea.Msg {
-		kr := keyring.New()
-		entries, err := kr.List()
+		if m.vault == nil {
+			return LoadEntriesMsg{Err: fmt.Errorf("not connected — run 'pwmgr login' first")}
+		}
+		vaultEntries, err := m.vault.ListEntries()
 		if err != nil {
 			return LoadEntriesMsg{Err: err}
 		}
-		
-		var tuiEntries []Entry
-		for _, entry := range entries {
-			tuiEntries = append(tuiEntries, Entry{
-				Service:  entry.Service,
-				Username: entry.Username,
-				Type:     string(entry.SecretType),
-			})
+		folders, err := m.vault.ListFolders()
+		if err != nil {
+			return LoadEntriesMsg{Err: err}
 		}
-		
-		return LoadEntriesMsg{Entries: tuiEntries}
+
+		tuiEntries := make([]Entry, len(vaultEntries))
+		for i, e := range vaultEntries {
+			tuiEntries[i] = Entry{
+				ID:        e.ID,
+				Service:   e.Name,
+				URL:       e.URL,
+				Type:      e.Type,
+				FolderID:  e.FolderID,
+				CreatedAt: e.CreatedAt,
+				UpdatedAt: e.UpdatedAt,
+			}
+		}
+
+		return LoadEntriesMsg{Entries: tuiEntries, Folders: folders}
 	}
+}
+
+// --- Folder navigation helpers ---
+
+// currentFolderID returns the ID of the folder the user is currently inside,
+// or nil when at the root level.
+func (m Model) currentFolderID() *string {
+	if len(m.folderStack) == 0 {
+		return nil
+	}
+	return &m.folderStack[len(m.folderStack)-1].ID
+}
+
+// currentItems returns the rows shown at the current folder level: subfolders
+// first, then the entries that belong to this folder. When a filter is active,
+// it instead returns matching entries from ALL folders (flat), no subfolders.
+func (m Model) currentItems() []listItem {
+	if m.filter != "" {
+		q := strings.ToLower(m.filter)
+		var items []listItem
+		for i := range m.allEntries {
+			e := &m.allEntries[i]
+			if strings.Contains(strings.ToLower(e.Service), q) || strings.Contains(strings.ToLower(e.URL), q) {
+				items = append(items, listItem{kind: entryKind, entry: e})
+			}
+		}
+		return items
+	}
+
+	var subfolders []*vaultpkg.Folder
+	if len(m.folderStack) == 0 {
+		subfolders = m.folders
+	} else {
+		subfolders = m.folderStack[len(m.folderStack)-1].Children
+	}
+
+	curID := m.currentFolderID()
+	items := make([]listItem, 0, len(subfolders)+len(m.allEntries))
+	for _, f := range subfolders {
+		items = append(items, listItem{kind: folderKind, folder: f})
+	}
+	for i := range m.allEntries {
+		e := &m.allEntries[i]
+		if sameFolder(e.FolderID, curID) {
+			items = append(items, listItem{kind: entryKind, entry: e})
+		}
+	}
+	return items
+}
+
+// sameFolder reports whether an entry's folder pointer matches the current level.
+func sameFolder(entryFolderID, levelFolderID *string) bool {
+	if entryFolderID == nil || *entryFolderID == "" {
+		return levelFolderID == nil
+	}
+	return levelFolderID != nil && *entryFolderID == *levelFolderID
+}
+
+// selectedItem returns the item under the cursor in the displayed (sorted) order.
+func (m Model) selectedItem() (listItem, bool) {
+	items := m.sortedItems()
+	if m.cursor < 0 || m.cursor >= len(items) {
+		return listItem{}, false
+	}
+	return items[m.cursor], true
+}
+
+// sortedItems returns currentItems ordered by the active sort settings.
+func (m Model) sortedItems() []listItem {
+	items := m.currentItems()
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		if m.folderFirst && a.kind != b.kind {
+			return a.kind == folderKind // folders before entries
+		}
+		return m.itemLess(a, b)
+	})
+	return items
+}
+
+// itemLess reports whether a sorts before b under the active field + direction.
+func (m Model) itemLess(a, b listItem) bool {
+	ka, kb := m.sortKey(a), m.sortKey(b)
+	if ka == kb {
+		// Stable tiebreak on name so ordering is deterministic.
+		na, nb := strings.ToLower(itemName(a)), strings.ToLower(itemName(b))
+		if m.sortAsc {
+			return na < nb
+		}
+		return na > nb
+	}
+	if m.sortAsc {
+		return ka < kb
+	}
+	return ka > kb
+}
+
+// sortKey returns the comparable key for an item under the active sort field.
+func (m Model) sortKey(it listItem) string {
+	switch m.sortField {
+	case sortByCreated:
+		if it.kind == folderKind {
+			return it.folder.CreatedAt
+		}
+		return it.entry.CreatedAt
+	case sortByUpdated:
+		if it.kind == folderKind {
+			return it.folder.CreatedAt // folders have no updated_at; fall back to created
+		}
+		return it.entry.UpdatedAt
+	case sortByURL:
+		if it.kind == folderKind {
+			return ""
+		}
+		return strings.ToLower(it.entry.URL)
+	default: // sortByName
+		return strings.ToLower(itemName(it))
+	}
+}
+
+// itemName returns the display name of an item (folder name or entry service).
+func itemName(it listItem) string {
+	if it.kind == folderKind {
+		return it.folder.Name
+	}
+	return it.entry.Service
+}
+
+// clampCursor keeps the cursor/offset valid after the item count changes.
+func (m *Model) clampCursor() {
+	n := len(m.currentItems())
+	if m.cursor >= n {
+		m.cursor = n - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.listOffset > m.cursor {
+		m.listOffset = m.cursor
+	}
+}
+
+// breadcrumb renders the title with the current folder path.
+func (m Model) breadcrumb() string {
+	s := "🔐 Passbubble"
+	for _, f := range m.folderStack {
+		s += " › " + f.Name
+	}
+	return s
 }
 
 // loadBackups loads backup information
@@ -990,7 +1630,7 @@ func (m Model) generatePassword(passwordType string) tea.Cmd {
 
 // listVisibleHeight returns the number of list rows that fit in the terminal.
 func (m Model) listVisibleHeight() int {
-	// overhead: title(1) + blank(1) + list border+pad top(2) + list border+pad bottom(2)
+	// overhead: title(1) + search(1) + list border+pad top(2) + list border+pad bottom(2)
 	//           + blank(1) + help(2) + status(1) = 10
 	h := m.height - 10
 	if h < 3 {
@@ -1029,12 +1669,21 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if itemRow < 0 {
 		return m, nil
 	}
+	items := m.sortedItems()
 	absIdx := m.listOffset + itemRow
-	if absIdx < 0 || absIdx >= len(m.entries) {
+	if absIdx < 0 || absIdx >= len(items) {
 		return m, nil
 	}
 	m.cursor = absIdx
-	m.detailEntry = m.entries[m.cursor]
+	item := items[absIdx]
+	if item.kind == folderKind {
+		// Click on a folder drills into it.
+		m.folderStack = append(m.folderStack, item.folder)
+		m.cursor = 0
+		m.listOffset = 0
+		return m, nil
+	}
+	m.detailEntry = *item.entry
 	m.screen = DetailScreen
 	m.showSecrets = false
 	m.password = ""
@@ -1044,33 +1693,99 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, m.loadSecretDetails()
 }
 
-// copyToClipboard copies text to the system clipboard asynchronously.
-func copyToClipboard(text string) tea.Cmd {
-	return func() tea.Msg {
-		commands := []struct {
-			name string
-			args []string
-		}{
-			{"wl-copy", nil},
-			{"xclip", []string{"-selection", "clipboard"}},
-			{"xsel", []string{"--clipboard", "--input"}},
-		}
-		for _, c := range commands {
-			if _, err := exec.LookPath(c.name); err == nil {
-				cmd := exec.Command(c.name, c.args...)
-				cmd.Stdin = strings.NewReader(text)
-				if err := cmd.Run(); err == nil {
-					return ActionResultMsg{Success: true, Message: "Copied to clipboard", Action: "copy"}
-				}
+// clipboardClearDelay is how long a copied secret stays on the clipboard.
+const clipboardClearDelay = 20 * time.Second
+
+// ClipboardClearMsg fires after a copy to clear the secret from the clipboard.
+type ClipboardClearMsg struct{ value string }
+
+// writeClipboard writes text to the system clipboard. Returns false if no tool found.
+func writeClipboard(text string) bool {
+	commands := []struct {
+		name string
+		args []string
+	}{
+		{"wl-copy", nil},
+		{"xclip", []string{"-selection", "clipboard"}},
+		{"xsel", []string{"--clipboard", "--input"}},
+	}
+	for _, c := range commands {
+		if _, err := exec.LookPath(c.name); err == nil {
+			cmd := exec.Command(c.name, c.args...)
+			cmd.Stdin = strings.NewReader(text)
+			if err := cmd.Run(); err == nil {
+				return true
 			}
 		}
-		return ActionResultMsg{Success: false, Message: "No clipboard tool found (install xclip, xsel, or wl-copy)", Action: "copy"}
+	}
+	return false
+}
+
+// CopiedSecretMsg is produced by quick-copy after fetching + decrypting an entry.
+type CopiedSecretMsg struct {
+	value string
+	label string
+	err   error
+}
+
+// copyEntryFieldCmd fetches+decrypts an entry and copies one field to the clipboard.
+func (m Model) copyEntryFieldCmd(entryID, field string) tea.Cmd {
+	v := m.vault
+	return func() tea.Msg {
+		if v == nil {
+			return CopiedSecretMsg{err: fmt.Errorf("vault is locked")}
+		}
+		e, err := v.GetEntry(entryID)
+		if err != nil {
+			return CopiedSecretMsg{err: err}
+		}
+		if e.Data == nil {
+			return CopiedSecretMsg{err: fmt.Errorf("no data")}
+		}
+		var val, label string
+		switch field {
+		case "username":
+			val, label = e.Data.Username, "Username"
+		default:
+			val, label = e.Data.Password, "Password"
+		}
+		if val == "" {
+			return CopiedSecretMsg{err: fmt.Errorf("%s is empty", label)}
+		}
+		if !writeClipboard(val) {
+			return CopiedSecretMsg{err: fmt.Errorf("no clipboard tool found")}
+		}
+		return CopiedSecretMsg{value: val, label: label}
 	}
 }
 
-// StartTUI starts the TUI application
-func StartTUI() error {
-	model := NewModel()
+// copyWithClear copies a secret and schedules an automatic clipboard wipe.
+func copyWithClear(text, label string) tea.Cmd {
+	copyCmd := func() tea.Msg {
+		if writeClipboard(text) {
+			return ActionResultMsg{Success: true, Message: fmt.Sprintf("%s copied — clears in %ds", label, int(clipboardClearDelay.Seconds())), Action: "copy"}
+		}
+		return ActionResultMsg{Success: false, Message: "No clipboard tool found (install xclip, xsel, or wl-copy)", Action: "copy"}
+	}
+	clearTick := tea.Tick(clipboardClearDelay, func(time.Time) tea.Msg {
+		return ClipboardClearMsg{value: text}
+	})
+	return tea.Batch(copyCmd, clearTick)
+}
+
+// clearClipboardIfMatches wipes the clipboard only if it still holds the secret.
+func clearClipboardIfMatches(text string) tea.Cmd {
+	return func() tea.Msg {
+		if cur, err := readClipboard(); err == nil && strings.TrimRight(cur, "\n\r") == text {
+			writeClipboard("")
+		}
+		return nil
+	}
+}
+
+// StartTUI starts the TUI application bound to an authenticated vault session.
+func StartTUI(v *vaultpkg.Vault, cfg *config.Config, cfgPath string) error {
+	model := NewModel(v, cfg, cfgPath)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err

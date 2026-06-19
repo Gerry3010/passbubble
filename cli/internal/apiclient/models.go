@@ -79,10 +79,16 @@ type UserPublicKeys struct {
 // --- Folders ---
 
 type FolderResponse struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	ParentID *string           `json:"parent_id"`
-	Children []*FolderResponse `json:"children,omitempty"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	ParentID  *string           `json:"parent_id"`
+	Children  []*FolderResponse `json:"children,omitempty"`
+	CreatedAt string            `json:"created_at"`
+}
+
+type CreateFolderRequest struct {
+	Name     string  `json:"name"`
+	ParentID *string `json:"parent_id,omitempty"`
 }
 
 // --- Entries ---
@@ -100,6 +106,8 @@ type CreateEntryRequest struct {
 	EncryptedData string     `json:"encrypted_data"` // base64
 	DataNonce     string     `json:"data_nonce"`     // base64
 	EntryKeys     []EntryKey `json:"entry_keys"`
+	CreatedAt     *string    `json:"created_at,omitempty"` // import: preserve source date
+	UpdatedAt     *string    `json:"updated_at,omitempty"`
 }
 
 type UpdateEntryRequest struct {

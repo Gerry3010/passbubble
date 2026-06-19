@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [2.1.0] - 2026-06-19
+
+### Added
+- CLI TUI: **Ordner-Navigation** als Drill-down wie die Flutter-App — Root zeigt Unterordner zuerst, dann Einträge; Enter/→ geht hinein, Esc/← wieder hinaus; Breadcrumb im Titel
+- CLI TUI: **Sortierung** nach Name, Erstell-, Änderungsdatum und URL — per Tasten (`s` Feld, `S` Richtung, `f` Ordner-zuerst) oder Overlay-Menü (`o`); Einstellung wird in der Config gespeichert
+- CLI TUI: **Ordner-CRUD** — neu (`n`), umbenennen (`e` auf Ordner), löschen (`d`, mit Schutz gegen das Löschen nicht-leerer Ordner) sowie Eintrag in Ordner **verschieben** (`m`)
+- CLI TUI: **Login / Registrierung / Entsperren / Sperren / Abmelden direkt in der TUI** — kein vorheriges `pwmgr login` mehr nötig; Auth-Gate beim Start
+- CLI TUI: **Auto-Lock** bei Inaktivität (Standard 10 Min) sperrt den Vault und kehrt zum Entsperr-Screen zurück
+- CLI TUI: **Settings-Screen** (`.`) mit Account-/Serverinfo, Lock, Logout und **konfigurierbaren Keybindings** (umbinden, mit Esc unbinden, persistiert)
+- CLI TUI: **Suche/Filter** (`/`) über alle Ordner hinweg (Name + URL)
+- CLI TUI: **Quick-Copy** aus der Liste — Passwort (`y`) und Username (`u`) ohne Detailansicht; Zwischenablage wird nach 20 s automatisch geleert
+- CLI TUI: **Hilfe-Overlay** (`?`) zeigt die aktuelle Tastenbelegung
+- **Import: Original-Daten** (`created_at`/`updated_at`) werden übernommen statt auf den Import-Zeitpunkt gesetzt — für Psono (`create_date`/`write_date`), Bitwarden (`creationDate`/`revisionDate`), 1Password 1PUX (`createdAt`/`updatedAt`) und KeePass (Times). Backend akzeptiert die Felder beim Anlegen (`COALESCE(..., NOW())`). Greift in Flutter-App **und** CLI
+- **CLI-Import: Ordner** werden jetzt berücksichtigt — Psono-Ordnerbaum, Bitwarden-Ordner (`/`-verschachtelt), KeePass-Gruppen und 1Password-Vaults werden angelegt und Einträge zugeordnet (vorher landete alles im Root)
+- TOTP: Secrets werden robuster normalisiert — `otpauth://`-URLs (Periode/Stellen/Algorithmus aus der URL), mit Leerzeichen/Bindestrichen gruppierte sowie kleingeschriebene base32-Secrets werden akzeptiert
+
+### Changed
+- CLI: Die TUI lädt Einträge + Ordner jetzt direkt über den Vault (statt nur über den Keyring-Shim) und führt `created_at` / `updated_at` sowie `folder_id` bis in die Liste durch
+
+### Fixed
+- CLI Vault: `UpdateEntry` überschrieb beim Bearbeiten ungewollt die Ordnerzuordnung (Backend setzt `folder_id` immer) — der bestehende Ordner wird jetzt beibehalten; neue `MoveEntry`-Methode für gezieltes Verschieben
+- CLI: `ListAllDecrypted` lieferte immer eine leere Liste (Metadaten ohne Entschlüsselung) → Import-Duplikatprüfung griff nie (Re-Importe erzeugten Dubletten) und `pwmgr export` exportierte nichts. Einträge werden jetzt korrekt entschlüsselt
+
 ## [2.0.23] - 2026-06-19
 
 ### Added

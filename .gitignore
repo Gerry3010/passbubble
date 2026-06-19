@@ -48,3 +48,6 @@ build/
 
 # SVG-derived assets (synced from assets/svg/ via `make sync-assets`)
 extension/icons/
+
+# pipepush deployment token (do not commit)
+gh-dockerhub-deployment-key

@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -97,6 +98,14 @@ var importCmd = &cobra.Command{
 			return fmt.Errorf("load vault: %w", err)
 		}
 
+		// Seed the folder cache from existing folders so imports reuse them.
+		folders, err := v.ListFolders()
+		if err != nil {
+			_ = failJob(v.Client(), job, err.Error())
+			return fmt.Errorf("load folders: %w", err)
+		}
+		folderCache := buildFolderCache(folders)
+
 		// Process records
 		created, updated, skipped, failed := 0, 0, 0, 0
 		for i, rec := range result.Records {
@@ -123,7 +132,11 @@ var importCmd = &cobra.Command{
 				if entryType == "" {
 					entryType = "password"
 				}
-				if _, err := v.CreateEntry(rec.Name, entryType, rec.URL, &data, nil); err != nil {
+				folderID, ferr := resolveFolderID(v, folderCache, rec.FolderPath)
+				if ferr != nil {
+					fmt.Fprintf(os.Stderr, "  [%d/%d] Folder resolution failed for %q: %v\n", i+1, len(result.Records), rec.Name, ferr)
+				}
+				if _, err := v.CreateEntry(rec.Name, entryType, rec.URL, &data, folderID, rec.CreatedAt, rec.UpdatedAt); err != nil {
 					fmt.Fprintf(os.Stderr, "  [%d/%d] Failed to create %q: %v\n", i+1, len(result.Records), rec.Name, err)
 					failed++
 				} else {
@@ -327,6 +340,52 @@ func vaultEntriesToExporterRecords(entries []vault.EntryRecord) []exporters.Entr
 		}
 	}
 	return out
+}
+
+// folderKey joins a folder path into a cache key. Uses NUL as separator because
+// folder names may themselves contain "/".
+func folderKey(path []string) string {
+	return strings.Join(path, "\x00")
+}
+
+// buildFolderCache flattens the existing folder tree into a path→ID lookup.
+func buildFolderCache(folders []*vault.Folder) map[string]string {
+	cache := map[string]string{}
+	var walk func(prefix []string, fs []*vault.Folder)
+	walk = func(prefix []string, fs []*vault.Folder) {
+		for _, f := range fs {
+			p := append(append([]string{}, prefix...), f.Name)
+			cache[folderKey(p)] = f.ID
+			walk(p, f.Children)
+		}
+	}
+	walk(nil, folders)
+	return cache
+}
+
+// resolveFolderID maps a folder path to a folder ID, creating any missing
+// folders along the way (and caching them). Returns nil for the root level.
+func resolveFolderID(v *vault.Vault, cache map[string]string, path []string) (*string, error) {
+	if len(path) == 0 {
+		return nil, nil
+	}
+	var parentID *string
+	for i := 1; i <= len(path); i++ {
+		key := folderKey(path[:i])
+		if id, ok := cache[key]; ok {
+			idCopy := id
+			parentID = &idCopy
+			continue
+		}
+		newID, err := v.CreateFolder(path[i-1], parentID)
+		if err != nil {
+			return nil, err
+		}
+		cache[key] = newID
+		idCopy := newID
+		parentID = &idCopy
+	}
+	return parentID, nil
 }
 
 func failJob(c *apiclient.Client, job *apiclient.JobResponse, msg string) error {

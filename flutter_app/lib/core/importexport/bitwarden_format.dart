@@ -36,6 +36,8 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
   final name = m['name'] as String? ?? '';
   final notes = m['notes'] as String? ?? '';
   final type = m['type'] as int? ?? 1;
+  final created = normalizeImportDate(m['creationDate'] as String? ?? '');
+  final updated = normalizeImportDate(m['revisionDate'] as String? ?? '');
 
   final fieldsList = (m['fields'] as List? ?? [])
       .whereType<Map<String, dynamic>>()
@@ -65,10 +67,18 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
         totpSecret: totp,
         notes: notes,
         customFields: fieldsList,
+        createdAt: created,
+        updatedAt: updated,
       );
 
     case 2: // secure note
-      return EntryRecord(name: name, type: 'note', notes: notes, customFields: fieldsList);
+      return EntryRecord(
+          name: name,
+          type: 'note',
+          notes: notes,
+          customFields: fieldsList,
+          createdAt: created,
+          updatedAt: updated);
 
     case 3: // card
       final card = m['card'] as Map<String, dynamic>?;
@@ -82,6 +92,8 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
         expiryYear: card?['expYear'] as String? ?? '',
         cvv: card?['code'] as String? ?? '',
         customFields: fieldsList,
+        createdAt: created,
+        updatedAt: updated,
       );
 
     case 4: // identity
@@ -101,6 +113,8 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
         postalCode: id?['postalCode'] as String? ?? '',
         country: id?['country'] as String? ?? '',
         customFields: fieldsList,
+        createdAt: created,
+        updatedAt: updated,
       );
 
     default:

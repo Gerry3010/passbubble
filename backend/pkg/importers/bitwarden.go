@@ -23,17 +23,27 @@ import (
 
 // Bitwarden JSON export structures (unencrypted individual export format).
 type bitwardenExport struct {
-	Items []bitwardenItem `json:"items"`
+	Folders []bitwardenFolder `json:"folders"`
+	Items   []bitwardenItem   `json:"items"`
+}
+
+type bitwardenFolder struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type bitwardenItem struct {
-	Type   int    `json:"type"` // 1=login, 2=note, 3=card, 4=identity
-	Name   string `json:"name"`
-	Notes  string `json:"notes"`
-	Login  *bitwardenLogin    `json:"login,omitempty"`
-	Card   *bitwardenCard     `json:"card,omitempty"`
+	Type     int                `json:"type"` // 1=login, 2=note, 3=card, 4=identity
+	Name     string             `json:"name"`
+	Notes    string             `json:"notes"`
+	FolderID string             `json:"folderId"`
+	Login    *bitwardenLogin    `json:"login,omitempty"`
+	Card     *bitwardenCard     `json:"card,omitempty"`
 	Identity *bitwardenIdentity `json:"identity,omitempty"`
-	Fields []bitwardenField   `json:"fields,omitempty"`
+	Fields   []bitwardenField   `json:"fields,omitempty"`
+	// Bitwarden timestamps (ISO8601 UTC).
+	CreationDate string `json:"creationDate"`
+	RevisionDate string `json:"revisionDate"`
 }
 
 type bitwardenLogin struct {
@@ -82,6 +92,12 @@ func ParseBitwarden(data []byte) (*ImportResult, error) {
 		return nil, fmt.Errorf("bitwarden: invalid JSON: %w", err)
 	}
 
+	// Map folder id → name for folder assignment.
+	folderName := make(map[string]string, len(export.Folders))
+	for _, f := range export.Folders {
+		folderName[f.ID] = f.Name
+	}
+
 	result := &ImportResult{}
 	for _, item := range export.Items {
 		rec, warn := convertBitwardenItem(item)
@@ -97,9 +113,28 @@ func ParseBitwarden(data []byte) (*ImportResult, error) {
 				rec.CustomFields = append(rec.CustomFields, CustomField{Label: f.Name, Value: f.Value})
 			}
 		}
+		rec.CreatedAt = normalizeTimestamp(item.CreationDate)
+		rec.UpdatedAt = normalizeTimestamp(item.RevisionDate)
+		// Bitwarden nests folders via "/" in the folder name.
+		if name := folderName[item.FolderID]; name != "" {
+			rec.FolderPath = splitFolderName(name)
+		}
 		result.Records = append(result.Records, *rec)
 	}
 	return result, nil
+}
+
+// splitFolderName splits a "/"-nested folder name into path segments,
+// trimming surrounding whitespace and dropping empty segments.
+func splitFolderName(name string) []string {
+	parts := strings.Split(name, "/")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func convertBitwardenItem(item bitwardenItem) (*EntryRecord, string) {

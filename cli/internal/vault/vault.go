@@ -93,7 +93,18 @@ type Entry struct {
 	Type       string
 	FolderID   *string
 	Permission string
+	CreatedAt  string // RFC3339 timestamp (metadata, no decryption needed)
+	UpdatedAt  string // RFC3339 timestamp (metadata, no decryption needed)
 	Data       *EntryData // nil until Unlock + fetch
+}
+
+// Folder is a vault folder node. Children is populated for the tree returned by ListFolders.
+type Folder struct {
+	ID        string
+	Name      string
+	ParentID  *string
+	Children  []*Folder
+	CreatedAt string
 }
 
 // Vault manages a user session against the API.
@@ -182,6 +193,19 @@ func (v *Vault) IsUnlocked() bool {
 	return v.privX25519 != nil
 }
 
+// Lock clears the decrypted private keys from memory. After Lock, entry
+// read/write operations fail until Unlock is called again.
+func (v *Vault) Lock() {
+	for i := range v.privX25519 {
+		v.privX25519[i] = 0
+	}
+	for i := range v.privMLKEM {
+		v.privMLKEM[i] = 0
+	}
+	v.privX25519 = nil
+	v.privMLKEM = nil
+}
+
 // Client returns the underlying API client (for advanced use by CLI commands).
 func (v *Vault) Client() *apiclient.Client {
 	return v.client
@@ -207,6 +231,8 @@ func (v *Vault) ListEntries() ([]Entry, error) {
 			Type:       e.Type,
 			FolderID:   e.FolderID,
 			Permission: e.Permission,
+			CreatedAt:  e.CreatedAt,
+			UpdatedAt:  e.UpdatedAt,
 		}
 	}
 	return entries, nil
@@ -232,12 +258,15 @@ func (v *Vault) GetEntry(id string) (*Entry, error) {
 		Type:       apiEntry.Type,
 		FolderID:   apiEntry.FolderID,
 		Permission: apiEntry.Permission,
+		CreatedAt:  apiEntry.CreatedAt,
+		UpdatedAt:  apiEntry.UpdatedAt,
 		Data:       data,
 	}, nil
 }
 
-// CreateEntry encrypts and uploads a new entry.
-func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folderID *string) (*Entry, error) {
+// CreateEntry encrypts and uploads a new entry. createdAt/updatedAt are optional
+// RFC3339 timestamps (used by import to preserve source dates; "" → server NOW()).
+func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folderID *string, createdAt, updatedAt string) (*Entry, error) {
 	if !v.IsUnlocked() {
 		return nil, fmt.Errorf("vault is locked")
 	}
@@ -292,6 +321,8 @@ func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folder
 		EntryKeys: []apiclient.EntryKey{
 			{UserID: v.cfg.UserID, EncryptedKey: crypto.B64Enc(encKey)},
 		},
+		CreatedAt: optTime(createdAt),
+		UpdatedAt: optTime(updatedAt),
 	}
 
 	apiEntry, err := v.client.CreateEntry(req)
@@ -345,6 +376,9 @@ func (v *Vault) UpdateEntry(id, name, url string, data *EntryData) error {
 	placeholder := make([]byte, 12)
 
 	req := apiclient.UpdateEntryRequest{
+		// Preserve the current folder: the backend always overwrites folder_id,
+		// so we must echo it back or the entry would silently move to the root.
+		FolderID:      apiEntry.FolderID,
 		Name:          name,
 		URL:           url,
 		EncryptedData: crypto.B64Enc(ciphertext),
@@ -352,6 +386,21 @@ func (v *Vault) UpdateEntry(id, name, url string, data *EntryData) error {
 	}
 	_, err = v.client.UpdateEntry(id, req)
 	return err
+}
+
+// MoveEntry assigns an entry to a folder (nil = move to root). Metadata-only,
+// no decryption required: name/url/data are preserved server-side.
+func (v *Vault) MoveEntry(id string, folderID *string) error {
+	_, err := v.client.UpdateEntry(id, apiclient.UpdateEntryRequest{FolderID: folderID})
+	return err
+}
+
+// optTime returns a pointer to s, or nil when s is empty (omits the JSON field).
+func optTime(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // DeleteEntry removes an entry.
@@ -375,6 +424,50 @@ func (v *Vault) SearchEntries(query string) ([]Entry, error) {
 		}
 	}
 	return entries, nil
+}
+
+// --- Folders ---
+
+// ListFolders returns the user's folder tree (roots with nested Children).
+func (v *Vault) ListFolders() ([]*Folder, error) {
+	apiFolders, err := v.client.ListFolders()
+	if err != nil {
+		return nil, err
+	}
+	roots := make([]*Folder, len(apiFolders))
+	for i := range apiFolders {
+		roots[i] = convertFolder(&apiFolders[i])
+	}
+	return roots, nil
+}
+
+// CreateFolder creates a folder under parentID (nil = root) and returns its ID.
+func (v *Vault) CreateFolder(name string, parentID *string) (string, error) {
+	return v.client.CreateFolder(apiclient.CreateFolderRequest{Name: name, ParentID: parentID})
+}
+
+// RenameFolder updates a folder's name and/or parent.
+func (v *Vault) RenameFolder(id, name string, parentID *string) error {
+	return v.client.UpdateFolder(id, apiclient.CreateFolderRequest{Name: name, ParentID: parentID})
+}
+
+// DeleteFolder removes a folder.
+func (v *Vault) DeleteFolder(id string) error {
+	return v.client.DeleteFolder(id)
+}
+
+// convertFolder maps an apiclient.FolderResponse tree node to a vault.Folder.
+func convertFolder(f *apiclient.FolderResponse) *Folder {
+	out := &Folder{
+		ID:        f.ID,
+		Name:      f.Name,
+		ParentID:  f.ParentID,
+		CreatedAt: f.CreatedAt,
+	}
+	for _, c := range f.Children {
+		out.Children = append(out.Children, convertFolder(c))
+	}
+	return out
 }
 
 func (v *Vault) decryptEntry(e *apiclient.EntryResponse) (*EntryData, error) {

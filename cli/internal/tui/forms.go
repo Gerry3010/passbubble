@@ -60,6 +60,9 @@ const (
 	ConfirmDeleteForm
 	CreateBackupForm
 	SavePasswordForm
+	NewFolderForm
+	RenameFolderForm
+	ConfirmDeleteFolderForm
 )
 
 // FormField represents a single input field
@@ -82,14 +85,38 @@ type FormModel struct {
 	Confirmed    bool
 	Error        string
 	Entry        *Entry // For edit forms
-	width        int    // terminal width, set by caller
+	// Folder context (folder create/rename/delete forms)
+	FolderID   string  // target folder id (rename/delete)
+	ParentID   *string // parent folder for create/rename
+	FolderName string  // display name for the delete confirmation
+	width      int     // terminal width, set by caller
+}
+
+// isConfirm reports whether this form is a yes/no confirmation dialog.
+func (f FormModel) isConfirm() bool {
+	return f.Type == ConfirmDeleteForm || f.Type == ConfirmDeleteFolderForm
+}
+
+// confirmCmd emits the ConfirmationMsg appropriate to the confirm dialog type.
+func (f FormModel) confirmCmd(confirmed bool) tea.Cmd {
+	action := "delete"
+	var data any = f.Entry
+	if f.Type == ConfirmDeleteFolderForm {
+		action = "delete_folder"
+		data = f.FolderID
+	}
+	return func() tea.Msg {
+		return ConfirmationMsg{Confirmed: confirmed, Action: action, Data: data}
+	}
 }
 
 // FormSubmittedMsg indicates form submission
 type FormSubmittedMsg struct {
-	Type   FormType
-	Fields map[string]string
-	Entry  *Entry
+	Type     FormType
+	Fields   map[string]string
+	Entry    *Entry
+	FolderID string
+	ParentID *string
 }
 
 // FormCancelledMsg indicates form cancellation
@@ -434,6 +461,52 @@ func CreateConfirmDeleteForm(entry Entry) FormModel {
 	}
 }
 
+// folderNameField builds the single name field shared by folder forms.
+func folderNameField(value string) FormField {
+	return FormField{
+		Label:      "Folder Name",
+		Value:      value,
+		IsRequired: true,
+		Validator: func(s string) error {
+			if strings.TrimSpace(s) == "" {
+				return fmt.Errorf("folder name is required")
+			}
+			return nil
+		},
+	}
+}
+
+// CreateNewFolderForm creates a form for adding a folder under parentID (nil = root).
+func CreateNewFolderForm(parentID *string) FormModel {
+	return FormModel{
+		Type:     NewFolderForm,
+		Title:    "New Folder",
+		ParentID: parentID,
+		Fields:   []FormField{folderNameField("")},
+	}
+}
+
+// CreateRenameFolderForm creates a form for renaming a folder.
+func CreateRenameFolderForm(id, name string, parentID *string) FormModel {
+	return FormModel{
+		Type:     RenameFolderForm,
+		Title:    fmt.Sprintf("Rename %s", name),
+		FolderID: id,
+		ParentID: parentID,
+		Fields:   []FormField{folderNameField(name)},
+	}
+}
+
+// CreateConfirmDeleteFolderForm creates a confirmation dialog for deleting a folder.
+func CreateConfirmDeleteFolderForm(id, name string) FormModel {
+	return FormModel{
+		Type:       ConfirmDeleteFolderForm,
+		Title:      fmt.Sprintf("Delete folder %s?", name),
+		FolderID:   id,
+		FolderName: name,
+	}
+}
+
 // CreateBackupForm creates a backup creation form
 func CreateCreateBackupForm() FormModel {
 	return FormModel{
@@ -496,7 +569,7 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			return f, tea.Quit
 			
 		case "tab", "down":
-			if f.Type == ConfirmDeleteForm {
+			if f.isConfirm() {
 				return f, nil
 			}
 			if f.CurrentField < len(f.Fields)-1 {
@@ -504,7 +577,7 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			}
 			
 		case "shift+tab", "up":
-			if f.Type == ConfirmDeleteForm {
+			if f.isConfirm() {
 				return f, nil
 			}
 			if f.CurrentField > 0 {
@@ -512,18 +585,11 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			}
 			
 		case "enter":
-			switch f.Type {
-			case ConfirmDeleteForm:
+			if f.isConfirm() {
 				f.Confirmed = true
-				return f, func() tea.Msg {
-					return ConfirmationMsg{
-						Confirmed: true,
-						Action:    "delete",
-						Data:      f.Entry,
-					}
-				}
-				
-			default:
+				return f, f.confirmCmd(true)
+			}
+			{
 				// Validate current field if required
 				if f.CurrentField < len(f.Fields) {
 					field := &f.Fields[f.CurrentField]
@@ -545,7 +611,7 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			
 		case "ctrl+v":
 			// Paste from clipboard
-			if f.Type != ConfirmDeleteForm && f.CurrentField < len(f.Fields) {
+			if !f.isConfirm() && f.CurrentField < len(f.Fields) {
 				if clip, err := readClipboard(); err == nil && clip != "" {
 					field := &f.Fields[f.CurrentField]
 					field.Value += strings.TrimRight(clip, "\n\r")
@@ -556,7 +622,7 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			}
 
 		case "backspace":
-			if f.Type == ConfirmDeleteForm {
+			if f.isConfirm() {
 				return f, nil
 			}
 			if f.CurrentField < len(f.Fields) {
@@ -567,32 +633,20 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			}
 			
 		case "y", "Y":
-			if f.Type == ConfirmDeleteForm {
-				return f, func() tea.Msg {
-					return ConfirmationMsg{
-						Confirmed: true,
-						Action:    "delete",
-						Data:      f.Entry,
-					}
-				}
+			if f.isConfirm() {
+				return f, f.confirmCmd(true)
 			}
 			fallthrough
-			
+
 		case "n", "N":
-			if f.Type == ConfirmDeleteForm {
-				return f, func() tea.Msg {
-					return ConfirmationMsg{
-						Confirmed: false,
-						Action:    "delete",
-						Data:      f.Entry,
-					}
-				}
+			if f.isConfirm() {
+				return f, f.confirmCmd(false)
 			}
 			fallthrough
-			
+
 		default:
 			// Add character to current field
-			if f.Type != ConfirmDeleteForm && f.CurrentField < len(f.Fields) {
+			if !f.isConfirm() && f.CurrentField < len(f.Fields) {
 				field := &f.Fields[f.CurrentField]
 				if len(msg.String()) == 1 {
 					field.Value += msg.String()
@@ -663,16 +717,20 @@ func (f FormModel) submitForm() (FormModel, tea.Cmd) {
 			fieldMap["length"] = field.Value
 		case "Period":
 			fieldMap["period"] = field.Value
+		case "Folder Name":
+			fieldMap["folder_name"] = field.Value
 		}
 	}
-	
+
 	f.Submitted = true
-	
+
 	return f, func() tea.Msg {
 		return FormSubmittedMsg{
-			Type:   f.Type,
-			Fields: fieldMap,
-			Entry:  f.Entry,
+			Type:     f.Type,
+			Fields:   fieldMap,
+			Entry:    f.Entry,
+			FolderID: f.FolderID,
+			ParentID: f.ParentID,
 		}
 	}
 }
@@ -692,13 +750,18 @@ func (f FormModel) View() string {
 	b.WriteString("\n\n")
 	
 	// Handle confirmation dialog differently
-	if f.Type == ConfirmDeleteForm {
-		message := fmt.Sprintf("Are you sure you want to delete '%s'", f.Entry.Service)
-		if f.Entry.Username != "" {
-			message += fmt.Sprintf(" (%s)", f.Entry.Username)
+	if f.isConfirm() {
+		var message string
+		if f.Type == ConfirmDeleteFolderForm {
+			message = fmt.Sprintf("Are you sure you want to delete the folder '%s'?", f.FolderName)
+		} else {
+			message = fmt.Sprintf("Are you sure you want to delete '%s'", f.Entry.Service)
+			if f.Entry.Username != "" {
+				message += fmt.Sprintf(" (%s)", f.Entry.Username)
+			}
+			message += "?"
 		}
-		message += "?"
-		
+
 		b.WriteString(lipgloss.NewStyle().
 			Foreground(lipgloss.Color("196")).
 			Bold(true).

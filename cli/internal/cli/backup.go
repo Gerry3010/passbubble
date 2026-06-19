@@ -156,7 +156,7 @@ var restoreCmd = &cobra.Command{
 		ok, failed := 0, 0
 		for i, e := range bk.Entries {
 			fmt.Printf("\r  Importing %d/%d...", i+1, len(bk.Entries))
-			_, err := v.CreateEntry(e.Name, e.Type, e.URL, e.Data, nil)
+			_, err := v.CreateEntry(e.Name, e.Type, e.URL, e.Data, nil, "", "")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\nWarning: could not import '%s': %v\n", e.Name, err)
 				failed++
