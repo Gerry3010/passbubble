@@ -43,6 +43,14 @@ jobs:
           go-version: "1.26"
           cache-dependency-path: backend/go.sum
 
+      # The mailer's brand icon is a //go:embed asset generated from the SVG
+      # single-source (not committed), so it must exist before the backend
+      # compiles (tests + golangci-lint below).
+      - name: Generate email brand icon
+        run: |
+          sudo apt-get update && sudo apt-get install -y librsvg2-bin
+          make mailer-icon
+
       - name: Run backend tests
         working-directory: backend
         env:

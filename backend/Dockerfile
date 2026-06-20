@@ -36,6 +36,13 @@ RUN go mod download
 COPY backend/ .
 COPY --from=flutter-builder /build/build/web ./internal/static/web
 
+# Generate the transactional-email brand icon from the single-source transparent
+# SVG so the //go:embed asset exists at compile time. The PNG is a build artifact
+# (gitignored) — assets/svg/icon-extension.svg is the single source of truth.
+COPY assets/svg/icon-extension.svg /tmp/icon-extension.svg
+RUN apk add --no-cache rsvg-convert && \
+    rsvg-convert -w 192 -h 192 /tmp/icon-extension.svg -o ./internal/mailer/passbubble-icon.png
+
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-s -w \
       -X github.com/Gerry3010/passbubble/backend/internal/version.Version=${VERSION} \

@@ -37,8 +37,6 @@ test_results/
 pwmgr-go
 pwmgr-*
 passbubble-*
-# …but the mailer's brand icon is a //go:embed asset and must be committed
-!backend/internal/mailer/passbubble-icon.png
 *.exe
 dist/
 build/
@@ -48,8 +46,11 @@ build/
 .env
 .claude/
 
-# SVG-derived assets (synced from assets/svg/ via `make sync-assets`)
+# SVG-derived assets — generated from assets/svg/ (single source of truth) via
+# `make icons`/`make mailer-icon`; never committed.
 extension/icons/
+extension/public/icons/
+backend/internal/mailer/passbubble-icon.png
 
 # pipepush deployment token (do not commit)
 gh-dockerhub-deployment-key

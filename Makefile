@@ -17,7 +17,7 @@ LDFLAGS     = -ldflags="-s -w \
         build-backend build-cli build-all \
         test test-backend test-cli test-flutter test-all \
         lint migrate migrate-down migrate-create sqlc \
-        build-extension test-extension sync-assets icons \
+        build-extension test-extension sync-assets icons mailer-icon \
         clean
 
 help:
@@ -53,12 +53,12 @@ down:
 up-prod:
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile production up -d
 
-dev:
+dev: mailer-icon
 	cd backend && go run ./cmd/server
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
-build-backend:
+build-backend: mailer-icon
 	mkdir -p build
 	cd backend && CGO_ENABLED=0 go build $(LDFLAGS) -o ../build/passbubble-server ./cmd/server
 
@@ -73,7 +73,7 @@ build-all: build-backend build-cli
 test: test-backend test-cli
 	@echo "All Go tests passed"
 
-test-backend:
+test-backend: mailer-icon
 	cd backend && go test ./... -race -count=1
 
 test-cli:
@@ -111,7 +111,7 @@ sqlc:
 
 # ── Browser Extension ─────────────────────────────────────────────────────────
 
-build-extension: sync-assets
+build-extension: icons
 	cd packages/shared-ts && npm run build
 	cd extension && npm run build:chrome && npm run build:firefox
 
@@ -127,12 +127,17 @@ sync-assets: ## Copy SVG sources from assets/svg/ into sub-projects
 	cp assets/svg/icon.svg flutter_app/web/favicon.svg
 	cp assets/svg/icon-extension.svg extension/icons/icon.svg
 
-icons: sync-assets ## Rasterize SVG → extension + email PNG icons (requires rsvg-convert)
+icons: sync-assets mailer-icon ## Rasterize SVG → extension + email PNG icons (requires rsvg-convert)
 	mkdir -p extension/public/icons
 	rsvg-convert -w 16  -h 16  assets/svg/icon-extension.svg -o extension/public/icons/icon16.png
 	rsvg-convert -w 48  -h 48  assets/svg/icon-extension.svg -o extension/public/icons/icon48.png
 	rsvg-convert -w 128 -h 128 assets/svg/icon-extension.svg -o extension/public/icons/icon128.png
-	# Transparent brand icon embedded into transactional emails (go:embed)
+
+# Transparent brand icon embedded into transactional emails (//go:embed). It is a
+# generated build artifact (gitignored): assets/svg/icon-extension.svg is the
+# single source of truth. Every target that compiles the backend depends on this
+# so the go:embed asset always exists; CI and the Dockerfile regenerate it too.
+mailer-icon: ## Generate the email brand icon (go:embed) from the SVG SSOT
 	rsvg-convert -w 192 -h 192 assets/svg/icon-extension.svg -o backend/internal/mailer/passbubble-icon.png
 
 # ── Clean ─────────────────────────────────────────────────────────────────────

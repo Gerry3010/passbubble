@@ -100,6 +100,9 @@ Breaking change: use `feat!:` / `fix!:` or add a `BREAKING CHANGE:` footer.
 **Always run the full test suite and linter before committing or tagging — no exceptions:**
 
 ```bash
+# The mailer brand icon is a //go:embed asset generated from assets/svg/icon-extension.svg
+# (the single source of truth — never committed). Generate it before compiling the backend:
+make mailer-icon
 cd backend && go build ./... && go vet ./... && go test ./...
 cd cli     && go build ./... && go vet ./... && go test -race ./...
 cd flutter_app && flutter analyze && flutter test
