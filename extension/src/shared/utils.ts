@@ -42,3 +42,40 @@ export function hostMatches(pageHost: string, entryHost: string): boolean {
   if (!pageHost || !entryHost) return false;
   return pageHost === entryHost || pageHost.endsWith('.' + entryHost);
 }
+
+// Reduce a match pattern to a comparable host form: strip scheme, path, port and
+// (for non-wildcard patterns) a leading "www." so it lines up with normaliseHost.
+function normalisePattern(pattern: string): string {
+  let s = pattern.trim().toLowerCase();
+  if (!s) return '';
+  if (s.includes('://')) {
+    try {
+      s = new URL(s).host;
+    } catch {
+      /* fall through with the raw value */
+    }
+  } else {
+    s = s.split('/')[0]; // "github.com/login" -> "github.com"
+  }
+  s = s.replace(/:\d+$/, ''); // drop :port (normaliseHost uses hostname, no port)
+  if (!s.includes('*')) s = s.replace(/^www\./, '');
+  return s;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Returns true if the page host satisfies a single match pattern.
+//   "github.com"    → github.com and any subdomain (www./login.)
+//   "*.github.com"  → any subdomain (but not the bare apex)
+//   "127.0.0.1:8080"→ host match, port ignored
+export function patternMatchesHost(pageHost: string, pattern: string): boolean {
+  const pat = normalisePattern(pattern);
+  if (!pageHost || !pat) return false;
+  if (pat.includes('*')) {
+    const re = new RegExp('^' + pat.split('*').map(escapeRegExp).join('.*') + '$');
+    return re.test(pageHost);
+  }
+  return pageHost === pat || pageHost.endsWith('.' + pat);
+}

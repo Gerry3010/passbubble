@@ -37,17 +37,47 @@ function fillField(field: HTMLInputElement, value: string): void {
   field.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+// True while our extension context is still valid. After the extension is
+// reloaded/updated the old content script keeps running but `browser.runtime`
+// is torn down; any sendMessage then throws "Extension context invalidated".
+function extensionAlive(): boolean {
+  try {
+    return !!browser.runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
+// Send a message, swallowing the "context invalidated" teardown error. Returns
+// null when the context is gone (and tears down our observers so we stop firing
+// into a dead runtime — this is the source of the admin-panel console errors).
+async function safeSend<T>(message: { type: string; payload: Record<string, unknown> }): Promise<T | null> {
+  if (!extensionAlive()) {
+    teardown();
+    return null;
+  }
+  try {
+    return (await browser.runtime.sendMessage(message)) as T;
+  } catch (err) {
+    if (String(err).includes('context invalidated') || !extensionAlive()) {
+      teardown();
+      return null;
+    }
+    throw err;
+  }
+}
+
 async function tryInjectFillUI(): Promise<void> {
-  const sessionResp = await browser.runtime.sendMessage({
+  const sessionResp = await safeSend<{ isUnlocked?: boolean }>({
     type: MessageType.GET_SESSION,
     payload: {},
-  }) as { isUnlocked?: boolean };
+  });
   if (!sessionResp?.isUnlocked) return;
 
   const forms = detectLoginForms().filter((f) => !f.isSignup);
   if (forms.length === 0) return;
 
-  const matchResp = await browser.runtime.sendMessage({
+  const matchResp = await safeSend<unknown>({
     type: MessageType.GET_MATCHES_FOR_URL,
     payload: { url: location.href },
   });
@@ -67,23 +97,40 @@ async function tryInjectFillUI(): Promise<void> {
   );
 }
 
-// Watch for dynamically added password fields (SPAs)
+// Watch for dynamically added password fields (SPAs). Debounced because pages
+// like the admin panel mutate the DOM in bursts — without this we'd fire a
+// storm of messages at the service worker on every keystroke/render.
+let injectTimer: ReturnType<typeof setTimeout> | null = null;
 const observer = new MutationObserver(() => {
-  const hasPwField = !!document.querySelector('input[type="password"]');
-  if (hasPwField) {
-    void tryInjectFillUI();
+  if (!extensionAlive()) {
+    teardown();
+    return;
   }
+  if (!document.querySelector('input[type="password"]')) return;
+  if (injectTimer) clearTimeout(injectTimer);
+  injectTimer = setTimeout(() => void tryInjectFillUI(), 300);
 });
+
+// Dismiss fill iframe when clicking outside it
+function onDocumentClick(e: MouseEvent): void {
+  const target = e.target as HTMLElement;
+  if (target.tagName !== 'IFRAME') removeFillIframe();
+}
+
+// Detach everything once our extension context is gone, so a reloaded/updated
+// extension's stale content script stops throwing into a dead runtime.
+function teardown(): void {
+  observer.disconnect();
+  if (injectTimer) clearTimeout(injectTimer);
+  document.removeEventListener('click', onDocumentClick);
+  removeFillIframe();
+}
+
 observer.observe(document.body, { childList: true, subtree: true });
+document.addEventListener('click', onDocumentClick);
 
 // Initial detection
 void tryInjectFillUI();
-
-// Dismiss fill iframe when clicking outside it
-document.addEventListener('click', (e) => {
-  const target = e.target as HTMLElement;
-  if (target.tagName !== 'IFRAME') removeFillIframe();
-});
 
 // Save detection
 initSaveDetector();

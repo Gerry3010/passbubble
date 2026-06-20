@@ -14,14 +14,15 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { EntryResponse } from '@passbubble/shared-ts';
-import { hostMatches, normaliseHost } from '../shared/utils.js';
+import { normaliseHost, patternMatchesHost } from '../shared/utils.js';
 
 export function matchEntriesForUrl(url: string, entries: EntryResponse[]): EntryResponse[] {
   const pageHost = normaliseHost(url);
   if (!pageHost) return [];
   return entries.filter((e) => {
-    if (!e.url) return false;
-    const entryHost = normaliseHost(e.url);
-    return hostMatches(pageHost, entryHost);
+    // Dedicated match patterns take precedence; otherwise fall back to the
+    // entry's display URL so entries created before this feature still match.
+    const patterns = e.match_patterns?.length ? e.match_patterns : e.url ? [e.url] : [];
+    return patterns.some((p) => patternMatchesHost(pageHost, p));
   });
 }

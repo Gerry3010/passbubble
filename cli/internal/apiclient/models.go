@@ -138,20 +138,22 @@ type CreateEntryRequest struct {
 	Type          string     `json:"type"`
 	Name          string     `json:"name"`
 	URL           string     `json:"url,omitempty"`
-	EncryptedData string     `json:"encrypted_data"` // base64
-	DataNonce     string     `json:"data_nonce"`     // base64
+	MatchPatterns []string   `json:"match_patterns,omitempty"` // plaintext autofill URL patterns
+	EncryptedData string     `json:"encrypted_data"`           // base64
+	DataNonce     string     `json:"data_nonce"`               // base64
 	EntryKeys     []EntryKey `json:"entry_keys"`
 	CreatedAt     *string    `json:"created_at,omitempty"` // import: preserve source date
 	UpdatedAt     *string    `json:"updated_at,omitempty"`
 }
 
 type UpdateEntryRequest struct {
-	FolderID      *string `json:"folder_id,omitempty"`
-	Name          string  `json:"name,omitempty"`
-	URL           string  `json:"url,omitempty"`
-	EncryptedData string  `json:"encrypted_data,omitempty"` // base64
-	DataNonce     string  `json:"data_nonce,omitempty"`     // base64
-	EncryptedKey  string  `json:"encrypted_key,omitempty"`  // base64, caller's new key
+	FolderID      *string  `json:"folder_id,omitempty"`
+	Name          string   `json:"name,omitempty"`
+	URL           string   `json:"url,omitempty"`
+	MatchPatterns []string `json:"match_patterns,omitempty"` // nil = keep existing; [] = clear
+	EncryptedData string   `json:"encrypted_data,omitempty"` // base64
+	DataNonce     string   `json:"data_nonce,omitempty"`     // base64
+	EncryptedKey  string   `json:"encrypted_key,omitempty"`  // base64, caller's new key
 }
 
 type EntryResponse struct {
@@ -160,9 +162,10 @@ type EntryResponse struct {
 	Type          string    `json:"type"`
 	Name          string    `json:"name"`
 	URL           string    `json:"url"`
-	EncryptedData string    `json:"encrypted_data"` // base64
-	DataNonce     string    `json:"data_nonce"`     // base64
-	EntryKey      *EntryKey `json:"entry_key"`      // caller's key, set on single GET
+	MatchPatterns []string  `json:"match_patterns,omitempty"` // plaintext autofill URL patterns
+	EncryptedData string    `json:"encrypted_data"`           // base64
+	DataNonce     string    `json:"data_nonce"`               // base64
+	EntryKey      *EntryKey `json:"entry_key"`                // caller's key, set on single GET
 	Permission    string    `json:"permission"`
 	CreatedAt     string    `json:"created_at"`
 	UpdatedAt     string    `json:"updated_at"`

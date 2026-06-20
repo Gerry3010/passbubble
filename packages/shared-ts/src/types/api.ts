@@ -71,6 +71,8 @@ export interface EntryResponse {
   type: string;
   name: string;
   url?: string;
+  /** Plaintext autofill URL patterns (host / *.host wildcards). */
+  match_patterns?: string[];
   encrypted_data?: string;
   data_nonce?: string;
   entry_key?: EntryKey;
@@ -83,6 +85,7 @@ export interface CreateEntryRequest {
   type: string;
   name: string;
   url?: string;
+  match_patterns?: string[];
   encrypted_data: string;
   data_nonce: string;
   entry_keys: EntryKey[];
@@ -93,6 +96,8 @@ export interface UpdateEntryRequest {
   type?: string;
   name?: string;
   url?: string;
+  /** nil = keep existing; [] = clear. */
+  match_patterns?: string[];
   encrypted_data?: string;
   data_nonce?: string;
   entry_keys?: EntryKey[];

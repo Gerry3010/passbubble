@@ -18,11 +18,41 @@ package importers
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
+
+// parsePsonoURLFilters splits Psono urlfilter values (space/comma/newline/semicolon
+// separated) from the first non-empty source into a deduplicated pattern list.
+func parsePsonoURLFilters(sources ...string) []string {
+	var raw string
+	for _, s := range sources {
+		if strings.TrimSpace(s) != "" {
+			raw = s
+			break
+		}
+	}
+	if raw == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ' ' || r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ';'
+	})
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		out = append(out, f)
+	}
+	return out
+}
 
 // Psono JSON export structures.
 type psonoExport struct {
-	Folders []psonoFolder          `json:"folders"`
+	Folders []psonoFolder    `json:"folders"`
 	Items   []map[string]any `json:"items"`
 }
 
@@ -164,6 +194,15 @@ func convertPsonoItem(item map[string]any, folderPath []string, result *ImportRe
 	rec.CreatedAt = normalizeTimestamp(str("create_date"))
 	rec.UpdatedAt = normalizeTimestamp(str("write_date"))
 	rec.FolderPath = folderPath
+
+	// Psono stores autofill match domains in *_url_filter / urlfilter (a single
+	// value or a space/comma/newline-separated list). Map them to our patterns.
+	rec.MatchPatterns = parsePsonoURLFilters(
+		str("website_password_url_filter"),
+		str("application_password_url_filter"),
+		str("bookmark_url_filter"),
+		str("urlfilter"),
+	)
 
 	// Custom fields
 	if cfs, ok := item["custom_fields"].([]any); ok {

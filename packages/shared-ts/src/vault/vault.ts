@@ -40,6 +40,7 @@ export interface VaultEntry {
   id: string;
   name: string;
   url?: string;
+  matchPatterns?: string[];
   type: string;
   folderId?: string;
   data?: EntryData;
@@ -111,6 +112,7 @@ export async function getEntry(
     id: apiEntry.id,
     name: apiEntry.name,
     url: apiEntry.url,
+    matchPatterns: apiEntry.match_patterns,
     type: apiEntry.type,
     folderId: apiEntry.folder_id,
     data,
@@ -126,12 +128,14 @@ export async function createEntry(
   data: EntryData,
   session: Pick<UnlockedSession, 'privX25519' | 'privMLKEM' | 'pubX25519' | 'pubMLKEM' | 'userId'>,
   folderId?: string,
+  matchPatterns?: string[],
 ): Promise<{ id: string }> {
   const encrypted = await encryptEntry(data, session);
   return client.createEntry({
     name,
     type,
     url,
+    match_patterns: matchPatterns,
     folder_id: folderId,
     ...encrypted,
   });

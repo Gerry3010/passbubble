@@ -15,6 +15,7 @@
 
 import { ServerUrlForm } from './components/ServerUrlForm.js';
 import { AccountSection } from './components/AccountSection.js';
+import { ImportSection } from './components/ImportSection.js';
 import { term } from '../shared/theme.js';
 
 export function App() {
@@ -25,6 +26,7 @@ export function App() {
       </h1>
       <AccountSection />
       <ServerUrlForm />
+      <ImportSection />
       <section style={{ color: term.muted, fontSize: '13px' }}>
         <h2 style={{ fontSize: '16px', fontWeight: 700, color: term.green, marginBottom: '8px', fontFamily: term.font }}>
           # security

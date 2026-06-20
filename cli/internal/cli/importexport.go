@@ -115,7 +115,7 @@ var importCmd = &cobra.Command{
 				switch onDuplicate {
 				case "overwrite":
 					data := importerRecordToEntryData(rec)
-					if err := v.UpdateEntry(existingID, rec.Name, rec.URL, &data); err != nil {
+					if err := v.UpdateEntry(existingID, rec.Name, rec.URL, &data, rec.MatchPatterns); err != nil {
 						fmt.Fprintf(os.Stderr, "  [%d/%d] Failed to update %q: %v\n", i+1, len(result.Records), rec.Name, err)
 						failed++
 					} else {
@@ -136,7 +136,7 @@ var importCmd = &cobra.Command{
 				if ferr != nil {
 					fmt.Fprintf(os.Stderr, "  [%d/%d] Folder resolution failed for %q: %v\n", i+1, len(result.Records), rec.Name, ferr)
 				}
-				if _, err := v.CreateEntry(rec.Name, entryType, rec.URL, &data, folderID, rec.CreatedAt, rec.UpdatedAt); err != nil {
+				if _, err := v.CreateEntry(rec.Name, entryType, rec.URL, &data, folderID, rec.CreatedAt, rec.UpdatedAt, rec.MatchPatterns); err != nil {
 					fmt.Fprintf(os.Stderr, "  [%d/%d] Failed to create %q: %v\n", i+1, len(result.Records), rec.Name, err)
 					failed++
 				} else {
@@ -279,27 +279,27 @@ func importerRecordToEntryData(rec importers.EntryRecord) vault.EntryData {
 		cfs[i] = vault.CustomField{Label: cf.Label, Value: cf.Value}
 	}
 	return vault.EntryData{
-		Username:    rec.Username,
-		Password:    rec.Password,
-		TOTPSecret:  rec.TOTPSecret,
-		Notes:       rec.Notes,
-		CardNumber:  rec.CardNumber,
-		HolderName:  rec.HolderName,
-		ExpiryMonth: rec.ExpiryMonth,
-		ExpiryYear:  rec.ExpiryYear,
-		CVV:         rec.CVV,
-		FirstName:   rec.FirstName,
-		LastName:    rec.LastName,
-		Company:     rec.Company,
-		Email:       rec.Email,
-		Phone:       rec.Phone,
-		Street:      rec.Street,
-		City:        rec.City,
-		State:       rec.State,
-		PostalCode:  rec.PostalCode,
-		Country:     rec.Country,
-		LicenseKey:  rec.LicenseKey,
-		ProductName: rec.ProductName,
+		Username:     rec.Username,
+		Password:     rec.Password,
+		TOTPSecret:   rec.TOTPSecret,
+		Notes:        rec.Notes,
+		CardNumber:   rec.CardNumber,
+		HolderName:   rec.HolderName,
+		ExpiryMonth:  rec.ExpiryMonth,
+		ExpiryYear:   rec.ExpiryYear,
+		CVV:          rec.CVV,
+		FirstName:    rec.FirstName,
+		LastName:     rec.LastName,
+		Company:      rec.Company,
+		Email:        rec.Email,
+		Phone:        rec.Phone,
+		Street:       rec.Street,
+		City:         rec.City,
+		State:        rec.State,
+		PostalCode:   rec.PostalCode,
+		Country:      rec.Country,
+		LicenseKey:   rec.LicenseKey,
+		ProductName:  rec.ProductName,
 		CustomFields: cfs,
 	}
 }
@@ -312,30 +312,30 @@ func vaultEntriesToExporterRecords(entries []vault.EntryRecord) []exporters.Entr
 			cfs[j] = exporters.CustomField{Label: cf.Label, Value: cf.Value}
 		}
 		out[i] = exporters.EntryRecord{
-			Name:        e.Name,
-			URL:         e.URL,
-			Type:        e.Type,
-			Username:    e.Data.Username,
-			Password:    e.Data.Password,
-			TOTPSecret:  e.Data.TOTPSecret,
-			Notes:       e.Data.Notes,
-			CardNumber:  e.Data.CardNumber,
-			HolderName:  e.Data.HolderName,
-			ExpiryMonth: e.Data.ExpiryMonth,
-			ExpiryYear:  e.Data.ExpiryYear,
-			CVV:         e.Data.CVV,
-			FirstName:   e.Data.FirstName,
-			LastName:    e.Data.LastName,
-			Company:     e.Data.Company,
-			Email:       e.Data.Email,
-			Phone:       e.Data.Phone,
-			Street:      e.Data.Street,
-			City:        e.Data.City,
-			State:       e.Data.State,
-			PostalCode:  e.Data.PostalCode,
-			Country:     e.Data.Country,
-			LicenseKey:  e.Data.LicenseKey,
-			ProductName: e.Data.ProductName,
+			Name:         e.Name,
+			URL:          e.URL,
+			Type:         e.Type,
+			Username:     e.Data.Username,
+			Password:     e.Data.Password,
+			TOTPSecret:   e.Data.TOTPSecret,
+			Notes:        e.Data.Notes,
+			CardNumber:   e.Data.CardNumber,
+			HolderName:   e.Data.HolderName,
+			ExpiryMonth:  e.Data.ExpiryMonth,
+			ExpiryYear:   e.Data.ExpiryYear,
+			CVV:          e.Data.CVV,
+			FirstName:    e.Data.FirstName,
+			LastName:     e.Data.LastName,
+			Company:      e.Data.Company,
+			Email:        e.Data.Email,
+			Phone:        e.Data.Phone,
+			Street:       e.Data.Street,
+			City:         e.Data.City,
+			State:        e.Data.State,
+			PostalCode:   e.Data.PostalCode,
+			Country:      e.Data.Country,
+			LicenseKey:   e.Data.LicenseKey,
+			ProductName:  e.Data.ProductName,
 			CustomFields: cfs,
 		}
 	}

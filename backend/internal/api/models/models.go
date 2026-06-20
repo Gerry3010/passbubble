@@ -117,9 +117,10 @@ type CreateEntryRequest struct {
 	Type          string     `json:"type"` // "password","totp","note","api-key","ssh-key"
 	Name          string     `json:"name"`
 	URL           string     `json:"url,omitempty"`
-	EncryptedData string     `json:"encrypted_data"` // base64: AES-256-GCM encrypted JSON payload
-	DataNonce     string     `json:"data_nonce"`     // base64: 12-byte GCM nonce
-	EntryKeys     []EntryKey `json:"entry_keys"`     // one per authorized user
+	MatchPatterns []string   `json:"match_patterns,omitempty"` // plaintext autofill URL patterns
+	EncryptedData string     `json:"encrypted_data"`           // base64: AES-256-GCM encrypted JSON payload
+	DataNonce     string     `json:"data_nonce"`               // base64: 12-byte GCM nonce
+	EntryKeys     []EntryKey `json:"entry_keys"`               // one per authorized user
 	// Optional original timestamps (used by import to preserve source dates).
 	// Omitted/empty → server uses NOW().
 	CreatedAt *string `json:"created_at,omitempty"`
@@ -130,6 +131,7 @@ type UpdateEntryRequest struct {
 	FolderID      *string    `json:"folder_id,omitempty"`
 	Name          string     `json:"name,omitempty"`
 	URL           string     `json:"url,omitempty"`
+	MatchPatterns []string   `json:"match_patterns,omitempty"` // nil = keep existing; [] = clear
 	EncryptedData string     `json:"encrypted_data,omitempty"`
 	DataNonce     string     `json:"data_nonce,omitempty"`
 	EntryKeys     []EntryKey `json:"entry_keys,omitempty"`
@@ -142,6 +144,7 @@ type EntryResponse struct {
 	Type          string    `json:"type"`
 	Name          string    `json:"name"`
 	URL           string    `json:"url,omitempty"`
+	MatchPatterns []string  `json:"match_patterns,omitempty"` // plaintext autofill URL patterns
 	EncryptedData string    `json:"encrypted_data,omitempty"` // only on single GET
 	DataNonce     string    `json:"data_nonce,omitempty"`
 	EntryKey      *EntryKey `json:"entry_key,omitempty"` // caller's key on single GET

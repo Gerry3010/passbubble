@@ -252,15 +252,16 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.CREATE_ENTRY]: async (payload) => {
       const session = getSession();
       if (!session) return { locked: true };
-      const { name, type, url, data } = payload as {
+      const { name, type, url, data, folderId, matchPatterns } = payload as {
         name: string;
         type: string;
         url?: string;
         data: EntryData;
         folderId?: string;
+        matchPatterns?: string[];
       };
       const client = makeClient(session.serverUrl, session.accessToken);
-      const result = await createEntry(client, name, type, url, data, session);
+      const result = await createEntry(client, name, type, url, data, session, folderId, matchPatterns);
       // Invalidate cache
       const entries = await client.listEntries();
       setEntriesCache(entries);

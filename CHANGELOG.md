@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Autofill-URL-Matching wie Psono + Import der Match-Patterns:** Einträge haben jetzt ein eigenes, unverschlüsseltes Feld `match_patterns` (eigene DB-Spalte, durch alle Clients gereicht: Backend, shared-ts, CLI, Extension) für **mehrere Autofill-URL-Muster pro Eintrag**. Gematcht wird im Extension-Hintergrund ohne Entschlüsselung, mit **Host- und `*`-Wildcard-Mustern** (`github.com` → inkl. Subdomains, `*.github.com` → nur Subdomains, `host:port` → Port wird ignoriert); fehlt ein Muster, fällt der Matcher wie bisher auf das `url`-Feld zurück. **Psono-Import** übernimmt die `urlfilter`/`*_url_filter`-Werte als Match-Patterns — sowohl in der **CLI** (`pwmgr import -f psono`) als auch über eine neue **Import-Sektion auf der Options-Seite der Extension** (Psono-JSON hochladen, Einträge werden client-seitig verschlüsselt angelegt)
+
+### Fixed
+- **Browser-Extension: `Extension context invalidated`-Fehlerflut** (u. a. im Admin-Panel) behoben. Der `MutationObserver` des Content-Scripts feuerte nach einem Extension-Reload/-Update weiter `sendMessage` in einen toten Runtime und spammte bei DOM-intensiven Seiten den Service-Worker zu. Nachrichten laufen jetzt durch einen abgesicherten `safeSend`, der Observer/Listener abbaut, sobald der Kontext weg ist; der Observer ist zusätzlich **entprellt (300 ms)**
+
 ## [2.2.0] - 2026-06-20
 
 ### Fixed

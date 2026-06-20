@@ -93,8 +93,8 @@ type Entry struct {
 	Type       string
 	FolderID   *string
 	Permission string
-	CreatedAt  string // RFC3339 timestamp (metadata, no decryption needed)
-	UpdatedAt  string // RFC3339 timestamp (metadata, no decryption needed)
+	CreatedAt  string     // RFC3339 timestamp (metadata, no decryption needed)
+	UpdatedAt  string     // RFC3339 timestamp (metadata, no decryption needed)
 	Data       *EntryData // nil until Unlock + fetch
 }
 
@@ -266,7 +266,7 @@ func (v *Vault) GetEntry(id string) (*Entry, error) {
 
 // CreateEntry encrypts and uploads a new entry. createdAt/updatedAt are optional
 // RFC3339 timestamps (used by import to preserve source dates; "" → server NOW()).
-func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folderID *string, createdAt, updatedAt string) (*Entry, error) {
+func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folderID *string, createdAt, updatedAt string, matchPatterns []string) (*Entry, error) {
 	if !v.IsUnlocked() {
 		return nil, fmt.Errorf("vault is locked")
 	}
@@ -316,6 +316,7 @@ func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folder
 		Type:          entryType,
 		Name:          name,
 		URL:           url,
+		MatchPatterns: matchPatterns,
 		EncryptedData: encDataB64,
 		DataNonce:     dataNonceB64,
 		EntryKeys: []apiclient.EntryKey{
@@ -339,8 +340,9 @@ func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folder
 	}, nil
 }
 
-// UpdateEntry re-encrypts and updates an existing entry.
-func (v *Vault) UpdateEntry(id, name, url string, data *EntryData) error {
+// UpdateEntry re-encrypts and updates an existing entry. matchPatterns nil keeps
+// the existing patterns; a non-nil (possibly empty) slice replaces them.
+func (v *Vault) UpdateEntry(id, name, url string, data *EntryData, matchPatterns []string) error {
 	if !v.IsUnlocked() {
 		return fmt.Errorf("vault is locked")
 	}
@@ -381,6 +383,7 @@ func (v *Vault) UpdateEntry(id, name, url string, data *EntryData) error {
 		FolderID:      apiEntry.FolderID,
 		Name:          name,
 		URL:           url,
+		MatchPatterns: matchPatterns,
 		EncryptedData: crypto.B64Enc(ciphertext),
 		DataNonce:     crypto.B64Enc(placeholder),
 	}

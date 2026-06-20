@@ -67,7 +67,7 @@ Examples:
 			return err
 		}
 
-		entry, err := v.CreateEntry(name, entryType, url, data, nil, "", "")
+		entry, err := v.CreateEntry(name, entryType, url, data, nil, "", "", nil)
 		if err != nil {
 			return fmt.Errorf("create entry: %w", err)
 		}
@@ -205,7 +205,7 @@ var updateCmd = &cobra.Command{
 			data.Notes = notes
 		}
 
-		if err := v.UpdateEntry(id, newName, url, data); err != nil {
+		if err := v.UpdateEntry(id, newName, url, data, nil); err != nil {
 			return fmt.Errorf("update entry: %w", err)
 		}
 

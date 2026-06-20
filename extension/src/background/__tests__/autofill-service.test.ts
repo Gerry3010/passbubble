@@ -17,13 +17,14 @@ import { describe, it, expect } from 'vitest';
 import { matchEntriesForUrl } from '../autofill-service.js';
 import type { EntryResponse } from '@passbubble/shared-ts';
 
-function makeEntry(url: string | undefined): EntryResponse {
+function makeEntry(url: string | undefined, matchPatterns?: string[]): EntryResponse {
   return {
     id: '1',
     owner_id: 'u1',
     type: 'password',
     name: 'Test',
     url,
+    match_patterns: matchPatterns,
     encrypted_data: '',
     data_nonce: '',
     created_at: '',
@@ -76,5 +77,43 @@ describe('matchEntriesForUrl', () => {
   it('matches multiple entries for the same host', () => {
     const entries = [makeEntry('https://example.com'), makeEntry('https://example.com/other')];
     expect(matchEntriesForUrl('https://example.com', entries)).toHaveLength(2);
+  });
+
+  describe('match_patterns (take precedence over url)', () => {
+    it('matches a bare-host pattern', () => {
+      const entries = [makeEntry('https://unrelated.com', ['github.com'])];
+      expect(matchEntriesForUrl('https://github.com/login', entries)).toHaveLength(1);
+    });
+
+    it('matches a wildcard subdomain pattern', () => {
+      const entries = [makeEntry(undefined, ['*.github.com'])];
+      expect(matchEntriesForUrl('https://gist.github.com', entries)).toHaveLength(1);
+      expect(matchEntriesForUrl('https://a.b.github.com', entries)).toHaveLength(1);
+    });
+
+    it('wildcard subdomain does not match the bare apex', () => {
+      const entries = [makeEntry(undefined, ['*.github.com'])];
+      expect(matchEntriesForUrl('https://github.com', entries)).toHaveLength(0);
+    });
+
+    it('ignores the port in a host:port pattern', () => {
+      const entries = [makeEntry(undefined, ['127.0.0.1:32831'])];
+      expect(matchEntriesForUrl('http://127.0.0.1:32831/typo3/login', entries)).toHaveLength(1);
+    });
+
+    it('normalises www. and full-URL patterns', () => {
+      const entries = [makeEntry(undefined, ['http://www.a-trust.at'])];
+      expect(matchEntriesForUrl('https://a-trust.at/', entries)).toHaveLength(1);
+    });
+
+    it('matches any of several patterns', () => {
+      const entries = [makeEntry(undefined, ['foo.com', 'bar.com'])];
+      expect(matchEntriesForUrl('https://bar.com', entries)).toHaveLength(1);
+    });
+
+    it('does not fall back to url when match_patterns is set and misses', () => {
+      const entries = [makeEntry('https://github.com', ['gitlab.com'])];
+      expect(matchEntriesForUrl('https://github.com', entries)).toHaveLength(0);
+    });
   });
 });

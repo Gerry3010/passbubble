@@ -33,7 +33,7 @@ import (
 func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request) {
 	claims := mw.ClaimsFromCtx(r.Context())
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url,
+		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url, e.match_patterns,
 			e.created_at::text, e.updated_at::text
 		FROM entries e
 		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$1
@@ -50,7 +50,7 @@ func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request) {
 		var e models.EntryResponse
 		var folderID *string
 		if err := rows.Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL,
-			&e.CreatedAt, &e.UpdatedAt); err != nil {
+			&e.MatchPatterns, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			continue
 		}
 		e.FolderID = folderID
@@ -68,14 +68,14 @@ func (h *Handler) GetEntry(w http.ResponseWriter, r *http.Request) {
 	var folderID *string
 	var encryptedData, dataNonce []byte
 	err := h.pool.QueryRow(r.Context(), `
-		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url,
+		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url, e.match_patterns,
 			e.encrypted_data, e.data_nonce,
 			e.created_at::text, e.updated_at::text
 		FROM entries e
 		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$2
 		WHERE e.id=$1 AND (e.owner_id=$2 OR ep.user_id=$2)`,
 		entryID, claims.UserID,
-	).Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL,
+	).Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL, &e.MatchPatterns,
 		&encryptedData, &dataNonce, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		respondErr(w, http.StatusNotFound, "entry not found")
@@ -123,10 +123,10 @@ func (h *Handler) CreateEntry(w http.ResponseWriter, r *http.Request) {
 	// created_at/updated_at are optional (import preserves source dates).
 	// nil → NULL → COALESCE falls back to NOW().
 	_, err = h.pool.Exec(r.Context(), `
-		INSERT INTO entries (id, folder_id, owner_id, type, name, url, encrypted_data, data_nonce, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,decode($7,'base64'),decode($8,'base64'),
-		        COALESCE($9::timestamptz, NOW()), COALESCE($10::timestamptz, NOW()))`,
-		entryID, req.FolderID, claims.UserID, req.Type, req.Name, req.URL,
+		INSERT INTO entries (id, folder_id, owner_id, type, name, url, match_patterns, encrypted_data, data_nonce, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,decode($8,'base64'),decode($9,'base64'),
+		        COALESCE($10::timestamptz, NOW()), COALESCE($11::timestamptz, NOW()))`,
+		entryID, req.FolderID, claims.UserID, req.Type, req.Name, req.URL, req.MatchPatterns,
 		req.EncryptedData, req.DataNonce, req.CreatedAt, req.UpdatedAt,
 	)
 	if err != nil {
@@ -166,11 +166,12 @@ func (h *Handler) UpdateEntry(w http.ResponseWriter, r *http.Request) {
 		UPDATE entries SET
 			name = COALESCE(NULLIF($2,''), name),
 			url  = COALESCE(NULLIF($3,''), url),
+			match_patterns = COALESCE($7::text[], match_patterns),
 			encrypted_data = CASE WHEN $4!='' THEN decode($4,'base64') ELSE encrypted_data END,
 			data_nonce     = CASE WHEN $5!='' THEN decode($5,'base64') ELSE data_nonce END,
 			folder_id = $6, updated_at = NOW()
 		WHERE id=$1`,
-		entryID, req.Name, req.URL, req.EncryptedData, req.DataNonce, req.FolderID)
+		entryID, req.Name, req.URL, req.EncryptedData, req.DataNonce, req.FolderID, req.MatchPatterns)
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to update entry")
 		return
@@ -244,11 +245,12 @@ func (h *Handler) SearchEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url,
+		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url, e.match_patterns,
 			e.created_at::text, e.updated_at::text
 		FROM entries e
 		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$1
-		WHERE (e.owner_id=$1 OR ep.user_id=$1) AND (e.name ILIKE $2 OR e.url ILIKE $2)
+		WHERE (e.owner_id=$1 OR ep.user_id=$1)
+			AND (e.name ILIKE $2 OR e.url ILIKE $2 OR array_to_string(e.match_patterns, ' ') ILIKE $2)
 		ORDER BY e.name LIMIT 50`,
 		claims.UserID, "%"+q+"%")
 	if err != nil {
@@ -262,7 +264,7 @@ func (h *Handler) SearchEntries(w http.ResponseWriter, r *http.Request) {
 		var e models.EntryResponse
 		var folderID *string
 		if err := rows.Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL,
-			&e.CreatedAt, &e.UpdatedAt); err != nil {
+			&e.MatchPatterns, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			continue
 		}
 		e.FolderID = folderID
@@ -291,7 +293,6 @@ func (h *Handler) entryPerm(ctx context.Context, entryID, userID string, perms .
 	).Scan(&exists)
 	return exists
 }
-
 
 var allowedEntryTypes = map[string]bool{
 	"password":     true,

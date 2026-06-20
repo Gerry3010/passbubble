@@ -35,10 +35,10 @@ type localBackup struct {
 }
 
 type backupEntry struct {
-	Name     string           `json:"name"`
-	Type     string           `json:"type"`
-	URL      string           `json:"url,omitempty"`
-	Data     *vault.EntryData `json:"data,omitempty"`
+	Name string           `json:"name"`
+	Type string           `json:"type"`
+	URL  string           `json:"url,omitempty"`
+	Data *vault.EntryData `json:"data,omitempty"`
 }
 
 func init() {
@@ -156,7 +156,7 @@ var restoreCmd = &cobra.Command{
 		ok, failed := 0, 0
 		for i, e := range bk.Entries {
 			fmt.Printf("\r  Importing %d/%d...", i+1, len(bk.Entries))
-			_, err := v.CreateEntry(e.Name, e.Type, e.URL, e.Data, nil, "", "")
+			_, err := v.CreateEntry(e.Name, e.Type, e.URL, e.Data, nil, "", "", nil)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\nWarning: could not import '%s': %v\n", e.Name, err)
 				failed++

@@ -43,11 +43,15 @@ type EntryRecord struct {
 	URL  string
 	Type string // "password", "totp", "note", "credit-card", etc.
 
+	// Plaintext autofill URL match patterns (e.g. Psono's urlfilter). Host or
+	// *.host wildcards; matched in the extension without decrypting the entry.
+	MatchPatterns []string
+
 	// Plaintext fields (must be encrypted before upload)
-	Username    string
-	Password    string
-	TOTPSecret  string
-	Notes       string
+	Username   string
+	Password   string
+	TOTPSecret string
+	Notes      string
 
 	// Credit card
 	CardNumber  string
