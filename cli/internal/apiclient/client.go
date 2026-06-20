@@ -135,6 +135,11 @@ func (c *Client) SearchUsers(query string) ([]UserResponse, error) {
 	return resp, c.get("/api/v1/users/search?q="+url.QueryEscape(query), &resp)
 }
 
+// UpdateUserKeys rotates the caller's own key material (post-quantum upgrade).
+func (c *Client) UpdateUserKeys(req UpdateKeysRequest) error {
+	return c.patch("/api/v1/auth/me/keys", req, nil)
+}
+
 // --- Generate ---
 
 func (c *Client) Generate(req GenerateRequest) (*GenerateResponse, error) {
@@ -179,6 +184,10 @@ func (c *Client) post(path string, body any, out any) error {
 
 func (c *Client) put(path string, body any, out any) error {
 	return c.do(http.MethodPut, path, body, out)
+}
+
+func (c *Client) patch(path string, body any, out any) error {
+	return c.do(http.MethodPatch, path, body, out)
 }
 
 func (c *Client) delete(path string) error {

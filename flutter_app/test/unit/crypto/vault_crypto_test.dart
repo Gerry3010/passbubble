@@ -14,11 +14,15 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:passbubble/core/crypto/ml_kem.dart';
 import 'package:passbubble/core/crypto/vault_crypto.dart';
 import 'package:cryptography/cryptography.dart';
+
+const _libPath = 'native/passbubble_crypto/build/libpassbubble_crypto.so';
 
 void main() {
   group('VaultCrypto', () {
@@ -148,21 +152,25 @@ void main() {
       });
     });
 
-    group('encryptDataKey / decryptDataKey roundtrip (X25519 ECDH)', () {
+    group('encryptDataKey / decryptDataKey roundtrip (hybrid KEM)', () {
+      setUpAll(() {
+        mlKemLibraryPathOverride = File(_libPath).absolute.path;
+      });
+
       test('data key is recovered correctly', () async {
         final keyPair = await VaultCrypto.generateX25519KeyPair();
         final pubBytes =
             Uint8List.fromList((await keyPair.extractPublicKey()).bytes);
-        final privBytes = Uint8List.fromList(
-          (await keyPair.extract()).bytes,
-        );
+        final privBytes = Uint8List.fromList(await keyPair.extractPrivateKeyBytes());
+        final (privM, pubM) = await mlKemGenerate();
 
         final dataKey = VaultCrypto.randomKey();
         final encrypted = await VaultCrypto.encryptDataKey(
           dataKey,
           base64.encode(pubBytes),
+          base64.encode(pubM),
         );
-        final recovered = await VaultCrypto.decryptDataKey(encrypted, privBytes);
+        final recovered = await VaultCrypto.decryptDataKey(encrypted, privBytes, privM);
 
         expect(recovered, equals(dataKey));
       });
@@ -171,16 +179,20 @@ void main() {
         final kp1 = await VaultCrypto.generateX25519KeyPair();
         final kp2 = await VaultCrypto.generateX25519KeyPair();
         final pub1 = Uint8List.fromList((await kp1.extractPublicKey()).bytes);
-        final priv2 = Uint8List.fromList((await kp2.extract()).bytes);
+        final priv2 = Uint8List.fromList(await kp2.extractPrivateKeyBytes());
+        final (_, pubM1) = await mlKemGenerate();
+        final (privM2, _) = await mlKemGenerate();
 
         final dataKey = VaultCrypto.randomKey();
         final encrypted = await VaultCrypto.encryptDataKey(
           dataKey,
           base64.encode(pub1),
+          base64.encode(pubM1),
         );
 
+        // Wrong X25519 + wrong ML-KEM private key → decapsulation/AEAD fails.
         expect(
-          () => VaultCrypto.decryptDataKey(encrypted, priv2),
+          () => VaultCrypto.decryptDataKey(encrypted, priv2, privM2),
           throwsA(anything),
         );
       });

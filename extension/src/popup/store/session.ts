@@ -27,6 +27,12 @@ async function clearAuthDraft(): Promise<void> {
   }
 }
 
+type SessionResponse = SessionInfo & {
+  serverUrl: string;
+  pinEnabled?: boolean;
+  pinAvailable?: boolean;
+};
+
 interface SessionState extends SessionInfo {
   serverUrl: string;
   isLoading: boolean;
@@ -34,12 +40,17 @@ interface SessionState extends SessionInfo {
   /** True after the password step when the account requires a 2FA code. */
   totpRequired: boolean;
   pendingToken: string | null;
+  /** A PIN is configured on this device. */
+  pinEnabled: boolean;
+  /** The PIN may be used to unlock right now (configured and within its interval). */
+  pinAvailable: boolean;
 
   checkSession: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   verifyTotp: (code: string) => Promise<void>;
   cancelTotp: () => void;
   unlock: (masterPassword: string) => Promise<void>;
+  unlockWithPin: (pin: string) => Promise<void>;
   lock: () => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -55,6 +66,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   totpRequired: false,
   pendingToken: null,
+  pinEnabled: false,
+  pinAvailable: false,
 
   checkSession: async () => {
     set({ isLoading: true, error: null });
@@ -62,7 +75,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const resp = await browser.runtime.sendMessage({
         type: MessageType.GET_SESSION,
         payload: {},
-      }) as SessionInfo & { serverUrl: string };
+      }) as SessionResponse;
       // Restore a pending 2FA step if the popup was closed mid-login, so the
       // user lands back on the code prompt instead of starting over.
       let totp: { totpRequired: boolean; pendingToken: string | null } = {
@@ -151,8 +164,42 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const resp = await browser.runtime.sendMessage({
         type: MessageType.GET_SESSION,
         payload: {},
-      }) as SessionInfo & { serverUrl: string };
+      }) as SessionResponse;
       set({ ...resp, isLoading: false });
+    } catch (e) {
+      set({ isLoading: false, error: String(e) });
+    }
+  },
+
+  unlockWithPin: async (pin) => {
+    set({ isLoading: true, error: null });
+    try {
+      const resp = (await browser.runtime.sendMessage({
+        type: MessageType.UNLOCK_WITH_PIN,
+        payload: { pin },
+      })) as { ok: boolean; expired?: boolean; wrongPin?: boolean; lockedOut?: boolean; triesRemaining?: number };
+      if (!resp.ok) {
+        if (resp.expired) {
+          set({ isLoading: false, pinAvailable: false, error: 'PIN expired — enter your master password' });
+        } else if (resp.lockedOut) {
+          set({
+            isLoading: false,
+            pinAvailable: false,
+            pinEnabled: false,
+            error: 'Too many incorrect attempts — PIN removed. Enter your master password.',
+          });
+        } else if (resp.wrongPin) {
+          set({ isLoading: false, error: `Incorrect PIN — ${resp.triesRemaining ?? 0} attempt(s) left` });
+        } else {
+          set({ isLoading: false, error: 'PIN unlock failed' });
+        }
+        return;
+      }
+      const s = (await browser.runtime.sendMessage({
+        type: MessageType.GET_SESSION,
+        payload: {},
+      })) as SessionResponse;
+      set({ ...s, isLoading: false });
     } catch (e) {
       set({ isLoading: false, error: String(e) });
     }

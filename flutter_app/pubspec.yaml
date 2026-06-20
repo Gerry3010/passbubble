@@ -26,10 +26,12 @@ dependencies:
 
   # Biometrics
   local_auth: ^3.0.0
+  local_auth_android: ^2.0.0
 
   # Crypto
   cryptography: ^2.7.0
   pointycastle: ^3.9.1
+  ffi: ^2.1.0 # dart:ffi helpers (malloc) for the native ML-KEM library
 
   # TOTP
   otp: ^3.1.5

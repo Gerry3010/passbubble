@@ -19,6 +19,10 @@
 import { createMlKem768 } from 'mlkem';
 
 export const MLKEM768_CT_SIZE = 1088;
+// ML-KEM-768 encapsulation (public) key size. Used to detect accounts that have
+// no valid ML-KEM key (e.g. X25519-only Flutter accounts) and fall back to the
+// legacy encryption format.
+export const MLKEM768_EK_SIZE = 1184;
 
 // Cache the instance since initialization is cheap but repeated
 let _instance: Awaited<ReturnType<typeof createMlKem768>> | null = null;

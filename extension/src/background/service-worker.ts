@@ -19,6 +19,7 @@
 import browser from 'webextension-polyfill';
 import { getSession, setSession, clearLoginFrameHost } from './session-store.js';
 import { buildHandlers } from './message-handler.js';
+import { savePinRefreshToken } from './pin-store.js';
 import { PassbubbleClient } from '@passbubble/shared-ts';
 import { STORAGE_KEYS } from '../shared/constants.js';
 
@@ -28,8 +29,18 @@ browser.runtime.onMessage.addListener((message, sender) => {
   const { type, payload } = message as { type: string; payload: Record<string, unknown> };
   const handler = handlers[type];
   if (!handler) return;
-  // Return the promise directly so the channel stays open
-  return handler(payload ?? {}, sender);
+  // Return the promise directly so the channel stays open. Normalise rejections
+  // to real Error objects — otherwise a non-Error rejection (e.g. a DOMException
+  // from a failed AES/ML-KEM op) surfaces to callers as the unhelpful
+  // "listener's promise rejected without an Error".
+  return handler(payload ?? {}, sender).catch((err: unknown) => {
+    if (err instanceof Error) throw err;
+    const msg =
+      typeof err === 'string'
+        ? err
+        : (err as { message?: string } | null)?.message || 'Background error';
+    throw new Error(msg);
+  });
 });
 
 // Forget a tab's recorded login-frame host when it navigates away or closes, so
@@ -53,6 +64,10 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
     session.accessTokenExpiresAt = Date.now() + resp.expires_in * 1000;
     setSession(session);
     await browser.storage.session.set({ [STORAGE_KEYS.REFRESH_TOKEN]: resp.refresh_token });
+    // Keep the PIN bootstrap's copy of the (now-rotated) refresh token current, so
+    // a PIN unlock after a browser restart / extension reload does not try to
+    // refresh with an already-invalidated token.
+    await savePinRefreshToken(resp.refresh_token);
     // Re-schedule for next rotation
     await browser.alarms.create('token-refresh', {
       delayInMinutes: (resp.expires_in - 60) / 60,

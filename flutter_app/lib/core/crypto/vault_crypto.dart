@@ -19,6 +19,8 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 
+import 'ml_kem.dart';
+
 /// Client-side E2E crypto for Passbubble.
 ///
 /// Uses X25519 + AES-256-GCM + Argon2id.
@@ -142,58 +144,39 @@ class VaultCrypto {
     return jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
   }
 
-  // ── Data key wrapping (X25519 ECDH + AES-GCM) ─────────────────────────────
-  // Note: This implements classical X25519 ECDH key encapsulation.
-  // The full hybrid KEM (X25519 + ML-KEM-768) will be added via FFI.
+  // ── Data key wrapping (hybrid KEM: X25519 + ML-KEM-768) ───────────────────
+  // Delegates to the platform hybrid KEM (native dart:ffi → Go, or web JS), so
+  // the wire format is identical to the CLI, backend and browser extension.
+  // Recipients without a real ML-KEM key (X25519-only accounts) transparently
+  // fall back to the legacy format, and decrypt auto-detects hybrid vs. legacy.
 
-  /// Encrypts a data key for a recipient using X25519 ECDH + AES-GCM.
+  /// Wraps a data key for a recipient using the hybrid KEM. Both public keys are
+  /// base64-encoded; pass the recipient's `pub_x25519` and `pub_mlkem768`.
   static Future<String> encryptDataKey(
     Uint8List dataKey,
     String recipientPubX25519Base64,
+    String recipientPubMlkem768Base64,
   ) async {
-    final recipPubBytes = base64.decode(recipientPubX25519Base64);
-    // Generate ephemeral key pair
-    final ephKeyPair = await X25519().newKeyPair();
-    final ephPubBytes =
-        Uint8List.fromList((await ephKeyPair.extractPublicKey()).bytes);
-
-    // ECDH
-    final recipPubKey = SimplePublicKey(recipPubBytes, type: KeyPairType.x25519);
-    final sharedSecret = await X25519().sharedSecretKey(
-      keyPair: ephKeyPair,
-      remotePublicKey: recipPubKey,
+    final enc = await mlKemEncryptDataKey(
+      dataKey,
+      base64.decode(recipientPubX25519Base64),
+      base64.decode(recipientPubMlkem768Base64),
     );
-
-    // Derive wrapping key from shared secret (HKDF-SHA256 simplified: use shared directly)
-    final wrapKey = SecretKey(await sharedSecret.extractBytes());
-    final encKey = await encrypt(wrapKey, dataKey);
-
-    // Wire format: ephPub(32) || nonce+ciphertext
-    final result = Uint8List.fromList([...ephPubBytes, ...encKey]);
-    return base64.encode(result);
+    return base64.encode(enc);
   }
 
-  /// Decrypts a data key encrypted with [encryptDataKey].
+  /// Unwraps a data key produced by [encryptDataKey] (or a legacy X25519-only
+  /// blob). Pass the caller's `privX25519` and `privMlkem` private key bytes.
   static Future<Uint8List> decryptDataKey(
     String encryptedKeyBase64,
     Uint8List privX25519Bytes,
+    Uint8List privMlkemBytes,
   ) async {
-    final encKey = base64.decode(encryptedKeyBase64);
-    if (encKey.length < 32) throw Exception('Encrypted key too short');
-
-    final ephPubBytes = encKey.sublist(0, 32);
-    final remainder = encKey.sublist(32);
-
-    final privKey = await X25519().newKeyPairFromSeed(privX25519Bytes);
-    final ephPub = SimplePublicKey(ephPubBytes, type: KeyPairType.x25519);
-
-    final sharedSecret = await X25519().sharedSecretKey(
-      keyPair: privKey,
-      remotePublicKey: ephPub,
+    return mlKemDecryptDataKey(
+      base64.decode(encryptedKeyBase64),
+      privX25519Bytes,
+      privMlkemBytes,
     );
-
-    final wrapKey = SecretKey(await sharedSecret.extractBytes());
-    return decrypt(wrapKey, Uint8List.fromList(remainder));
   }
 
   // ── Salt generation ────────────────────────────────────────────────────────

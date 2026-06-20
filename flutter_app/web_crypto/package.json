@@ -1,0 +1,14 @@
+{
+  "name": "passbubble-web-crypto",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bundles the shared-ts hybrid KEM for the Flutter web app (dart:js_interop)",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild entry.mjs --bundle --format=iife --minify --outfile=../web/passbubble_crypto.js",
+    "test": "node test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

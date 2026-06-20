@@ -14,34 +14,49 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/jobs/job_runner.dart';
 import '../../core/theme/app_theme.dart';
 
-class PbBottomNav extends StatelessWidget {
+class PbBottomNav extends ConsumerWidget {
   final int currentIndex;
   const PbBottomNav({super.key, required this.currentIndex});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeJobs = ref.watch(activeJobCountProvider);
     return NavigationBar(
       backgroundColor: AppTheme.bg,
       selectedIndex: currentIndex,
       indicatorColor: AppTheme.greenFaint,
-      destinations: const [
-        NavigationDestination(
+      destinations: [
+        const NavigationDestination(
           icon: Icon(Icons.lock_outline),
           selectedIcon: Icon(Icons.lock, color: AppTheme.green),
           label: 'Vault',
         ),
-        NavigationDestination(
+        const NavigationDestination(
           icon: Icon(Icons.casino_outlined),
           selectedIcon: Icon(Icons.casino, color: AppTheme.green),
           label: 'Generate',
         ),
         NavigationDestination(
-          icon: Icon(Icons.tune_outlined),
-          selectedIcon: Icon(Icons.tune, color: AppTheme.green),
+          icon: Badge(
+            isLabelVisible: activeJobs > 0,
+            label: Text('$activeJobs'),
+            backgroundColor: AppTheme.green,
+            textColor: AppTheme.bg,
+            child: const Icon(Icons.tune_outlined),
+          ),
+          selectedIcon: Badge(
+            isLabelVisible: activeJobs > 0,
+            label: Text('$activeJobs'),
+            backgroundColor: AppTheme.green,
+            textColor: AppTheme.bg,
+            child: const Icon(Icons.tune, color: AppTheme.green),
+          ),
           label: 'Manage',
         ),
       ],

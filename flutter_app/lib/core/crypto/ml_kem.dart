@@ -13,11 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import '../api/models.dart';
-
-// Live list of jobs currently running on this client (updated during import/export).
-// Starts empty; import/export screens push jobs here so the JobsTab shows live progress
-// without waiting for a full refresh.
-final runningJobsProvider = StateProvider<List<JobResponse>>((ref) => []);
+// Platform-agnostic hybrid KEM (X25519 + ML-KEM-768). Resolves to the native
+// dart:ffi implementation on mobile/desktop and the dart:js_interop (JS) one on
+// web. Both expose the same async API and identical wire format:
+//   Future<(Uint8List priv, Uint8List pub)> mlKemGenerate()
+//   Future<Uint8List> mlKemEncryptDataKey(dataKey, recipX25519Pub, recipMlkemPub)
+//   Future<Uint8List> mlKemDecryptDataKey(encKey, privX25519, privMlkem)
+export 'ml_kem_ffi.dart' if (dart.library.js_interop) 'ml_kem_web.dart';

@@ -28,6 +28,9 @@ const mockUseStore = useSessionStore as ReturnType<typeof vi.fn>;
 function defaultStore(overrides = {}) {
   return {
     unlock: vi.fn().mockResolvedValue(undefined),
+    unlockWithPin: vi.fn().mockResolvedValue(undefined),
+    logout: vi.fn().mockResolvedValue(undefined),
+    pinAvailable: false,
     isLoading: false,
     error: null,
     ...overrides,
@@ -91,8 +94,16 @@ describe('MasterPasswordPrompt', () => {
   it('disables the button and shows loading text while loading', () => {
     mockUseStore.mockReturnValue(defaultStore({ isLoading: true }));
     render(<MasterPasswordPrompt />);
-    const btn = screen.getByRole('button') as HTMLButtonElement;
+    const btn = screen.getByRole('button', { name: /unlock/i }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     expect(btn.textContent).toMatch(/unlocking/i);
+  });
+
+  it('renders a log out button that calls logout', () => {
+    const logoutMock = vi.fn().mockResolvedValue(undefined);
+    mockUseStore.mockReturnValue(defaultStore({ logout: logoutMock }));
+    render(<MasterPasswordPrompt />);
+    fireEvent.click(screen.getByRole('button', { name: /log out/i }));
+    expect(logoutMock).toHaveBeenCalled();
   });
 });

@@ -21,6 +21,9 @@ import '../../core/auth/auth_service.dart';
 import '../../core/auth/auto_lock_provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
+import 'biometric_settings_tile.dart';
+import 'pin_settings_tile.dart';
+import 'post_quantum_tile.dart';
 import 'providers/version_provider.dart';
 import 'two_factor_screen.dart';
 
@@ -90,6 +93,8 @@ class SettingsScreen extends ConsumerWidget {
             ),
             onTap: () => _showAutoLockPicker(context, ref),
           ),
+          const PinSettingsTile(),
+          const PostQuantumTile(),
           ListTile(
             leading: const Icon(Icons.shield_outlined),
             title: const Text('Two-factor authentication'),
@@ -99,16 +104,7 @@ class SettingsScreen extends ConsumerWidget {
               MaterialPageRoute(builder: (_) => const TwoFactorScreen()),
             ),
           ),
-          ListTile(
-            leading: const Icon(Icons.fingerprint),
-            title: const Text('Biometric unlock'),
-            subtitle: const Text('Use biometrics instead of master password'),
-            trailing: Switch(
-              value: false, // TODO: persist preference
-              onChanged: (_) {},
-              activeThumbColor: AppTheme.green,
-            ),
-          ),
+          const BiometricSettingsTile(),
 
           const Divider(),
 

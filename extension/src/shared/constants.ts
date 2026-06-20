@@ -21,6 +21,11 @@ export const MessageType = {
   LOCK: 'LOCK',
   LOGOUT: 'LOGOUT',
   GET_SESSION: 'GET_SESSION',
+  // PIN quick-unlock (device-local; the PIN is never stored)
+  SET_PIN: 'SET_PIN',
+  UNLOCK_WITH_PIN: 'UNLOCK_WITH_PIN',
+  DISABLE_PIN: 'DISABLE_PIN',
+  GET_PIN_STATUS: 'GET_PIN_STATUS',
   // Entries
   SEARCH_ENTRIES: 'SEARCH_ENTRIES',
   LIST_FOLDERS: 'LIST_FOLDERS',
@@ -42,6 +47,13 @@ export const MessageType = {
   DISMISS_SAVE: 'DISMISS_SAVE',
   GET_PENDING_SAVE: 'GET_PENDING_SAVE',
   CONFIRM_SAVE: 'CONFIRM_SAVE',
+  // Update an existing entry's credentials from a pending save (known site).
+  UPDATE_SAVE: 'UPDATE_SAVE',
+  // Save blocklist (hosts/domains that never get a "save password?" prompt;
+  // autofill still works). Persisted device-locally in storage.local.
+  BLOCKLIST_GET: 'BLOCKLIST_GET',
+  BLOCKLIST_ADD: 'BLOCKLIST_ADD',
+  BLOCKLIST_REMOVE: 'BLOCKLIST_REMOVE',
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -50,6 +62,23 @@ export const STORAGE_KEYS = {
   // chrome.storage.sync — persists across devices
   SERVER_URL: 'server_url',
   AUTOFILL_ENABLED: 'autofill_enabled',
+  // chrome.storage.local — device-local, persists across browser restarts
+  SAVE_BLOCKLIST: 'save_blocklist',
+  // PIN quick-unlock state (chrome.storage.local — survives browser close so the
+  // PIN can unlock after a restart). The PIN itself is never stored; PIN_WRAPPED
+  // is the master key encrypted under a PIN-derived key. PIN_BOOTSTRAP holds the
+  // (already-encrypted) session material needed to rebuild the session, since
+  // storage.session is wiped on browser close.
+  PIN_ENABLED: 'pin_enabled',
+  PIN_SALT: 'pin_salt',
+  PIN_WRAPPED: 'pin_wrapped_master_key',
+  PIN_KDF_TIME: 'pin_kdf_time',
+  PIN_KDF_MEMORY: 'pin_kdf_memory',
+  PIN_MAX_TRIES: 'pin_max_tries',
+  PIN_FAIL_COUNT: 'pin_fail_count',
+  PIN_PW_INTERVAL_DAYS: 'pin_pw_interval_days',
+  PIN_LAST_MASTER_UNLOCK: 'pin_last_master_unlock',
+  PIN_BOOTSTRAP: 'pin_bootstrap',
   // chrome.storage.session — cleared on browser close
   REFRESH_TOKEN: 'refresh_token',
   ENC_PRIV_X25519: 'enc_priv_x25519',

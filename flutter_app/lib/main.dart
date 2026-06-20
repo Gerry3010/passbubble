@@ -19,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/api/api_client.dart';
 import 'core/auth/auth_service.dart';
 import 'core/auth/auto_lock_scope.dart';
+import 'core/jobs/job_messenger.dart';
 import 'core/router/router.dart';
 import 'core/theme/app_theme.dart';
 
@@ -55,6 +56,7 @@ class PassbubbleApp extends ConsumerWidget {
         title: 'Passbubble',
         theme: AppTheme.dark,
         routerConfig: router,
+        scaffoldMessengerKey: scaffoldMessengerKey,
         debugShowCheckedModeBanner: false,
       ),
     );

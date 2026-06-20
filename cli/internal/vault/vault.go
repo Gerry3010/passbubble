@@ -146,9 +146,24 @@ func (v *Vault) Authenticate() error {
 // Unlock decrypts the stored private keys using the master password.
 // Must be called before any entry read/write operations.
 func (v *Vault) Unlock(masterPassword string) error {
+	masterKey, err := v.deriveMasterKey(masterPassword)
+	if err != nil {
+		return err
+	}
+	if err := v.decryptPrivKeys(masterKey); err != nil {
+		return err
+	}
+	// A successful master-password unlock restarts the PIN re-auth interval.
+	v.onMasterUnlock()
+	return nil
+}
+
+// deriveMasterKey derives the Argon2id master key from the master password
+// using the persisted KDF parameters.
+func (v *Vault) deriveMasterKey(masterPassword string) ([]byte, error) {
 	saltBytes, err := crypto.B64Dec(v.cfg.KDFSalt)
 	if err != nil {
-		return fmt.Errorf("decode kdf salt: %w", err)
+		return nil, fmt.Errorf("decode kdf salt: %w", err)
 	}
 	kdfTime := uint32(3)
 	kdfMem := uint32(64 * 1024)
@@ -158,13 +173,16 @@ func (v *Vault) Unlock(masterPassword string) error {
 	if v.cfg.KDFMemory > 0 {
 		kdfMem = uint32(v.cfg.KDFMemory)
 	}
-
-	masterKey := crypto.DeriveKey(masterPassword, &crypto.KDFParams{
+	return crypto.DeriveKey(masterPassword, &crypto.KDFParams{
 		Salt:   saltBytes,
 		Time:   kdfTime,
 		Memory: kdfMem,
-	})
+	}), nil
+}
 
+// decryptPrivKeys decrypts and loads the private keys into memory using the
+// given master key. Shared by the master-password and PIN unlock paths.
+func (v *Vault) decryptPrivKeys(masterKey []byte) error {
 	encPrivX25519, err := crypto.B64Dec(v.cfg.EncPrivX25519)
 	if err != nil {
 		return fmt.Errorf("decode enc_priv_x25519: %w", err)

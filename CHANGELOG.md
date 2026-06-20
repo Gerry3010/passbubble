@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-06-21
+
+### Added
+- **PIN-Schnellentsperrung auf allen Clients** — der Vault lässt sich nach dem ersten Master-Passwort-Login mit einer kurzen **PIN** wieder entsperren, ohne das volle Master-Passwort einzugeben. Der Master-Key wird dazu mit einem aus der PIN abgeleiteten Schlüssel **gewrappt** (Argon2id + AES-GCM) und nur lokal/gerätegebunden abgelegt; eine falsche PIN scheitert an der GCM-Tag-Prüfung. Implementiert in **CLI**, **Browser-Extension** (`pin-store`, PIN-Schritt im Master-Password-Prompt) und **Flutter** (Settings-Tile zum Einrichten/Entfernen), mit gemeinsamer Krypto in `shared-ts`
+- **Post-Quantum Account-Upgrade (ML-KEM / Hybrid-KEM)** — bestehende Accounts können ihre Schlüssel auf das **hybride X25519 + ML-KEM-768**-Verfahren upgraden. Flutter nutzt dafür eine native FFI-Anbindung (mobile/desktop) bzw. ein WASM/JS-Bundle (Web); die **CLI** bekommt einen `upgrade-keys`-Befehl. Legacy-X25519-only-Einträge bleiben les-/entschlüsselbar, das Upgrade ist additiv und nicht-breaking
+- **Biometrische Entsperrung (Android)** — der Vault kann per Fingerabdruck/Gesichtsentsperrung geöffnet werden (Settings-Tile + Unlock-Screen-Integration; `MainActivity`/Manifest-Anpassungen)
+- **Lokale Import/Export-Jobs** — der Job-Fortschritt läuft jetzt über einen **lokalen Job-Runner** in der App (Runner/Messenger/Local-Job + Job-Detail-Sheet) statt über Server-Polling; das alte `job_polling_service` entfällt. Import/Export melden ihren Fortschritt direkt im Manage-Screen
+- **Browser-Extension: In-Page-Save-Bar & Blocklist** — eine eingebettete **Save-Bar** bietet das Speichern erkannter Logins direkt auf der Seite an; in den Options gibt es eine **Blocklist-Sektion**, um Seiten von Autofill/Save-Prompts auszunehmen
+
+### Changed
+- Brand-Logo auf die **Vorhängeschloss-Variante** umgestellt (App- und Extension/E-Mail-Icon); das frühere `> _`-Terminal-Design bleibt als `icon-terminal.svg` / `icon-extension-terminal.svg` erhalten. Android-Launcher-Mipmaps werden jetzt per `make launcher-icons` aus dem SVG-SSOT gerendert und sind wie die übrigen Raster-Icons gitignored
+
 ## [2.3.0] - 2026-06-20
 
 ### Added

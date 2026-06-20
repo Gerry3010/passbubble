@@ -14,7 +14,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/jobs/job_runner.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import 'export_tab.dart';
@@ -22,25 +24,41 @@ import 'import_tab.dart';
 import 'jobs_tab.dart';
 import 'shares_tab.dart';
 
-class ManageScreen extends StatelessWidget {
-  const ManageScreen({super.key});
+class ManageScreen extends ConsumerWidget {
+  /// Tab to open initially (0=Import … 3=Jobs). Driven by the `?tab=` query
+  /// param so the job notifications' VIEW action can deep-link to the Job View.
+  final int? initialTab;
+  const ManageScreen({super.key, this.initialTab});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeJobs = ref.watch(activeJobCountProvider);
     return DefaultTabController(
       length: 4,
+      initialIndex: (initialTab != null && initialTab! >= 0 && initialTab! < 4)
+          ? initialTab!
+          : 0,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('> MANAGE'),
-          bottom: const TabBar(
+          bottom: TabBar(
             labelColor: AppTheme.green,
             unselectedLabelColor: AppTheme.onBgDim,
             indicatorColor: AppTheme.green,
             tabs: [
-              Tab(text: 'Import'),
-              Tab(text: 'Export'),
-              Tab(text: 'Shares'),
-              Tab(text: 'Jobs'),
+              const Tab(text: 'Import'),
+              const Tab(text: 'Export'),
+              const Tab(text: 'Shares'),
+              Tab(
+                child: Badge(
+                  isLabelVisible: activeJobs > 0,
+                  label: Text('$activeJobs'),
+                  backgroundColor: AppTheme.green,
+                  textColor: AppTheme.bg,
+                  offset: const Offset(12, -4),
+                  child: const Text('Jobs'),
+                ),
+              ),
             ],
           ),
         ),

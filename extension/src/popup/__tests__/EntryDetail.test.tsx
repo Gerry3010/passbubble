@@ -58,4 +58,16 @@ describe('EntryDetail', () => {
     render(<EntryDetail entry={entry} onBack={() => {}} />);
     await waitFor(() => expect(screen.getByText(/vault is locked/i)).toBeDefined());
   });
+
+  it('shows Copied! feedback immediately after clicking copy', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    sendMessage.mockResolvedValue({ data: { username: 'octocat', password: 's3cret' } });
+    render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('octocat')).toBeDefined());
+    const copyBtns = screen.getAllByRole('button', { name: /copy/i });
+    fireEvent.click(copyBtns[0]);
+
+    expect(screen.getByText('Copied!')).toBeDefined();
+  });
 });

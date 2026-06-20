@@ -71,11 +71,33 @@ function escapeRegExp(s: string): string {
 //   "*.github.com"  → any subdomain (but not the bare apex)
 //   "127.0.0.1:8080"→ host match, port ignored
 export function patternMatchesHost(pageHost: string, pattern: string): boolean {
+  return patternMatchLevel(pageHost, pattern) >= 1;
+}
+
+// Registrable domain heuristic: the last two labels (e.g. "a.b.example.com" →
+// "example.com"). Good enough for the same-domain autofill fallback; it does not
+// consult the Public Suffix List, so multi-part TLDs (co.uk) are approximate.
+export function registrableDomain(host: string): string {
+  const parts = host.split('.').filter(Boolean);
+  return parts.length < 2 ? host : parts.slice(-2).join('.');
+}
+
+// Ranks how well a page host matches a single pattern:
+//   2 = exact host          ("github.com" === "github.com")
+//   1 = subdomain / wildcard ("login.github.com" or "*.github.com")
+//   0 = same registrable domain (fallback — "github.com" vs "gist.github.io"? no;
+//       "app.example.com" vs "login.example.com" → yes)
+//  -1 = no match
+export function patternMatchLevel(pageHost: string, pattern: string): number {
   const pat = normalisePattern(pattern);
-  if (!pageHost || !pat) return false;
+  if (!pageHost || !pat) return -1;
   if (pat.includes('*')) {
     const re = new RegExp('^' + pat.split('*').map(escapeRegExp).join('.*') + '$');
-    return re.test(pageHost);
+    return re.test(pageHost) ? 1 : -1;
   }
-  return pageHost === pat || pageHost.endsWith('.' + pat);
+  if (pageHost === pat) return 2;
+  if (pageHost.endsWith('.' + pat)) return 1;
+  const rd = registrableDomain(pat);
+  if (rd.includes('.') && registrableDomain(pageHost) === rd) return 0;
+  return -1;
 }

@@ -43,6 +43,10 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <!-- Post-quantum hybrid KEM (X25519 + ML-KEM-768) for web, bundled from
+       packages/shared-ts. Loaded before Flutter so globalThis.passbubbleCrypto
+       is ready when the app encrypts/decrypts. Rebuild: cd web_crypto && npm run build -->
+  <script src="passbubble_crypto.js"></script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

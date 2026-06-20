@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 import { MLKEM768_CT_SIZE, generateMLKEM768 } from '../mlkem.js';
 import { generateX25519, x25519PublicKey, x25519SharedSecret } from '../x25519.js';
 import { aesGcmEncrypt } from '../aes-gcm.js';
-import { decryptDataKey, encryptDataKey } from '../hybrid-kem.js';
+import { decryptDataKey, encryptDataKey, encryptDataKeyX25519Only } from '../hybrid-kem.js';
 
 const X25519_PUB_LEN = 32;
 
@@ -86,6 +86,29 @@ describe('hybrid-kem', () => {
     expect(legacyKey.length).toBeLessThan(X25519_PUB_LEN + MLKEM768_CT_SIZE);
 
     const recovered = await decryptDataKey(legacyKey, privX, privM);
+    expect(recovered).toEqual(dataKey);
+  });
+
+  it('encryptDataKey falls back to X25519-only when the recipient has no ML-KEM key', async () => {
+    const { priv: privX, pub: pubX } = generateX25519();
+    const { priv: privM } = await generateMLKEM768();
+    const dataKey = crypto.getRandomValues(new Uint8Array(32));
+
+    // Empty ML-KEM public key (e.g. an X25519-only Flutter account) → legacy format.
+    const enc = await encryptDataKey(dataKey, pubX, new Uint8Array(0));
+    expect(enc.length).toBeLessThan(X25519_PUB_LEN + MLKEM768_CT_SIZE);
+
+    const recovered = await decryptDataKey(enc, privX, privM);
+    expect(recovered).toEqual(dataKey);
+  });
+
+  it('encryptDataKeyX25519Only round-trips via decryptDataKey', async () => {
+    const { priv: privX, pub: pubX } = generateX25519();
+    const { priv: privM } = await generateMLKEM768();
+    const dataKey = crypto.getRandomValues(new Uint8Array(32));
+
+    const enc = await encryptDataKeyX25519Only(dataKey, pubX);
+    const recovered = await decryptDataKey(enc, privX, privM);
     expect(recovered).toEqual(dataKey);
   });
 

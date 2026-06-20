@@ -148,6 +148,6 @@ export interface GenerateResponse {
   passwords: GeneratedPassword[];
 }
 
-export interface ApiError {
+export interface ApiErrorBody {
   error: string;
 }

@@ -17,6 +17,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Gerry3010/passbubble/cli/internal/apiclient"
@@ -75,6 +76,27 @@ func newUnlockFields() []authField {
 	}
 }
 
+func newPINUnlockFields() []authField {
+	return []authField{
+		{key: "pin", label: "PIN", hidden: true},
+	}
+}
+
+func newPINSetupFields() []authField {
+	return []authField{
+		{key: "password", label: "Master password", hidden: true},
+		{key: "pin", label: "New PIN (digits)", hidden: true},
+		{key: "pin2", label: "Confirm PIN", hidden: true},
+		{key: "interval", label: "Require master password after N days (1–60)", value: "14"},
+	}
+}
+
+// PINConfigMsg is produced by the async PIN enable/disable commands.
+type PINConfigMsg struct {
+	status string
+	err    error
+}
+
 // authValue returns the current value of an auth field by key.
 func (m Model) authValue(key string) string {
 	for _, f := range m.authFields {
@@ -99,12 +121,42 @@ func (m Model) handleAuthScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.screen == RegisterScreen {
 			return m.gotoLogin(), nil
 		}
+		if m.screen == PINSetupScreen {
+			// Cancel PIN setup, return to settings.
+			m.screen = SettingsScreen
+			m.authFields = nil
+			m.authErr = ""
+			return m, nil
+		}
 		return m, tea.Quit
 
 	case "ctrl+r":
 		if m.screen == LoginScreen {
 			m.screen = RegisterScreen
 			m.authFields = newRegisterFields(m.cfg)
+			m.authCursor = 0
+			m.authErr = ""
+		}
+		return m, nil
+
+	case "ctrl+o":
+		// Sign out from the unlock screen: clears the session + any PIN and
+		// returns to the login screen (mirrors the settings 'o' shortcut).
+		if m.screen == UnlockScreen {
+			return m.logout()
+		}
+		return m, nil
+
+	case "ctrl+p":
+		// On the unlock screen, toggle between PIN and master-password entry
+		// (only meaningful when a PIN is configured).
+		if m.screen == UnlockScreen && m.vault != nil && m.vault.PINEnabled() {
+			m.pinMode = !m.pinMode
+			if m.pinMode {
+				m.authFields = newPINUnlockFields()
+			} else {
+				m.authFields = newUnlockFields()
+			}
 			m.authCursor = 0
 			m.authErr = ""
 		}
@@ -179,7 +231,22 @@ func (m Model) submitAuth() (tea.Model, tea.Cmd) {
 	case UnlockScreen:
 		m.authBusy = true
 		m.authErr = ""
+		if m.pinMode {
+			return m, m.pinUnlockCmd(m.authValue("pin"))
+		}
 		return m, m.unlockCmd(m.authValue("password"))
+	case PINSetupScreen:
+		if m.authValue("pin") != m.authValue("pin2") {
+			m.authErr = "PINs do not match"
+			return m, nil
+		}
+		if len(m.authValue("pin")) < 4 {
+			m.authErr = "PIN must be at least 4 digits"
+			return m, nil
+		}
+		m.authBusy = true
+		m.authErr = ""
+		return m, m.enablePINCmd(m.authValue("password"), m.authValue("pin"), m.authValue("interval"))
 	}
 	return m, nil
 }
@@ -312,16 +379,84 @@ func (m Model) unlockCmd(password string) tea.Cmd {
 	}
 }
 
+// pinUnlockCmd refreshes the token and decrypts the private keys using the PIN.
+func (m Model) pinUnlockCmd(pin string) tea.Cmd {
+	v := m.vault
+	return func() tea.Msg {
+		if v == nil {
+			return AuthResultMsg{err: fmt.Errorf("no session — please log in")}
+		}
+		if pin == "" {
+			return AuthResultMsg{err: fmt.Errorf("PIN is required")}
+		}
+		if err := v.UnlockWithPIN(pin); err != nil {
+			return AuthResultMsg{err: err}
+		}
+		// Keys are in memory; now obtain a fresh access token for API calls.
+		if err := v.Authenticate(); err != nil {
+			return AuthResultMsg{err: err}
+		}
+		return AuthResultMsg{vault: v}
+	}
+}
+
+// enablePINCmd wraps the master key under the new PIN and persists the config.
+func (m Model) enablePINCmd(masterPassword, pin, intervalStr string) tea.Cmd {
+	v := m.vault
+	return func() tea.Msg {
+		if v == nil {
+			return PINConfigMsg{err: fmt.Errorf("no session — please log in")}
+		}
+		interval := vaultpkg.DefaultPINIntervalDays
+		if intervalStr != "" {
+			if n, err := strconv.Atoi(strings.TrimSpace(intervalStr)); err == nil {
+				interval = vaultpkg.ClampPINIntervalDays(n)
+			}
+		}
+		if err := v.EnablePIN(masterPassword, pin, interval, vaultpkg.DefaultPINMaxTries); err != nil {
+			return PINConfigMsg{err: err}
+		}
+		return PINConfigMsg{status: fmt.Sprintf("PIN enabled (master password required every %d days)", interval)}
+	}
+}
+
+// disablePINCmd removes the PIN quick-unlock configuration.
+func (m Model) disablePINCmd() tea.Cmd {
+	v := m.vault
+	return func() tea.Msg {
+		if v == nil {
+			return PINConfigMsg{err: fmt.Errorf("no session")}
+		}
+		if err := v.DisablePIN(); err != nil {
+			return PINConfigMsg{err: err}
+		}
+		return PINConfigMsg{status: "PIN disabled"}
+	}
+}
+
 // renderAuthScreen renders the login / register / unlock screen.
 func (m Model) renderAuthScreen() string {
-	var titleText, help string
+	var titleText, help, banner string
 	switch m.screen {
 	case RegisterScreen:
 		titleText = "🔐 Passbubble — Register"
 		help = "Tab/↑↓: fields  Enter: next/submit  Ctrl+V: paste  Esc: back to login"
 	case UnlockScreen:
 		titleText = "🔒 Passbubble — Unlock"
-		help = "Enter: unlock  Ctrl+V: paste  Esc/Ctrl+C: quit"
+		if m.pinMode {
+			help = "Enter: unlock with PIN  Ctrl+P: use master password  Ctrl+O: log out  Esc/Ctrl+C: quit"
+		} else {
+			help = "Enter: unlock  Ctrl+V: paste  Ctrl+O: log out  Esc/Ctrl+C: quit"
+			if m.vault != nil && m.vault.PINEnabled() {
+				help = "Enter: unlock  Ctrl+P: use PIN  Ctrl+O: log out  Ctrl+V: paste  Esc/Ctrl+C: quit"
+			}
+		}
+	case PINSetupScreen:
+		titleText = "📟 Passbubble — Set up PIN"
+		help = "Tab/↑↓: fields  Enter: next/submit  Esc: cancel"
+		banner = "⚠ A PIN is less secure than your master password: it is stored on this device\n" +
+			"  in a plaintext config file and a short PIN can be brute-forced by anyone with\n" +
+			"  read access to it. Use a strong PIN and keep this machine trusted."
 	default:
 		titleText = "🔐 Passbubble — Login"
 		help = "Tab/↑↓: fields  Enter: next/submit  Ctrl+R: register  Esc: quit"
@@ -330,6 +465,10 @@ func (m Model) renderAuthScreen() string {
 	var b strings.Builder
 	b.WriteString(m.titleStyle.Render(titleText))
 	b.WriteString("\n\n")
+	if banner != "" {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(banner))
+		b.WriteString("\n\n")
+	}
 
 	for i, f := range m.authFields {
 		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)

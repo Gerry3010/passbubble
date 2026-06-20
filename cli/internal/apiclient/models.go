@@ -147,13 +147,23 @@ type CreateEntryRequest struct {
 }
 
 type UpdateEntryRequest struct {
-	FolderID      *string  `json:"folder_id,omitempty"`
-	Name          string   `json:"name,omitempty"`
-	URL           string   `json:"url,omitempty"`
-	MatchPatterns []string `json:"match_patterns,omitempty"` // nil = keep existing; [] = clear
-	EncryptedData string   `json:"encrypted_data,omitempty"` // base64
-	DataNonce     string   `json:"data_nonce,omitempty"`     // base64
-	EncryptedKey  string   `json:"encrypted_key,omitempty"`  // base64, caller's new key
+	FolderID      *string    `json:"folder_id,omitempty"`
+	Name          string     `json:"name,omitempty"`
+	URL           string     `json:"url,omitempty"`
+	MatchPatterns []string   `json:"match_patterns,omitempty"` // nil = keep existing; [] = clear
+	EncryptedData string     `json:"encrypted_data,omitempty"` // base64; "" keeps existing
+	DataNonce     string     `json:"data_nonce,omitempty"`     // base64
+	EncryptedKey  string     `json:"encrypted_key,omitempty"`  // base64, caller's new key
+	EntryKeys     []EntryKey `json:"entry_keys,omitempty"`     // re-wrapped keys (PQ upgrade)
+}
+
+// UpdateKeysRequest rotates the caller's own key material (post-quantum upgrade).
+// All fields base64-encoded; private keys are master-key-encrypted.
+type UpdateKeysRequest struct {
+	PubX25519       string `json:"pub_x25519"`
+	PubMLKEM768     string `json:"pub_mlkem768"`
+	EncPrivX25519   string `json:"enc_priv_x25519"`
+	EncPrivMLKEM768 string `json:"enc_priv_mlkem768"`
 }
 
 type EntryResponse struct {

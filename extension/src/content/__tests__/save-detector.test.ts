@@ -18,18 +18,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('webextension-polyfill', () => ({
   default: {
     runtime: { sendMessage: vi.fn() },
-    storage: {
-      session: { get: vi.fn() },
-    },
   },
 }));
 
 import browser from 'webextension-polyfill';
 import { initSaveDetector } from '../save-detector.js';
-import { MessageType, STORAGE_KEYS } from '../../shared/constants.js';
+import { MessageType } from '../../shared/constants.js';
 
 const mockSendMessage = browser.runtime.sendMessage as ReturnType<typeof vi.fn>;
-const mockSessionGet = (browser.storage.session as { get: ReturnType<typeof vi.fn> }).get;
+
+// The save bar is injected as a fixed-position host <div> on document.body.
+function barShown(): boolean {
+  return Array.from(document.body.children).some(
+    (el) => el instanceof HTMLElement && el.style.position === 'fixed',
+  );
+}
 
 function buildForm(username = 'alice', password = 's3cr3t'): HTMLFormElement {
   const form = document.createElement('form');
@@ -54,12 +57,11 @@ async function submitForm(form: HTMLFormElement): Promise<void> {
 describe('initSaveDetector', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    // By default: no dismissed hosts, no existing matches for current URL
-    mockSessionGet.mockResolvedValue({ [STORAGE_KEYS.DISMISSED_SAVE_HOSTS]: [] });
-    mockSendMessage.mockImplementation(async (msg: { type: string }) => {
-      if (msg.type === MessageType.GET_MATCHES_FOR_URL) return []; // no existing entry
-      return { ok: true };
-    });
+    // The background's OFFER_SAVE handler decides whether to offer (locked vault,
+    // blocklisted/dismissed host, or unchanged credentials) and returns the
+    // existing matches. Content scripts must not read storage.session, so the
+    // detector always asks and renders based on the answer. Default: offer.
+    mockSendMessage.mockResolvedValue({ ok: true });
     initSaveDetector();
   });
 
@@ -97,32 +99,84 @@ describe('initSaveDetector', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('skips OFFER_SAVE when the host is in the dismissed list', async () => {
-    mockSessionGet.mockResolvedValue({
-      [STORAGE_KEYS.DISMISSED_SAVE_HOSTS]: ['example.com'],
-    });
+  it('delegates dismissed-host filtering to the background (no direct storage read)', async () => {
+    // The webextension mock exposes NO storage API, so any direct storage access
+    // from the content script would throw — reaching OFFER_SAVE proves it doesn't.
     const form = buildForm();
     await submitForm(form);
 
-    const offerCalls = mockSendMessage.mock.calls.filter(
-      ([msg]: [{ type: string }]) => msg.type === MessageType.OFFER_SAVE,
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MessageType.OFFER_SAVE }),
     );
-    expect(offerCalls).toHaveLength(0);
   });
 
-  it('skips OFFER_SAVE when an existing entry already matches the URL', async () => {
-    mockSendMessage.mockImplementation(async (msg: { type: string }) => {
-      if (msg.type === MessageType.GET_MATCHES_FOR_URL)
-        return [{ id: '1', name: 'Existing', url: 'https://example.com' }];
-      return { ok: true };
+  it('still sends OFFER_SAVE on a known site (the background decides new vs update)', async () => {
+    // Even when entries exist, the detector no longer short-circuits — it asks the
+    // background, which returns candidates / an update suggestion.
+    mockSendMessage.mockResolvedValue({
+      ok: true,
+      candidates: [{ id: '1', username: 'alice' }],
+      suggestUpdateId: '1',
     });
     const form = buildForm();
     await submitForm(form);
 
-    const offerCalls = mockSendMessage.mock.calls.filter(
-      ([msg]: [{ type: string }]) => msg.type === MessageType.OFFER_SAVE,
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MessageType.OFFER_SAVE }),
     );
-    expect(offerCalls).toHaveLength(0);
+    expect(barShown()).toBe(true);
+  });
+
+  it('shows no save bar when the background declines the offer', async () => {
+    mockSendMessage.mockResolvedValue({ ok: false, unchanged: true });
+    const form = buildForm();
+    await submitForm(form);
+
+    expect(barShown()).toBe(false);
+  });
+
+  it('picks the filled username field over an empty unrelated one', async () => {
+    const form = document.createElement('form');
+    const search = document.createElement('input');
+    search.type = 'text';
+    search.name = 'search';
+    search.value = ''; // empty, unrelated
+    const email = document.createElement('input');
+    email.type = 'email';
+    email.name = 'email';
+    email.value = 'me@example.com';
+    const pw = document.createElement('input');
+    pw.type = 'password';
+    pw.value = 'hunter2';
+    form.append(search, email, pw);
+    document.body.appendChild(form);
+
+    await submitForm(form);
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.OFFER_SAVE,
+        payload: expect.objectContaining({ username: 'me@example.com' }),
+      }),
+    );
+  });
+
+  it('sends an empty username (and still offers) when none is detected', async () => {
+    const form = document.createElement('form');
+    const pw = document.createElement('input');
+    pw.type = 'password';
+    pw.value = 'hunter2';
+    form.appendChild(pw);
+    document.body.appendChild(form);
+
+    await submitForm(form);
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.OFFER_SAVE,
+        payload: expect.objectContaining({ username: '' }),
+      }),
+    );
   });
 
   it('skips when form has no password field value', async () => {

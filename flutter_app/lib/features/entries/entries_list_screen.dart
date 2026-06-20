@@ -45,7 +45,8 @@ class EntriesListScreen extends ConsumerStatefulWidget {
   ConsumerState<EntriesListScreen> createState() => _EntriesListScreenState();
 }
 
-class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
+class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
+    with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
 
@@ -61,9 +62,26 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
   bool get _atRoot => _stack.length == 1;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  // Sync when returning to the app: entries saved elsewhere (the browser
+  // extension or another device) show up without a manual pull-to-refresh.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(entriesProvider);
+      ref.invalidate(foldersProvider);
+    }
   }
 
   void _exitEditMode() {
@@ -124,7 +142,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
         final encKey = full.entryKey;
         if (encKey == null) continue;
         final dataKey =
-            await VaultCrypto.decryptDataKey(encKey.encryptedKey, authSvc.privX25519!);
+            await VaultCrypto.decryptDataKey(encKey.encryptedKey, authSvc.privX25519!, authSvc.privMLKEM!);
         final data = await VaultCrypto.decryptEntryData(
             full.encryptedData, Uint8List.fromList(dataKey));
         items.add({'name': e.name, 'type': e.type, 'url': e.url, 'data': data});
@@ -247,8 +265,10 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
       return;
     }
     final entry = entries.first;
-    final priv = ref.read(authServiceProvider).privX25519;
-    if (priv == null) {
+    final authSvc = ref.read(authServiceProvider);
+    final priv = authSvc.privX25519;
+    final privM = authSvc.privMLKEM;
+    if (priv == null || privM == null) {
       _snack('Vault is locked — unlock first');
       return;
     }
@@ -258,7 +278,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
       final encKey = full.entryKey;
       if (encKey == null) throw Exception('No entry key');
       final dataKey =
-          await VaultCrypto.decryptDataKey(encKey.encryptedKey, priv);
+          await VaultCrypto.decryptDataKey(encKey.encryptedKey, priv, privM);
       data = await VaultCrypto.decryptEntryData(
           full.encryptedData, Uint8List.fromList(dataKey));
     } catch (e) {
@@ -346,25 +366,27 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen> {
   Future<void> _duplicateEntries(List<EntryResponse> entries) async {
     final authSvc = ref.read(authServiceProvider);
     final priv = authSvc.privX25519;
-    if (priv == null) {
+    final privM = authSvc.privMLKEM;
+    if (priv == null || privM == null) {
       _snack('Vault is locked — unlock first');
       return;
     }
     final api = ref.read(apiClientProvider);
     try {
       final myPub = await authSvc.getPubX25519();
+      final myPubMlkem = await authSvc.getPubMlkem768();
       final myUserId = await authSvc.getUserId();
-      if (myPub == null) throw Exception('Public key not found');
+      if (myPub == null || myPubMlkem == null) throw Exception('Public key not found');
       for (final e in entries) {
         final full = await api.getEntry(e.id);
         final encKey = full.entryKey;
         if (encKey == null) continue;
         final oldKey =
-            await VaultCrypto.decryptDataKey(encKey.encryptedKey, priv);
+            await VaultCrypto.decryptDataKey(encKey.encryptedKey, priv, privM);
         final data = await VaultCrypto.decryptEntryData(
             full.encryptedData, Uint8List.fromList(oldKey));
         final enc = await VaultCrypto.encryptEntryData(data);
-        final newEncKey = await VaultCrypto.encryptDataKey(enc.dataKey, myPub);
+        final newEncKey = await VaultCrypto.encryptDataKey(enc.dataKey, myPub, myPubMlkem);
         await api.createEntry(
           CreateEntryRequest(
             type: full.type,

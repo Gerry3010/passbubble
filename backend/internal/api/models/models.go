@@ -66,6 +66,16 @@ type UserPublicKeys struct {
 	PubMLKEM768 string `json:"pub_mlkem768"`
 }
 
+// UpdateKeysRequest rotates the caller's own key material — used to retrofit a
+// real ML-KEM-768 keypair onto an X25519-only account (post-quantum upgrade).
+// All four fields are base64-encoded; private keys are master-key-encrypted.
+type UpdateKeysRequest struct {
+	PubX25519       string `json:"pub_x25519"`
+	PubMLKEM768     string `json:"pub_mlkem768"`
+	EncPrivX25519   string `json:"enc_priv_x25519"`
+	EncPrivMLKEM768 string `json:"enc_priv_mlkem768"`
+}
+
 type UpdateUserRequest struct {
 	Status string `json:"status,omitempty"` // "active", "disabled"
 	Role   string `json:"role,omitempty"`   // "admin", "user"

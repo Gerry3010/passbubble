@@ -74,6 +74,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       final dataKey = await VaultCrypto.decryptDataKey(
         encKey.encryptedKey,
         authSvc.privX25519!,
+        authSvc.privMLKEM!,
       );
       final data = await VaultCrypto.decryptEntryData(
         entry.encryptedData,

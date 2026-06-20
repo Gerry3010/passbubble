@@ -19,6 +19,7 @@ import { term } from '../shared/theme.js';
 
 export function FillSuggestion() {
   const [matches, setMatches] = useState<EntryResponse[]>([]);
+  const [generatePassword, setGeneratePassword] = useState<string | undefined>(undefined);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Tell the embedding content script our real content height so it can size the
@@ -26,7 +27,7 @@ export function FillSuggestion() {
   useLayoutEffect(() => {
     const h = rootRef.current?.getBoundingClientRect().height ?? 0;
     if (h > 0) window.parent.postMessage({ type: 'FILL_RESIZE', height: h }, '*');
-  }, [matches]);
+  }, [matches, generatePassword]);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
@@ -36,12 +37,17 @@ export function FillSuggestion() {
       // frame) instead. The match list is non-secret metadata; actual secrets
       // are only ever fetched from the background, which gates on the session.
       if (event.source !== window.parent) return;
-      const msg = event.data as { type: string; matches?: EntryResponse[] };
-      if (msg.type === 'FILL_MATCHES' && Array.isArray(msg.matches)) {
-        setMatches(msg.matches);
+      const msg = event.data as { type: string; matches?: EntryResponse[]; generatePassword?: string };
+      if (msg.type === 'FILL_INIT') {
+        setMatches(Array.isArray(msg.matches) ? msg.matches : []);
+        setGeneratePassword(msg.generatePassword);
       }
     }
     window.addEventListener('message', handleMessage);
+    // Tell the embedder we're mounted and listening, so it (re-)sends the config.
+    // Posting only on iframe 'load' races React mount — on a cached re-injection
+    // 'load' fires before this listener exists and the config is lost.
+    window.parent.postMessage({ type: 'FILL_READY' }, '*');
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
@@ -49,9 +55,15 @@ export function FillSuggestion() {
     window.parent.postMessage({ type: 'FILL_SELECTED', entryId }, '*');
   }
 
+  function useGenerated() {
+    if (generatePassword) window.parent.postMessage({ type: 'FILL_USE_GENERATED', password: generatePassword }, '*');
+  }
+
   function dismiss() {
     window.parent.postMessage({ type: 'FILL_DISMISS' }, '*');
   }
+
+  const isGenerate = typeof generatePassword === 'string';
 
   return (
     <div
@@ -67,7 +79,7 @@ export function FillSuggestion() {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
         <span style={{ fontWeight: 700, color: term.green, fontSize: '12px' }}>
-          <span style={{ color: term.muted }}>passbubble:~$</span> fill
+          <span style={{ color: term.muted }}>passbubble:~$</span> {isGenerate ? 'generate' : 'fill'}
         </span>
         <button
           onClick={dismiss}
@@ -77,7 +89,40 @@ export function FillSuggestion() {
           ×
         </button>
       </div>
-      {matches.length === 0 ? (
+      {isGenerate ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div
+            style={{
+              border: `1px solid ${term.border}`,
+              background: term.surface,
+              borderRadius: '4px',
+              padding: '6px 8px',
+              color: term.green,
+              fontSize: '13px',
+              wordBreak: 'break-all',
+            }}
+          >
+            {generatePassword}
+          </div>
+          <button
+            onClick={useGenerated}
+            style={{
+              background: term.green,
+              color: term.bg,
+              border: `1px solid ${term.green}`,
+              borderRadius: '4px',
+              padding: '6px 12px',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontFamily: term.font,
+            }}
+          >
+            Use &amp; save
+          </button>
+          <span style={{ color: term.muted, fontSize: '11px' }}>Fills the password and saves a new entry.</span>
+        </div>
+      ) : matches.length === 0 ? (
         <p style={{ color: term.muted, fontSize: '12px', margin: 0 }}>No matching entries</p>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>

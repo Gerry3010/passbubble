@@ -116,4 +116,30 @@ describe('matchEntriesForUrl', () => {
       expect(matchEntriesForUrl('https://github.com', entries)).toHaveLength(0);
     });
   });
+
+  describe('ranking + same-domain fallback', () => {
+    it('falls back to a same-domain entry when no host match exists', () => {
+      const entries = [makeEntry(undefined, ['app.example.com'])];
+      expect(matchEntriesForUrl('https://login.example.com', entries)).toHaveLength(1);
+    });
+
+    it('does not fall back across different registrable domains', () => {
+      const entries = [makeEntry(undefined, ['example.org'])];
+      expect(matchEntriesForUrl('https://example.com', entries)).toHaveLength(0);
+    });
+
+    it('ranks exact host above a broader subdomain match', () => {
+      const exact = { ...makeEntry(undefined, ['login.example.com']), id: 'exact' };
+      const broad = { ...makeEntry(undefined, ['example.com']), id: 'broad' };
+      const res = matchEntriesForUrl('https://login.example.com', [broad, exact]);
+      expect(res.map((e) => e.id)).toEqual(['exact', 'broad']);
+    });
+
+    it('hides same-domain fallback when a stronger match exists', () => {
+      const strong = { ...makeEntry(undefined, ['login.example.com']), id: 'strong' };
+      const weak = { ...makeEntry(undefined, ['other.example.com']), id: 'weak' };
+      const res = matchEntriesForUrl('https://login.example.com', [strong, weak]);
+      expect(res.map((e) => e.id)).toEqual(['strong']);
+    });
+  });
 });

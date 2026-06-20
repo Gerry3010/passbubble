@@ -278,6 +278,27 @@ class EntryKey {
       );
 }
 
+/// Rotates the caller's own key material (post-quantum upgrade). All fields are
+/// base64-encoded; private keys are master-key-encrypted.
+class UpdateKeysRequest {
+  final String pubX25519;
+  final String pubMlkem768;
+  final String encPrivX25519;
+  final String encPrivMlkem768;
+  const UpdateKeysRequest({
+    required this.pubX25519,
+    required this.pubMlkem768,
+    required this.encPrivX25519,
+    required this.encPrivMlkem768,
+  });
+  Map<String, dynamic> toJson() => {
+        'pub_x25519': pubX25519,
+        'pub_mlkem768': pubMlkem768,
+        'enc_priv_x25519': encPrivX25519,
+        'enc_priv_mlkem768': encPrivMlkem768,
+      };
+}
+
 class CreateEntryRequest {
   final String? folderId;
   final String type;

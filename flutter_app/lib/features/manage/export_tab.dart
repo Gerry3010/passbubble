@@ -13,43 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:async';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:share_plus/share_plus.dart';
 
-import '../../core/api/api_client.dart';
-import '../../core/auth/auth_service.dart';
-import '../../core/crypto/vault_crypto.dart';
-import '../../core/importexport/bitwarden_format.dart';
-import '../../core/importexport/csv_format.dart';
-import '../../core/importexport/entry_record.dart';
-import '../../core/importexport/onepassword_format.dart';
+import '../../core/jobs/job_runner.dart';
+import '../../core/jobs/local_job.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 
-enum _ExportFormat { csv, bitwarden, onepasswordCsv, onepassword1pux }
-
-extension on _ExportFormat {
-  String get label => switch (this) {
-        _ExportFormat.csv => 'CSV (Generic)',
-        _ExportFormat.bitwarden => 'Bitwarden JSON',
-        _ExportFormat.onepasswordCsv => '1Password CSV',
-        _ExportFormat.onepassword1pux => '1Password (1PUX)',
-      };
-  String get filename => switch (this) {
-        _ExportFormat.csv => 'passbubble-export.csv',
-        _ExportFormat.bitwarden => 'passbubble-export.json',
-        _ExportFormat.onepasswordCsv => 'passbubble-export.csv',
-        _ExportFormat.onepassword1pux => 'passbubble-export.1pux',
-      };
-  bool get supportsFiles =>
-      this == _ExportFormat.bitwarden || this == _ExportFormat.onepassword1pux;
-}
-
+/// Collects export options and hands the work to the [JobRunner]. The export
+/// runs as a background job; on completion the file is shared and the result
+/// SnackBar/detail sheet offer a SHARE action to re-share it.
 class ExportTab extends ConsumerStatefulWidget {
   const ExportTab({super.key});
 
@@ -58,118 +34,19 @@ class ExportTab extends ConsumerStatefulWidget {
 }
 
 class _ExportTabState extends ConsumerState<ExportTab> {
-  _ExportFormat _format = _ExportFormat.csv;
+  ExportFormat _format = ExportFormat.csv;
   bool _includeFiles = false;
   bool _filesAsBase64 = false;
-  bool _running = false;
-  String _statusText = '';
 
-  Future<void> _export() async {
-    setState(() {
-      _running = true;
-      _statusText = 'Loading vault...';
-    });
-
-    try {
-      final api = ref.read(apiClientProvider);
-      final auth = ref.read(authServiceProvider);
-
-      final entries = await api.listEntries();
-
-      setState(() => _statusText = 'Decrypting entries...');
-      final records = <EntryRecord>[];
-
-      for (final e in entries) {
-        try {
-          final full = await api.getEntry(e.id);
-          if (full.entryKey == null) continue;
-          final dataKey = await VaultCrypto.decryptDataKey(
-              full.entryKey!.encryptedKey, auth.privX25519!);
-          final ciphertext = base64.decode(full.encryptedData);
-          final plaintext = await VaultCrypto.decrypt(SecretKey(dataKey), ciphertext);
-          final data = jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
-
-          String s(String k) => data[k] as String? ?? '';
-
-          final customFields = <CustomFieldRecord>[];
-          final rawCf = data['custom_fields'];
-          if (rawCf is List) {
-            for (final cf in rawCf) {
-              if (cf is Map<String, dynamic>) {
-                customFields.add(CustomFieldRecord.fromJson(cf));
-              }
-            }
-          }
-
-          records.add(EntryRecord(
-            name: e.name,
-            url: e.url,
-            type: e.type,
-            username: s('username'),
-            password: s('password'),
-            totpSecret: s('totp_secret'),
-            notes: s('notes'),
-            cardNumber: s('card_number'),
-            holderName: s('holder_name'),
-            expiryMonth: s('expiry_month'),
-            expiryYear: s('expiry_year'),
-            cvv: s('cvv'),
-            firstName: s('first_name'),
-            lastName: s('last_name'),
-            company: s('company'),
-            email: s('email'),
-            phone: s('phone'),
-            street: s('street'),
-            city: s('city'),
-            state: s('state'),
-            postalCode: s('postal_code'),
-            country: s('country'),
-            licenseKey: s('license_key'),
-            productName: s('product_name'),
-            customFields: customFields,
-          ));
-        } catch (_) {}
-      }
-
-      setState(() => _statusText = 'Generating file...');
-
-      Uint8List fileBytes;
-      String mimeType;
-
-      switch (_format) {
-        case _ExportFormat.csv:
-          fileBytes = Uint8List.fromList(utf8.encode(exportCsv(records)));
-          mimeType = 'text/csv';
-        case _ExportFormat.bitwarden:
-          final opts = BitwardenExportOptions(
+  void _export() {
+    unawaited(ref.read(jobRunnerProvider.notifier).startExport(
+          format: _format,
+          options: ExportOptions(
             includeFiles: _includeFiles,
             filesAsBase64: _filesAsBase64,
-          );
-          fileBytes = Uint8List.fromList(utf8.encode(exportBitwarden(records, opts)));
-          mimeType = 'application/json';
-        case _ExportFormat.onepasswordCsv:
-          fileBytes = Uint8List.fromList(utf8.encode(export1PasswordCsv(records)));
-          mimeType = 'text/csv';
-        case _ExportFormat.onepassword1pux:
-          fileBytes = exportOnePux(records);
-          mimeType = 'application/zip';
-      }
-
-      setState(() {
-        _running = false;
-        _statusText = 'Exported ${records.length} entries';
-      });
-
-      await Share.shareXFiles(
-        [XFile.fromData(fileBytes, name: _format.filename, mimeType: mimeType)],
-        subject: 'Passbubble Export',
-      );
-    } catch (e) {
-      setState(() {
-        _running = false;
-        _statusText = 'Error: $e';
-      });
-    }
+          ),
+        ));
+    DefaultTabController.of(context).animateTo(3);
   }
 
   @override
@@ -185,13 +62,13 @@ class _ExportTabState extends ConsumerState<ExportTab> {
 
         const Text('Format', style: TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
         const SizedBox(height: 8),
-        DropdownButtonFormField<_ExportFormat>(
+        DropdownButtonFormField<ExportFormat>(
           initialValue: _format,
           decoration: const InputDecoration(border: OutlineInputBorder()),
-          items: _ExportFormat.values
+          items: ExportFormat.values
               .map((f) => DropdownMenuItem(value: f, child: Text(f.label)))
               .toList(),
-          onChanged: _running ? null : (v) => setState(() => _format = v!),
+          onChanged: (v) => setState(() => _format = v!),
         ),
         const SizedBox(height: 16),
 
@@ -206,9 +83,9 @@ class _ExportTabState extends ConsumerState<ExportTab> {
             ),
             value: _includeFiles,
             activeThumbColor: AppTheme.green,
-            onChanged: _running ? null : (v) => setState(() => _includeFiles = v),
+            onChanged: (v) => setState(() => _includeFiles = v),
           ),
-          if (_includeFiles && _format == _ExportFormat.bitwarden)
+          if (_includeFiles && _format == ExportFormat.bitwarden)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Encode files as Base64'),
@@ -218,7 +95,7 @@ class _ExportTabState extends ConsumerState<ExportTab> {
               ),
               value: _filesAsBase64,
               activeThumbColor: AppTheme.green,
-              onChanged: _running ? null : (v) => setState(() => _filesAsBase64 = v),
+              onChanged: (v) => setState(() => _filesAsBase64 = v),
             ),
           const SizedBox(height: 8),
         ],
@@ -244,16 +121,18 @@ class _ExportTabState extends ConsumerState<ExportTab> {
         ),
         const SizedBox(height: 16),
 
-        if (_statusText.isNotEmpty) ...[
-          Text(_statusText, style: const TextStyle(fontSize: 12, color: AppTheme.onBgDim)),
-          const SizedBox(height: 12),
-        ],
+        const Text(
+          'The export runs as a background job — track progress in the Jobs tab. '
+          'The file is shared when it is ready.',
+          style: TextStyle(fontSize: 12, color: AppTheme.onBgDim),
+        ),
+        const SizedBox(height: 16),
 
         SizedBox(
           width: double.infinity,
           child: PbButton(
-            label: _running ? 'Exporting…' : 'Export Vault',
-            onPressed: _running ? null : _export,
+            label: 'Export Vault',
+            onPressed: _export,
             icon: Icons.download,
           ),
         ),

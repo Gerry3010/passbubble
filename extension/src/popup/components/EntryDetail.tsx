@@ -110,13 +110,23 @@ function Field({
   onCopy: () => void;
   extra?: React.ReactNode;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    onCopy();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
   return (
     <div style={{ border: `1px solid ${term.border}`, background: term.surface, borderRadius: '4px', padding: '6px 8px' }}>
       <div style={{ fontSize: '10px', color: term.muted, display: 'flex', justifyContent: 'space-between' }}>
         <span>{label}</span>
         <span style={{ display: 'flex', gap: '8px' }}>
           {extra}
-          <button onClick={onCopy} style={link}>Copy</button>
+          <button onClick={handleCopy} style={{ ...link, color: copied ? term.green : undefined }}>
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
         </span>
       </div>
       <div style={{ fontSize: '13px', wordBreak: 'break-all', fontFamily: term.font, color: term.green }}>{value}</div>

@@ -17,22 +17,56 @@
 // Does NOT call preventDefault() — the save offer is non-blocking.
 
 import browser from 'webextension-polyfill';
-import { MessageType, STORAGE_KEYS } from '../shared/constants.js';
+import { MessageType } from '../shared/constants.js';
 import { normaliseHost } from '../shared/utils.js';
+import { showSaveBar, removeSaveBar } from './save-bar.js';
 
 interface DetectedCredentials {
   username: string;
   password: string;
 }
 
+const USERNAME_SELECTOR =
+  'input[type="text"], input[type="email"], input[type="tel"], input[autocomplete="username"], input:not([type])';
+
+// Heuristic: a field whose name/id/placeholder/aria-label looks like a login id.
+function looksLikeUsername(i: HTMLInputElement): boolean {
+  if (i.getAttribute('autocomplete') === 'username') return true;
+  if (i.type === 'email') return true;
+  const hay = `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''}`;
+  return /user|e-?mail|login|account|phone|mobile|(^|[^a-z])name([^a-z]|$)/i.test(hay);
+}
+
+// Find the value the user actually typed as their username. The previous version
+// grabbed the FIRST matching field regardless of value, which often picked an
+// empty/unrelated input — so a username-ish field WITH a value wins, then the
+// nearest non-empty text field before the password, then any non-empty field.
+function findUsernameValue(form: HTMLFormElement, pw: HTMLInputElement): string {
+  const scoped = Array.from(form.querySelectorAll<HTMLInputElement>(USERNAME_SELECTOR));
+  const candidates = scoped.length
+    ? scoped
+    : Array.from(document.querySelectorAll<HTMLInputElement>(USERNAME_SELECTOR));
+  const withValue = candidates.filter((i) => i.value.trim() !== '');
+
+  const preferred = withValue.filter(looksLikeUsername);
+  if (preferred.length) return preferred[preferred.length - 1].value.trim();
+
+  // Nearest non-empty text-like field before the password field in DOM order.
+  const all = Array.from((form.ownerDocument ?? document).querySelectorAll<HTMLInputElement>('input'));
+  const pwIdx = all.indexOf(pw);
+  for (let i = pwIdx - 1; i >= 0; i--) {
+    const el = all[i];
+    if (el !== pw && el.type !== 'password' && el.value.trim() !== '') return el.value.trim();
+  }
+  return withValue[0]?.value.trim() ?? '';
+}
+
 function extractCredentials(form: HTMLFormElement): DetectedCredentials | null {
-  const pw = form.querySelector<HTMLInputElement>('input[type="password"]');
-  if (!pw || !pw.value) return null;
-  const username =
-    form.querySelector<HTMLInputElement>(
-      'input[type="email"], input[type="text"], input[autocomplete="username"]',
-    )?.value ?? '';
-  return { username, password: pw.value };
+  // Pick a password field that actually has a value (skips empty confirm fields).
+  const pw =
+    Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]')).find((p) => p.value) ?? null;
+  if (!pw) return null;
+  return { username: findUsernameValue(form, pw), password: pw.value };
 }
 
 export function initSaveDetector(): void {
@@ -45,19 +79,12 @@ export function initSaveDetector(): void {
 
       const host = normaliseHost(location.href);
 
-      // Check if user dismissed saves for this host
-      const stored = await browser.storage.session.get(STORAGE_KEYS.DISMISSED_SAVE_HOSTS);
-      const dismissed = (stored[STORAGE_KEYS.DISMISSED_SAVE_HOSTS] as string[] | undefined) ?? [];
-      if (dismissed.includes(host)) return;
-
-      // Check for existing entry (don't offer if URL already matched)
-      const matches = await browser.runtime.sendMessage({
-        type: MessageType.GET_MATCHES_FOR_URL,
-        payload: { url: location.href },
-      });
-      if (Array.isArray(matches) && matches.length > 0) return;
-
-      await browser.runtime.sendMessage({
+      // The background owns storage + crypto. It decides whether to offer at all
+      // (vault locked, blocklisted/dismissed host, or credentials identical to an
+      // existing entry → no offer) and, on a site we already know, returns the
+      // matching entries so we can offer "update" instead of only "new". Content
+      // scripts must not touch storage.session (untrusted; holds tokens + keys).
+      const resp = (await browser.runtime.sendMessage({
         type: MessageType.OFFER_SAVE,
         payload: {
           name: document.title || host,
@@ -65,7 +92,40 @@ export function initSaveDetector(): void {
           username: creds.username,
           password: creds.password,
         },
-      });
+      })) as {
+        ok?: boolean;
+        candidates?: { id: string; username: string }[];
+        suggestUpdateId?: string;
+      };
+      if (!resp?.ok) return;
+
+      // In-page "save this login?" bar (no secrets shown; the password lives in
+      // the background's pending-save and is only used by CONFIRM_SAVE/UPDATE_SAVE).
+      // Each action swallows its own errors so a failed background call never
+      // becomes an uncaught promise rejection in the page console.
+      const send = async (type: string, p: Record<string, unknown> = {}) => {
+        try {
+          await browser.runtime.sendMessage({ type, payload: p });
+        } catch (err) {
+          console.warn('[passbubble] save action failed:', err);
+        } finally {
+          removeSaveBar();
+        }
+      };
+      showSaveBar(
+        {
+          host,
+          username: creds.username,
+          candidates: resp.candidates,
+          suggestUpdateId: resp.suggestUpdateId,
+        },
+        {
+          onSaveNew: () => void send(MessageType.CONFIRM_SAVE),
+          onUpdate: (entryId) => void send(MessageType.UPDATE_SAVE, { entryId }),
+          onDismiss: () => void send(MessageType.DISMISS_SAVE, { host }),
+          onNever: () => void send(MessageType.BLOCKLIST_ADD, { host }),
+        },
+      );
     },
     true, // capture phase — collect values before form handlers clear them
   );

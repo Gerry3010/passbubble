@@ -17,6 +17,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/auth/auth_service.dart';
 import '../../features/setup/setup_screen.dart';
 import '../../features/auth/login_screen.dart';
@@ -77,7 +78,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (path.startsWith('/share')) return null;
 
       if (!auth.isLoggedIn && !isSetup && !isLogin && !isRegister) {
-        return '/login';
+        // Send fresh installs (no server URL configured) straight to /setup so
+        // the user doesn't land on a login form with no way to enter the URL.
+        final api = ref.read(apiClientProvider);
+        return api.isConfigured ? '/login' : '/setup';
       }
       if (auth.isLoggedIn && !auth.isUnlocked &&
           !path.startsWith('/unlock') && !isLogin) {
@@ -130,7 +134,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
       GoRoute(path: '/generate', builder: (_, _) => const GenerateScreen()),
-      GoRoute(path: '/manage', builder: (_, _) => const ManageScreen()),
+      GoRoute(
+        path: '/manage',
+        builder: (_, state) => ManageScreen(
+          initialTab: int.tryParse(state.uri.queryParameters['tab'] ?? ''),
+        ),
+      ),
       GoRoute(
         path: '/settings',
         builder: (_, _) => const SettingsScreen(),

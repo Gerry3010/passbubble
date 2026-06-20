@@ -67,22 +67,22 @@ async function safeSend<T>(message: { type: string; payload: Record<string, unkn
   }
 }
 
-// Returns the detected (non-signup) login form whose username/password field is
-// `el`, or null. Cheap-guards on the element type before scanning the DOM.
+// Returns the detected login/signup form whose username/password field is `el`,
+// or null. Cheap-guards on the element type before scanning the DOM.
 function loginFormFor(el: EventTarget | null): DetectedForm | null {
   if (!(el instanceof HTMLInputElement)) return null;
   const t = el.type;
   if (t && t !== 'text' && t !== 'email' && t !== 'password') return null;
-  const forms = detectLoginForms().filter((f) => !f.isSignup);
+  const forms = detectLoginForms();
   return forms.find((f) => f.usernameField === el || f.passwordField === el) ?? null;
 }
 
-// Report (once per frame) the host of the frame that has a login form, so the
-// popup can pre-fill search + "+ Site" with the form's host (e.g. an SSO iframe).
+// Report (once per frame) the host of the frame that has a login/signup form, so
+// the popup can pre-fill search + "+ Site" with the form's host (e.g. an SSO iframe).
 let reportedLoginFrame = false;
 function maybeReportLoginFrame(): void {
   if (reportedLoginFrame || !extensionAlive()) return;
-  if (detectLoginForms().some((f) => !f.isSignup)) {
+  if (detectLoginForms().length > 0) {
     reportedLoginFrame = true;
     void safeSend({
       type: MessageType.REPORT_LOGIN_FRAME,
@@ -92,7 +92,43 @@ function maybeReportLoginFrame(): void {
   }
 }
 
-// Show the fill suggestion for a focused login field.
+// Fill the password field(s) with `password`. When the fields live in a real
+// <form>, fill every password input in it (covers "confirm password"); otherwise
+// only the detected field, to avoid touching unrelated inputs elsewhere on the page.
+function fillPasswords(form: DetectedForm, password: string): void {
+  if (form.form) {
+    form.form.querySelectorAll<HTMLInputElement>('input[type="password"]').forEach((f) => fillField(f, password));
+  } else {
+    fillField(form.passwordField, password);
+  }
+}
+
+// Many signup forms reveal a "confirm password" field only AFTER the first
+// password is entered. Briefly watch the form and fill any newly-appearing empty
+// password field with the same generated password, so the two always match.
+function autofillConfirmField(form: DetectedForm, password: string): void {
+  if (!form.form) return;
+  const root = form.form;
+  const obs = new MutationObserver(() => {
+    if (!extensionAlive()) {
+      obs.disconnect();
+      return;
+    }
+    root.querySelectorAll<HTMLInputElement>('input[type="password"]').forEach((f) => {
+      if (!f.value) fillField(f, password);
+    });
+  });
+  obs.observe(root, { childList: true, subtree: true });
+  setTimeout(() => obs.disconnect(), 5000);
+}
+
+// A generated password is cached per origin so re-showing the box on the same
+// site (e.g. when the confirm field is focused) reuses it instead of generating
+// a fresh — otherwise the confirm field would never match.
+let cachedGenerated: { origin: string; password: string } | null = null;
+
+// Show the fill suggestion for a focused login/signup field. Login forms get the
+// match list; signup forms get a generated password that is auto-saved on use.
 async function showFillFor(form: DetectedForm): Promise<void> {
   const { usernameField, passwordField } = form;
   const anchor = usernameField ?? passwordField;
@@ -105,26 +141,63 @@ async function showFillFor(form: DetectedForm): Promise<void> {
   });
   if (!sessionResp?.isUnlocked) return;
 
+  const stillFocused = () =>
+    document.activeElement === usernameField || document.activeElement === passwordField;
+
+  if (form.isSignup) {
+    // Register form → offer a generated password (cached per origin so the
+    // confirm field reuses the same one) that we auto-save once.
+    const origin = location.origin;
+    let password = cachedGenerated?.origin === origin ? cachedGenerated.password : undefined;
+    if (!password) {
+      const gen = await safeSend<{ passwords?: { password: string }[] }>({
+        type: MessageType.GENERATE,
+        payload: { length: 20, include_symbols: true, count: 1 },
+      });
+      password = gen?.passwords?.[0]?.password;
+      if (!password) return;
+      cachedGenerated = { origin, password };
+    }
+    if (!stillFocused()) return;
+
+    const pw = password;
+    injectFillIframe(
+      anchor,
+      { generatePassword: pw },
+      {
+        onFillMatch: () => {},
+        onUseGenerated: () => {
+          // Only fill — never create an entry here. The username/email field is
+          // often still empty at generation time, so saving is deferred to the
+          // submit-time save-detector, which offers an in-page "save?" bar (and
+          // can offer to update an existing entry on a known site).
+          fillPasswords(form, pw);
+          autofillConfirmField(form, pw); // fill the confirm field when it appears
+        },
+        onDismiss: () => {},
+      },
+    );
+    return;
+  }
+
   const matchResp = await safeSend<unknown>({
     type: MessageType.GET_MATCHES_FOR_URL,
     payload: { url: location.href },
   });
   if (!Array.isArray(matchResp) || matchResp.length === 0) return;
-
-  // The field may have lost focus while we awaited the background — only show if
-  // a login field of this form is still focused.
-  if (document.activeElement !== usernameField && document.activeElement !== passwordField) {
-    return;
-  }
+  if (!stillFocused()) return;
 
   injectFillIframe(
     anchor,
-    matchResp,
-    (username, password) => {
-      if (usernameField) fillField(usernameField, username);
-      fillField(passwordField, password);
+    { matches: matchResp },
+    {
+      onFillMatch: (username, password) => {
+        if (usernameField) fillField(usernameField, username);
+        fillField(passwordField, password);
+      },
+      onUseGenerated: () => {},
+      onDismiss: () => {},
     },
-    () => {},
   );
 }
 

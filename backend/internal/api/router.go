@@ -84,6 +84,7 @@ func (s *Server) buildRouter() http.Handler {
 
 			r.Post("/auth/logout", h.Logout)
 			r.Get("/auth/me", h.Me)
+			r.Patch("/auth/me/keys", h.UpdateKeys) // rotate own keys (PQ upgrade)
 
 			// Account 2FA management (TOTP)
 			r.Post("/auth/totp/setup", h.SetupTOTP)

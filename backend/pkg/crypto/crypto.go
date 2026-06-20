@@ -143,7 +143,14 @@ func GenerateMLKEM768() (priv []byte, pub []byte, err error) {
 //   [ephemeral_x25519_pub(32)] [mlkem768_ct(CiphertextSize)] [nonce(12)+ciphertext]
 
 // EncryptDataKey encrypts a 32-byte data key for a recipient using hybrid KEM.
+// Recipients without a valid ML-KEM public key (e.g. X25519-only accounts created
+// by the Flutter app) fall back to the legacy X25519-only format, which every
+// client can decrypt. Mirrors the TS (extension) and CLI behaviour.
 func EncryptDataKey(dataKey, recipX25519Pub, recipMLKEMPub []byte) ([]byte, error) {
+	if len(recipMLKEMPub) != mlkem.Scheme().PublicKeySize() {
+		return EncryptDataKeyX25519Only(dataKey, recipX25519Pub)
+	}
+
 	// X25519 ephemeral key exchange
 	var ephemPriv, ephemPub x25519.Key
 	if _, err := rand.Read(ephemPriv[:]); err != nil {
@@ -185,12 +192,41 @@ func EncryptDataKey(dataKey, recipX25519Pub, recipMLKEMPub []byte) ([]byte, erro
 	return out, nil
 }
 
-// DecryptDataKey decrypts an EncryptedKey using the recipient's private keys.
+// EncryptDataKeyX25519Only produces the legacy X25519-only wire format used by
+// the Flutter app: ephPub(32) || AES-256-GCM(rawSharedSecret, dataKey), with the
+// raw X25519 shared secret used directly as the AES key (no HKDF). Use
+// EncryptDataKey for new entries; this exists for X25519-only accounts and tests.
+func EncryptDataKeyX25519Only(dataKey, recipX25519Pub []byte) ([]byte, error) {
+	var ephemPriv, ephemPub x25519.Key
+	if _, err := rand.Read(ephemPriv[:]); err != nil {
+		return nil, fmt.Errorf("gen ephemeral x25519: %w", err)
+	}
+	x25519.KeyGen(&ephemPub, &ephemPriv)
+
+	var recipPub, shared x25519.Key
+	copy(recipPub[:], recipX25519Pub)
+	if ok := x25519.Shared(&shared, &ephemPriv, &recipPub); !ok {
+		return nil, errors.New("crypto: x25519 shared secret is zero (invalid public key)")
+	}
+	enc, err := Encrypt(shared[:], dataKey)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt data key: %w", err)
+	}
+	out := make([]byte, 0, 32+len(enc))
+	out = append(out, ephemPub[:]...)
+	out = append(out, enc...)
+	return out, nil
+}
+
+// DecryptDataKey decrypts an EncryptedKey using the recipient's private keys,
+// auto-detecting the wire format:
+//   - Hybrid (≥ 32+ctSize bytes): ephPub(32) || mlkem_ct || AES-GCM  (Go/backend)
+//   - Legacy (< that):            ephPub(32) || AES-GCM              (Flutter, X25519-only)
 func DecryptDataKey(encKey, privX25519, privMLKEM []byte) ([]byte, error) {
 	ctSize := mlkem.Scheme().CiphertextSize()
 	const x25519PubLen = 32
-	if len(encKey) <= x25519PubLen+ctSize {
-		return nil, errors.New("crypto: encrypted key too short")
+	if len(encKey) < x25519PubLen+ctSize {
+		return decryptDataKeyX25519Only(encKey, privX25519)
 	}
 
 	ephemPubBytes := encKey[:x25519PubLen]
@@ -218,6 +254,23 @@ func DecryptDataKey(encKey, privX25519, privMLKEM []byte) ([]byte, error) {
 
 	combined := hybridKDF(sharedX25519[:], sharedMLKEM)
 	return Decrypt(combined, encDataKey)
+}
+
+// decryptDataKeyX25519Only handles the Flutter legacy wire format: ephPub(32) ||
+// AES-256-GCM(nonce||ciphertext||tag) with the raw X25519 shared secret as the
+// AES key (no HKDF).
+func decryptDataKeyX25519Only(encKey, privX25519 []byte) ([]byte, error) {
+	const minLen = 32 + 12 // ephPub + AES-GCM nonce minimum
+	if len(encKey) < minLen {
+		return nil, errors.New("crypto: encrypted key too short")
+	}
+	var ephemPub, privKey, shared x25519.Key
+	copy(ephemPub[:], encKey[:32])
+	copy(privKey[:], privX25519)
+	if ok := x25519.Shared(&shared, &privKey, &ephemPub); !ok {
+		return nil, errors.New("crypto: x25519 shared secret is zero")
+	}
+	return Decrypt(shared[:], encKey[32:])
 }
 
 func hybridKDF(classical, pq []byte) []byte {

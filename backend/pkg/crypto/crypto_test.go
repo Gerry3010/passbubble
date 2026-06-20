@@ -99,6 +99,56 @@ func TestHybridKEMRoundtrip(t *testing.T) {
 	}
 }
 
+func TestDecryptDataKeyLegacyX25519Only(t *testing.T) {
+	// A Flutter X25519-only account: a real X25519 keypair, no ML-KEM key.
+	privX, pubX, err := crypto.GenerateX25519()
+	if err != nil {
+		t.Fatal("GenerateX25519:", err)
+	}
+	dataKey, _ := crypto.RandKey()
+
+	encKey, err := crypto.EncryptDataKeyX25519Only(dataKey, pubX)
+	if err != nil {
+		t.Fatal("EncryptDataKeyX25519Only:", err)
+	}
+	// Legacy blobs are far shorter than a hybrid key.
+	if len(encKey) >= 32+1088 {
+		t.Fatalf("legacy key unexpectedly long: %d", len(encKey))
+	}
+
+	// DecryptDataKey must auto-detect the legacy format (privMLKEM is irrelevant).
+	got, err := crypto.DecryptDataKey(encKey, privX, nil)
+	if err != nil {
+		t.Fatal("DecryptDataKey (legacy):", err)
+	}
+	if !bytes.Equal(got, dataKey) {
+		t.Fatal("legacy decrypted key does not match original")
+	}
+}
+
+func TestEncryptDataKeyFallsBackWithoutMLKEM(t *testing.T) {
+	privX, pubX, _ := crypto.GenerateX25519()
+	dataKey, _ := crypto.RandKey()
+
+	// A 32-byte placeholder (what the Flutter app stores) is not a valid ML-KEM
+	// key, so EncryptDataKey must fall back to the legacy X25519-only format.
+	placeholder := make([]byte, 32)
+	encKey, err := crypto.EncryptDataKey(dataKey, pubX, placeholder)
+	if err != nil {
+		t.Fatal("EncryptDataKey (fallback):", err)
+	}
+	if len(encKey) >= 32+1088 {
+		t.Fatalf("expected legacy-length key, got %d", len(encKey))
+	}
+	got, err := crypto.DecryptDataKey(encKey, privX, nil)
+	if err != nil {
+		t.Fatal("DecryptDataKey:", err)
+	}
+	if !bytes.Equal(got, dataKey) {
+		t.Fatal("fallback decrypted key does not match original")
+	}
+}
+
 func TestHybridKEMWrongKey(t *testing.T) {
 	_, recipPubX25519, _ := crypto.GenerateX25519()
 	_, recipPubMLKEM, _ := crypto.GenerateMLKEM768()

@@ -42,6 +42,44 @@ func (h *Handler) GetUserKeys(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, keys)
 }
 
+// UpdateKeys handles PATCH /api/v1/auth/me/keys
+// Rotates the authenticated user's own key material. Used to retrofit a real
+// ML-KEM-768 keypair onto an X25519-only account (post-quantum upgrade). The
+// caller is responsible for re-wrapping their entry data keys to the new keys;
+// this endpoint only persists the new public + encrypted-private key material.
+func (h *Handler) UpdateKeys(w http.ResponseWriter, r *http.Request) {
+	claims := mw.ClaimsFromCtx(r.Context())
+	req, err := decode[models.UpdateKeysRequest](r)
+	if err != nil {
+		respondErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PubX25519 == "" || req.PubMLKEM768 == "" || req.EncPrivX25519 == "" || req.EncPrivMLKEM768 == "" {
+		respondErr(w, http.StatusBadRequest, "public and encrypted private keys are required")
+		return
+	}
+
+	ct, err := h.pool.Exec(r.Context(), `
+		UPDATE users SET
+			pub_x25519        = $2,
+			pub_mlkem768      = $3,
+			enc_priv_x25519   = $4,
+			enc_priv_mlkem768 = $5,
+			updated_at        = NOW()
+		WHERE id = $1`,
+		claims.UserID, req.PubX25519, req.PubMLKEM768, req.EncPrivX25519, req.EncPrivMLKEM768,
+	)
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to update keys")
+		return
+	}
+	if ct.RowsAffected() == 0 {
+		respondErr(w, http.StatusNotFound, "user not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // SearchUsers handles GET /api/v1/users/search?q=email
 func (h *Handler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))

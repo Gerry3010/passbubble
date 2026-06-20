@@ -209,6 +209,11 @@ class ApiClient {
 
   Future<void> deleteEntry(String id) => _delete('/api/v1/entries/$id');
 
+  /// Rotates the caller's own key material (post-quantum upgrade).
+  Future<void> updateKeys(UpdateKeysRequest req) async {
+    await _patch('/api/v1/auth/me/keys', req.toJson());
+  }
+
   Future<List<EntryResponse>> searchEntries(String query) async {
     final resp = await _get('/api/v1/entries/search?q=${Uri.encodeQueryComponent(query)}');
     return (resp.data as List)

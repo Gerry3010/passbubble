@@ -85,6 +85,23 @@ func (m Model) handleSettingsScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cycleLogoutInterval()
 		return m, nil
 
+	case "p":
+		// Manage PIN quick-unlock: enable (setup screen) or disable.
+		if m.vault == nil || !m.vault.IsUnlocked() {
+			m.status = "Unlock the vault before changing the PIN"
+			m.statusType = "error"
+			return m, nil
+		}
+		if m.vault.PINEnabled() {
+			return m, m.disablePINCmd()
+		}
+		m.screen = PINSetupScreen
+		m.authFields = newPINSetupFields()
+		m.authCursor = 0
+		m.authErr = ""
+		m.authBusy = false
+		return m, nil
+
 	case "l":
 		return m.lockVault(), nil
 
@@ -120,6 +137,14 @@ func (m *Model) cycleLogoutInterval() {
 		m.status = fmt.Sprintf("Auto-lock set to %s", formatTimeout(m.idleTimeout))
 	}
 	m.statusType = "success"
+}
+
+// pinToggleVerb returns the action label for the 'p' settings shortcut.
+func pinToggleVerb(v *vaultpkg.Vault) string {
+	if v != nil && v.PINEnabled() {
+		return "disable"
+	}
+	return "set up"
 }
 
 // formatTimeout renders an idle timeout for display ("off" when disabled).
@@ -268,9 +293,22 @@ func (m Model) renderSettingsScreen() string {
 		locked = "locked"
 	}
 
+	pinStatus := "off"
+	if m.vault != nil && m.vault.PINEnabled() {
+		pinStatus = fmt.Sprintf("on — master password every %d days", m.vault.Config().PINPwIntervalDays)
+	}
+
 	fmt.Fprintf(&b, "Account\n  Email:   %s\n  User ID: %s\n\n", email, userID)
 	fmt.Fprintf(&b, "Server\n  URL:     %s\n  Vault:   %s\n\n", server, locked)
-	fmt.Fprintf(&b, "Security\n  Auto-lock: %s  (press 't' to change)\n\n", formatTimeout(m.idleTimeout))
+	fmt.Fprintf(&b, "Security\n  Auto-lock: %s  (press 't' to change)\n", formatTimeout(m.idleTimeout))
+	fmt.Fprintf(&b, "  PIN unlock: %s  (press 'p' to %s)\n",
+		pinStatus, pinToggleVerb(m.vault))
+	if m.vault != nil && m.vault.PINEnabled() {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).
+			Render("  ⚠ PIN is stored on this device and is weaker than your master password."))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString(m.titleStyle.Render("Keybindings"))
 	b.WriteString("\n")
@@ -295,7 +333,7 @@ func (m Model) renderSettingsScreen() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(m.helpStyle.Render("↑/↓: select  Enter: rebind  (then Esc: unbind)  t: auto-lock  l: lock  o: log out  q: back"))
+	b.WriteString(m.helpStyle.Render("↑/↓: select  Enter: rebind  (then Esc: unbind)  t: auto-lock  p: PIN  l: lock  o: log out  q: back"))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

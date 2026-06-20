@@ -31,9 +31,18 @@ class SetupScreen extends ConsumerStatefulWidget {
 }
 
 class _SetupScreenState extends ConsumerState<SetupScreen> {
-  final _urlCtrl = TextEditingController(text: 'https://');
+  late final TextEditingController _urlCtrl;
   bool _loading = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = ref.read(apiClientProvider).baseUrl;
+    _urlCtrl = TextEditingController(
+      text: (existing != null && existing.isNotEmpty) ? existing : 'https://',
+    );
+  }
 
   @override
   void dispose() {

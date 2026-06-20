@@ -19,3 +19,4 @@ export * from './crypto/index.js';
 export type * from './types/api.js';
 export type * from './types/vault.js';
 export * from './vault/vault.js';
+export * from './vault/pin.js';

@@ -16,6 +16,8 @@
 import { ServerUrlForm } from './components/ServerUrlForm.js';
 import { AccountSection } from './components/AccountSection.js';
 import { ImportSection } from './components/ImportSection.js';
+import { BlocklistSection } from './components/BlocklistSection.js';
+import { PinSection } from './components/PinSection.js';
 import { term } from '../shared/theme.js';
 
 export function App() {
@@ -26,12 +28,19 @@ export function App() {
       </h1>
       <AccountSection />
       <ServerUrlForm />
+      <PinSection />
       <ImportSection />
+      <BlocklistSection />
       <section style={{ color: term.muted, fontSize: '13px' }}>
         <h2 style={{ fontSize: '16px', fontWeight: 700, color: term.green, marginBottom: '8px', fontFamily: term.font }}>
           # security
         </h2>
-        <p>Your master password is never stored. The vault locks when the browser closes.</p>
+        <p>
+          Your master password is never stored. Without a PIN, the vault locks when the browser
+          closes. With a PIN enabled, a logged-in copy of your keys (encrypted under the PIN) is
+          kept on this device so you can unlock with the PIN until the master-password interval
+          elapses.
+        </p>
       </section>
     </div>
   );

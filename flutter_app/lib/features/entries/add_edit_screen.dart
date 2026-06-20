@@ -163,6 +163,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         final dataKey = await VaultCrypto.decryptDataKey(
           entry.entryKey!.encryptedKey,
           authSvc.privX25519!,
+          authSvc.privMLKEM!,
         );
         final data = await VaultCrypto.decryptEntryData(
           entry.encryptedData,
@@ -277,9 +278,12 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
           await VaultCrypto.encryptEntryData(_collectData());
 
       final myPubX25519 = await authSvc.getPubX25519();
-      if (myPubX25519 == null) throw Exception('Public key not found');
+      final myPubMlkem = await authSvc.getPubMlkem768();
+      if (myPubX25519 == null || myPubMlkem == null) {
+        throw Exception('Public key not found');
+      }
       final myUserId = await authSvc.getUserId();
-      final encKey = await VaultCrypto.encryptDataKey(dataKey, myPubX25519);
+      final encKey = await VaultCrypto.encryptDataKey(dataKey, myPubX25519, myPubMlkem);
 
       if (isEdit) {
         await ref.read(apiClientProvider).updateEntry(

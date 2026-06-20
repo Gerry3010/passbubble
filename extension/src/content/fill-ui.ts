@@ -32,11 +32,25 @@ export function isFillIframeShown(anchor?: HTMLInputElement): boolean {
   return anchor ? activeAnchor === anchor : true;
 }
 
+export interface FillPayload {
+  // Match mode: existing entries to offer for a login form.
+  matches?: EntryResponse[];
+  // Generate mode: a fresh password to offer on a signup/register form.
+  generatePassword?: string;
+}
+
+export interface FillHandlers {
+  // A matching entry was chosen (resolved to credentials via the background).
+  onFillMatch: (username: string, password: string) => void;
+  // The generated password was accepted on a signup form.
+  onUseGenerated: (password: string) => void;
+  onDismiss: () => void;
+}
+
 export function injectFillIframe(
   anchorField: HTMLInputElement,
-  matches: EntryResponse[],
-  onFill: (username: string, password: string) => void,
-  onDismiss: () => void,
+  payload: FillPayload,
+  handlers: FillHandlers,
 ): void {
   removeFillIframe();
 
@@ -55,17 +69,23 @@ export function injectFillIframe(
   activeIframe = iframe;
   activeAnchor = anchorField;
 
-  iframe.addEventListener('load', () => {
+  const postInit = () =>
     iframe.contentWindow?.postMessage(
-      { type: 'FILL_MATCHES', matches },
+      { type: 'FILL_INIT', matches: payload.matches ?? [], generatePassword: payload.generatePassword },
       browser.runtime.getURL(''),
     );
-  });
+  // Post on load AND on the iframe's FILL_READY handshake (below) to avoid a
+  // race where the React app mounts after 'load' fires.
+  iframe.addEventListener('load', postInit);
 
   window.addEventListener('message', function handler(event) {
     // Only accept messages from our extension
     if (event.origin !== new URL(browser.runtime.getURL('')).origin) return;
-    const msg = event.data as { type: string; entryId?: string; height?: number };
+    const msg = event.data as { type: string; entryId?: string; height?: number; password?: string };
+    if (msg.type === 'FILL_READY') {
+      postInit();
+      return;
+    }
     if (msg.type === 'FILL_RESIZE' && typeof msg.height === 'number') {
       // Fit the iframe to its content so there's no empty (white) area below it.
       iframe.style.height = `${Math.max(1, Math.ceil(msg.height))}px`;
@@ -76,12 +96,16 @@ export function injectFillIframe(
         .sendMessage({ type: 'FILL_ENTRY', payload: { entryId: msg.entryId } })
         .then((resp: { username?: string; password?: string; locked?: boolean }) => {
           if (resp.locked) return;
-          onFill(resp.username ?? '', resp.password ?? '');
+          handlers.onFillMatch(resp.username ?? '', resp.password ?? '');
           removeFillIframe();
         });
       window.removeEventListener('message', handler);
+    } else if (msg.type === 'FILL_USE_GENERATED' && typeof msg.password === 'string') {
+      handlers.onUseGenerated(msg.password);
+      removeFillIframe();
+      window.removeEventListener('message', handler);
     } else if (msg.type === 'FILL_DISMISS') {
-      onDismiss();
+      handlers.onDismiss();
       removeFillIframe();
       window.removeEventListener('message', handler);
     }
