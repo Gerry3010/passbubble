@@ -101,7 +101,8 @@ Breaking change: use `feat!:` / `fix!:` or add a `BREAKING CHANGE:` footer.
 
 ```bash
 # The mailer brand icon is a //go:embed asset generated from assets/svg/icon-extension.svg
-# (the single source of truth — never committed). Generate it before compiling the backend:
+# (the single source of truth — never committed; see docs/icons.md). Generate it
+# before compiling the backend:
 make mailer-icon
 cd backend && go build ./... && go vet ./... && go test ./...
 cd cli     && go build ./... && go vet ./... && go test -race ./...
