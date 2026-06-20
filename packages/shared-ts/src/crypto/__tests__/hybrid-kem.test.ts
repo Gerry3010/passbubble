@@ -15,10 +15,24 @@
 
 import { describe, expect, it } from 'vitest';
 import { MLKEM768_CT_SIZE, generateMLKEM768 } from '../mlkem.js';
-import { generateX25519 } from '../x25519.js';
+import { generateX25519, x25519PublicKey, x25519SharedSecret } from '../x25519.js';
+import { aesGcmEncrypt } from '../aes-gcm.js';
 import { decryptDataKey, encryptDataKey } from '../hybrid-kem.js';
 
 const X25519_PUB_LEN = 32;
+
+// Builds a Flutter legacy (X25519-only) wire key: ephPub(32) || AES-GCM with the
+// raw X25519 shared secret as the AES key. Mirrors Go's encryptDataKeyX25519Only.
+async function legacyEncryptDataKey(dataKey: Uint8Array, recipPubX: Uint8Array): Promise<Uint8Array> {
+  const ephPriv = generateX25519().priv;
+  const ephPub = x25519PublicKey(ephPriv);
+  const shared = x25519SharedSecret(ephPriv, recipPubX);
+  const enc = await aesGcmEncrypt(shared, dataKey);
+  const out = new Uint8Array(ephPub.length + enc.length);
+  out.set(ephPub);
+  out.set(enc, ephPub.length);
+  return out;
+}
 
 describe('hybrid-kem', () => {
   it('encrypt + decrypt round-trip: recovered key matches original', async () => {
@@ -60,6 +74,19 @@ describe('hybrid-kem', () => {
     const { priv: privX } = generateX25519();
     const { priv: privM } = await generateMLKEM768();
     await expect(decryptDataKey(new Uint8Array(32), privX, privM)).rejects.toThrow();
+  });
+
+  it('decrypts the Flutter legacy (X25519-only) wire format', async () => {
+    const { priv: privX, pub: pubX } = generateX25519();
+    const { priv: privM } = await generateMLKEM768();
+    const dataKey = crypto.getRandomValues(new Uint8Array(32));
+
+    const legacyKey = await legacyEncryptDataKey(dataKey, pubX);
+    // Legacy keys are far shorter than a hybrid key (~92 vs ~1180 bytes).
+    expect(legacyKey.length).toBeLessThan(X25519_PUB_LEN + MLKEM768_CT_SIZE);
+
+    const recovered = await decryptDataKey(legacyKey, privX, privM);
+    expect(recovered).toEqual(dataKey);
   });
 
   it('two encryptions of same key produce different blobs', async () => {

@@ -54,23 +54,35 @@ export async function encryptDataKey(
   return out;
 }
 
+// Decrypts a data key, auto-detecting the wire format (mirrors Go's
+// DecryptDataKey in cli/internal/crypto/crypto.go):
+//   - Hybrid (≥ 32+mlkemCTSize bytes): ephPub(32) || mlkem_ct || AES-GCM
+//   - Legacy (< that):                 ephPub(32) || AES-GCM — produced by the
+//     Flutter app (X25519-only, raw shared secret used directly as the AES key).
 export async function decryptDataKey(
   encKey: Uint8Array,
   privX25519: Uint8Array,
   privMLKEM: Uint8Array,
 ): Promise<Uint8Array> {
-  const minLen = X25519_PUB_LEN + MLKEM768_CT_SIZE + 1;
-  if (encKey.length <= minLen) {
-    throw new Error('hybrid-kem: encrypted key too short');
+  if (encKey.length >= X25519_PUB_LEN + MLKEM768_CT_SIZE) {
+    const ephemPub = encKey.slice(0, X25519_PUB_LEN);
+    const mlkemCT = encKey.slice(X25519_PUB_LEN, X25519_PUB_LEN + MLKEM768_CT_SIZE);
+    const encDataKey = encKey.slice(X25519_PUB_LEN + MLKEM768_CT_SIZE);
+
+    const sharedX25519 = x25519SharedSecret(privX25519, ephemPub);
+    const sharedMLKEM = await mlkemDecapsulate(privMLKEM, mlkemCT);
+
+    const combined = await hybridKDF(sharedX25519, sharedMLKEM);
+    return aesGcmDecrypt(combined, encDataKey);
   }
 
+  // Flutter legacy wire format: ephPub(32) || AES-256-GCM(nonce||ct||tag) with
+  // the raw X25519 shared secret used directly as the AES key (no HKDF).
+  if (encKey.length < X25519_PUB_LEN + 12) {
+    throw new Error('hybrid-kem: encrypted key too short');
+  }
   const ephemPub = encKey.slice(0, X25519_PUB_LEN);
-  const mlkemCT = encKey.slice(X25519_PUB_LEN, X25519_PUB_LEN + MLKEM768_CT_SIZE);
-  const encDataKey = encKey.slice(X25519_PUB_LEN + MLKEM768_CT_SIZE);
-
-  const sharedX25519 = x25519SharedSecret(privX25519, ephemPub);
-  const sharedMLKEM = await mlkemDecapsulate(privMLKEM, mlkemCT);
-
-  const combined = await hybridKDF(sharedX25519, sharedMLKEM);
-  return aesGcmDecrypt(combined, encDataKey);
+  const encDataKey = encKey.slice(X25519_PUB_LEN);
+  const shared = x25519SharedSecret(privX25519, ephemPub);
+  return aesGcmDecrypt(shared, encDataKey);
 }
