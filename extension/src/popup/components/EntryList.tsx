@@ -16,6 +16,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useEntriesStore } from '../store/entries.js';
 import type { EntryResponse, FolderResponse } from '@passbubble/shared-ts';
+import { patternMatchesHost } from '../../shared/utils.js';
 import { term, input, buttonPrimary, buttonGhost, link, muted } from '../../shared/theme.js';
 
 interface CopyState {
@@ -30,7 +31,8 @@ export function EntryList({
   onSelect?: (entry: EntryResponse) => void;
   onCreate?: () => void;
 } = {}) {
-  const { entries, folders, currentHost, isLoading, load, copyField } = useEntriesStore();
+  const { entries, folders, currentHost, isLoading, load, copyField, toggleSite, removeMatch } =
+    useEntriesStore();
   const [query, setQuery] = useState('');
   const [folderId, setFolderId] = useState<string | null>(null);
   const [seededHost, setSeededHost] = useState(false);
@@ -55,7 +57,13 @@ export function EntryList({
   const results = useMemo(() => {
     if (!searching) return [];
     return entries.filter(
-      (e) => e.name.toLowerCase().includes(q) || (e.url ?? '').toLowerCase().includes(q),
+      (e) =>
+        e.name.toLowerCase().includes(q) ||
+        (e.url ?? '').toLowerCase().includes(q) ||
+        // Match patterns: substring (partial typing) OR wildcard host-match, so a
+        // query like "gist.github.com" also finds an entry whose pattern is
+        // "*.github.com". (Add/remove stay exact — only search expands wildcards.)
+        (e.match_patterns ?? []).some((p) => p.toLowerCase().includes(q) || patternMatchesHost(q, p)),
     );
   }, [entries, q, searching]);
 
@@ -137,8 +145,11 @@ export function EntryList({
             key={entry.id}
             entry={entry}
             copied={copied}
+            currentHost={currentHost}
             onCopy={handleCopy}
             onSelect={onSelect}
+            onToggleSite={toggleSite}
+            onRemoveMatch={removeMatch}
           />
         ))}
       </ul>
@@ -179,16 +190,26 @@ function FolderRow({
 function EntryItem({
   entry,
   copied,
+  currentHost,
   onCopy,
   onSelect,
+  onToggleSite,
+  onRemoveMatch,
 }: {
   entry: EntryResponse;
   copied: CopyState | null;
+  currentHost: string;
   onCopy: (id: string, field: 'username' | 'password') => void;
   onSelect?: (entry: EntryResponse) => void;
+  onToggleSite: (id: string) => void;
+  onRemoveMatch: (id: string, pattern: string) => void;
 }) {
   const isCopiedUser = copied?.entryId === entry.id && copied.field === 'username';
   const isCopiedPw = copied?.entryId === entry.id && copied.field === 'password';
+
+  const patterns = entry.match_patterns ?? [];
+  const hostActive = !!currentHost && patterns.includes(currentHost);
+  const [showSites, setShowSites] = useState(false);
 
   return (
     <li
@@ -233,7 +254,7 @@ function EntryItem({
           {entry.url}
         </span>
       )}
-      <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
+      <div style={{ display: 'flex', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
         <CopyButton
           label={isCopiedUser ? 'Copied!' : 'Username'}
           copied={isCopiedUser}
@@ -247,7 +268,52 @@ function EntryItem({
         {onSelect && (
           <CopyButton label="Details" copied={false} onClick={() => onSelect(entry)} />
         )}
+        {currentHost && (
+          <CopyButton
+            label={hostActive ? `✓ ${currentHost}` : '+ Site'}
+            copied={hostActive}
+            onClick={() => onToggleSite(entry.id)}
+          />
+        )}
       </div>
+
+      {/* Toggleable list of this entry's autofill match patterns. */}
+      {patterns.length > 0 && (
+        <button
+          onClick={() => setShowSites((v) => !v)}
+          style={{ ...link, alignSelf: 'flex-start', fontSize: '11px' }}
+        >
+          {showSites ? '▾' : '▸'} {patterns.length} match {patterns.length === 1 ? 'site' : 'sites'}
+        </button>
+      )}
+      {showSites && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', paddingLeft: '4px' }}>
+          {patterns.map((p) => (
+            <div
+              key={p}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '11px',
+                color: term.muted,
+                fontFamily: term.font,
+              }}
+            >
+              <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{p}</span>
+              <button
+                onClick={() => onRemoveMatch(entry.id, p)}
+                aria-label={`Remove ${p}`}
+                title={`Remove ${p}`}
+                style={{ ...link, color: term.red, flexShrink: 0 }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </li>
   );
 }

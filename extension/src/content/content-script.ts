@@ -18,8 +18,8 @@
 
 import browser from 'webextension-polyfill';
 import { MessageType } from '../shared/constants.js';
-import { detectLoginForms } from './form-detector.js';
-import { injectFillIframe, removeFillIframe } from './fill-ui.js';
+import { detectLoginForms, type DetectedForm } from './form-detector.js';
+import { injectFillIframe, removeFillIframe, isFillIframeShown } from './fill-ui.js';
 import { initSaveDetector } from './save-detector.js';
 
 // Fill a form field in a way that works with React / Vue SPAs.
@@ -67,15 +67,43 @@ async function safeSend<T>(message: { type: string; payload: Record<string, unkn
   }
 }
 
-async function tryInjectFillUI(): Promise<void> {
+// Returns the detected (non-signup) login form whose username/password field is
+// `el`, or null. Cheap-guards on the element type before scanning the DOM.
+function loginFormFor(el: EventTarget | null): DetectedForm | null {
+  if (!(el instanceof HTMLInputElement)) return null;
+  const t = el.type;
+  if (t && t !== 'text' && t !== 'email' && t !== 'password') return null;
+  const forms = detectLoginForms().filter((f) => !f.isSignup);
+  return forms.find((f) => f.usernameField === el || f.passwordField === el) ?? null;
+}
+
+// Report (once per frame) the host of the frame that has a login form, so the
+// popup can pre-fill search + "+ Site" with the form's host (e.g. an SSO iframe).
+let reportedLoginFrame = false;
+function maybeReportLoginFrame(): void {
+  if (reportedLoginFrame || !extensionAlive()) return;
+  if (detectLoginForms().some((f) => !f.isSignup)) {
+    reportedLoginFrame = true;
+    void safeSend({
+      type: MessageType.REPORT_LOGIN_FRAME,
+      payload: { host: location.hostname.replace(/^www\./, '') },
+    });
+    observer.disconnect();
+  }
+}
+
+// Show the fill suggestion for a focused login field.
+async function showFillFor(form: DetectedForm): Promise<void> {
+  const { usernameField, passwordField } = form;
+  const anchor = usernameField ?? passwordField;
+  // Already shown for this field (e.g. duplicate focus event)? Do nothing.
+  if (isFillIframeShown(anchor)) return;
+
   const sessionResp = await safeSend<{ isUnlocked?: boolean }>({
     type: MessageType.GET_SESSION,
     payload: {},
   });
   if (!sessionResp?.isUnlocked) return;
-
-  const forms = detectLoginForms().filter((f) => !f.isSignup);
-  if (forms.length === 0) return;
 
   const matchResp = await safeSend<unknown>({
     type: MessageType.GET_MATCHES_FOR_URL,
@@ -83,8 +111,11 @@ async function tryInjectFillUI(): Promise<void> {
   });
   if (!Array.isArray(matchResp) || matchResp.length === 0) return;
 
-  const { usernameField, passwordField } = forms[0];
-  const anchor = usernameField ?? passwordField;
+  // The field may have lost focus while we awaited the background — only show if
+  // a login field of this form is still focused.
+  if (document.activeElement !== usernameField && document.activeElement !== passwordField) {
+    return;
+  }
 
   injectFillIframe(
     anchor,
@@ -97,40 +128,73 @@ async function tryInjectFillUI(): Promise<void> {
   );
 }
 
-// Watch for dynamically added password fields (SPAs). Debounced because pages
-// like the admin panel mutate the DOM in bursts — without this we'd fire a
-// storm of messages at the service worker on every keystroke/render.
-let injectTimer: ReturnType<typeof setTimeout> | null = null;
+// Show on focus of a login field (like a real password manager) rather than on
+// mere presence — otherwise the box re-appears after every fill/dismiss.
+function onFocusIn(e: FocusEvent): void {
+  if (!extensionAlive()) {
+    teardown();
+    return;
+  }
+  const form = loginFormFor(e.target);
+  if (form) void showFillFor(form);
+}
+
+// Dismiss when clicking outside the suggestion AND outside a login field (so
+// clicking the field to focus it doesn't immediately close the box).
+function onDocumentClick(e: MouseEvent): void {
+  const target = e.target as HTMLElement;
+  if (target.tagName === 'IFRAME' || loginFormFor(target)) return;
+  removeFillIframe();
+}
+
+function onKeyDown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') removeFillIframe();
+}
+
+// When the tab regains focus (e.g. after unlocking in the popup), show the
+// suggestion if a login field is currently focused.
+function onWindowFocus(): void {
+  if (!extensionAlive()) {
+    teardown();
+    return;
+  }
+  const form = loginFormFor(document.activeElement);
+  if (form) void showFillFor(form);
+}
+
+// A login form may load after document_idle; watch only to report its host once.
 const observer = new MutationObserver(() => {
   if (!extensionAlive()) {
     teardown();
     return;
   }
-  if (!document.querySelector('input[type="password"]')) return;
-  if (injectTimer) clearTimeout(injectTimer);
-  injectTimer = setTimeout(() => void tryInjectFillUI(), 300);
+  maybeReportLoginFrame();
 });
-
-// Dismiss fill iframe when clicking outside it
-function onDocumentClick(e: MouseEvent): void {
-  const target = e.target as HTMLElement;
-  if (target.tagName !== 'IFRAME') removeFillIframe();
-}
 
 // Detach everything once our extension context is gone, so a reloaded/updated
 // extension's stale content script stops throwing into a dead runtime.
 function teardown(): void {
   observer.disconnect();
-  if (injectTimer) clearTimeout(injectTimer);
+  document.removeEventListener('focusin', onFocusIn);
   document.removeEventListener('click', onDocumentClick);
+  document.removeEventListener('keydown', onKeyDown);
+  window.removeEventListener('focus', onWindowFocus);
   removeFillIframe();
 }
 
-observer.observe(document.body, { childList: true, subtree: true });
+document.addEventListener('focusin', onFocusIn);
 document.addEventListener('click', onDocumentClick);
+document.addEventListener('keydown', onKeyDown);
+window.addEventListener('focus', onWindowFocus);
+observer.observe(document.documentElement, { childList: true, subtree: true });
 
-// Initial detection
-void tryInjectFillUI();
+// Initial: report the host, and show now if a login field is already focused
+// (many login pages autofocus their first field).
+maybeReportLoginFrame();
+{
+  const focused = loginFormFor(document.activeElement);
+  if (focused) void showFillFor(focused);
+}
 
 // Save detection
 initSaveDetector();

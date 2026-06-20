@@ -13,25 +13,29 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type { EntryResponse } from '@passbubble/shared-ts';
-
-const EXTENSION_ORIGIN = (() => {
-  // Derive the extension origin for postMessage validation
-  try {
-    return new URL(document.location.href).origin;
-  } catch {
-    return document.location.origin;
-  }
-})();
+import { term } from '../shared/theme.js';
 
 export function FillSuggestion() {
   const [matches, setMatches] = useState<EntryResponse[]>([]);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Tell the embedding content script our real content height so it can size the
+  // iframe exactly — otherwise the fixed-height iframe shows an empty area below.
+  useLayoutEffect(() => {
+    const h = rootRef.current?.getBoundingClientRect().height ?? 0;
+    if (h > 0) window.parent.postMessage({ type: 'FILL_RESIZE', height: h }, '*');
+  }, [matches]);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      // Only accept messages from our own extension origin
-      if (event.origin !== EXTENSION_ORIGIN) return;
+      // Accept config only from our embedder (the content script). The content
+      // script runs in the host page's context, so its postMessage carries the
+      // page origin, not the extension origin — validate by source (the parent
+      // frame) instead. The match list is non-secret metadata; actual secrets
+      // are only ever fetched from the background, which gates on the session.
+      if (event.source !== window.parent) return;
       const msg = event.data as { type: string; matches?: EntryResponse[] };
       if (msg.type === 'FILL_MATCHES' && Array.isArray(msg.matches)) {
         setMatches(msg.matches);
@@ -50,20 +54,31 @@ export function FillSuggestion() {
   }
 
   return (
-    <div style={{ padding: '8px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+    <div
+      ref={rootRef}
+      style={{
+        padding: '8px',
+        background: term.bg,
+        borderRadius: '6px',
+        border: `1px solid ${term.green}`,
+        boxShadow: `0 0 0 1px ${term.border}`,
+        fontFamily: term.font,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-        <span style={{ fontWeight: 600, color: '#1a202c', fontSize: '12px' }}>
-          🔐 Passbubble
+        <span style={{ fontWeight: 700, color: term.green, fontSize: '12px' }}>
+          <span style={{ color: term.muted }}>passbubble:~$</span> fill
         </span>
         <button
           onClick={dismiss}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#718096', fontSize: '16px', lineHeight: 1 }}
+          aria-label="Dismiss"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: term.muted, fontSize: '16px', lineHeight: 1, fontFamily: term.font }}
         >
           ×
         </button>
       </div>
       {matches.length === 0 ? (
-        <p style={{ color: '#718096', fontSize: '12px' }}>No matching entries</p>
+        <p style={{ color: term.muted, fontSize: '12px', margin: 0 }}>No matching entries</p>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {matches.map((m) => (
@@ -74,21 +89,31 @@ export function FillSuggestion() {
                   width: '100%',
                   textAlign: 'left',
                   padding: '6px 8px',
-                  border: 'none',
+                  border: `1px solid ${term.border}`,
                   borderRadius: '4px',
-                  background: 'none',
+                  background: term.surface,
+                  color: term.green,
                   cursor: 'pointer',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '2px',
+                  fontFamily: term.font,
                 }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#f7fafc')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'none')}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = term.green)}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = term.border)}
               >
-                <span style={{ fontWeight: 500, color: '#2d3748' }}>{m.name}</span>
+                <span style={{ fontWeight: 700, color: term.green, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                  {m.name}
+                </span>
                 {m.url && (
-                  <span style={{ color: '#718096', fontSize: '11px' }}>
-                    {new URL(m.url.startsWith('http') ? m.url : `https://${m.url}`).hostname}
+                  <span style={{ color: term.muted, fontSize: '11px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                    {(() => {
+                      try {
+                        return new URL(m.url.startsWith('http') ? m.url : `https://${m.url}`).hostname;
+                      } catch {
+                        return m.url;
+                      }
+                    })()}
                   </span>
                 )}
               </button>

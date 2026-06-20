@@ -42,3 +42,21 @@ export function getEntriesCache(): EntryResponse[] | null {
 export function setEntriesCache(entries: EntryResponse[]): void {
   entriesCache = entries;
 }
+
+// Host of the frame that has a login form, per tab. The login form often lives
+// in a cross-origin iframe (SSO), so the top tab URL is the wrong host to add as
+// a match pattern / pre-fill the popup search with. The content script reports
+// its frame host here; the popup reads it for the active tab.
+const loginFrameHostByTab = new Map<number, string>();
+
+export function setLoginFrameHost(tabId: number, host: string): void {
+  if (host) loginFrameHostByTab.set(tabId, host);
+}
+
+export function getLoginFrameHost(tabId: number): string {
+  return loginFrameHostByTab.get(tabId) ?? '';
+}
+
+export function clearLoginFrameHost(tabId: number): void {
+  loginFrameHostByTab.delete(tabId);
+}

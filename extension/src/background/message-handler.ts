@@ -23,8 +23,10 @@ import { MessageType, STORAGE_KEYS } from '../shared/constants.js';
 import {
   clearSession,
   getEntriesCache,
+  getLoginFrameHost,
   getSession,
   setEntriesCache,
+  setLoginFrameHost,
   setSession,
 } from './session-store.js';
 import { matchEntriesForUrl } from './autofill-service.js';
@@ -80,7 +82,13 @@ async function persistLoginResponse(resp: LoginResponse): Promise<void> {
   });
 }
 
-type Handler = (payload: Record<string, unknown>) => Promise<unknown>;
+/** Minimal shape of the message sender we rely on (frame URL + tab id). */
+interface MessageSender {
+  tab?: { id?: number };
+  url?: string;
+}
+
+type Handler = (payload: Record<string, unknown>, sender: MessageSender) => Promise<unknown>;
 
 export function buildHandlers(): Record<string, Handler> {
   return {
@@ -240,6 +248,22 @@ export function buildHandlers(): Record<string, Handler> {
       return { username: data.username ?? '', password: data.password ?? '' };
     },
 
+    // The content script (running in the frame that has a login form) reports
+    // its host so the popup can pre-fill search + the "+ Site" toggle with the
+    // *form's* host, which for SSO logins is an iframe, not the top page.
+    [MessageType.REPORT_LOGIN_FRAME]: async (payload, sender) => {
+      const tabId = sender?.tab?.id;
+      const { host } = payload as { host?: string };
+      if (typeof tabId === 'number' && host) setLoginFrameHost(tabId, host);
+      return { ok: true };
+    },
+
+    [MessageType.GET_FILL_HOST]: async () => {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      const tabId = tab?.id;
+      return { host: typeof tabId === 'number' ? getLoginFrameHost(tabId) : '' };
+    },
+
     [MessageType.GET_MATCHES_FOR_URL]: async (payload) => {
       const session = getSession();
       if (!session) return { locked: true };
@@ -266,6 +290,24 @@ export function buildHandlers(): Record<string, Handler> {
       const entries = await client.listEntries();
       setEntriesCache(entries);
       return result;
+    },
+
+    // Partial metadata update. Currently used by the "+ Site" toggle to add/
+    // remove an autofill match pattern. folder_id must be echoed back because the
+    // backend always overwrites it; the caller passes the entry's current folder.
+    [MessageType.UPDATE_ENTRY]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { entryId, matchPatterns, folderId } = payload as {
+        entryId: string;
+        matchPatterns?: string[];
+        folderId?: string;
+      };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      await client.updateEntry(entryId, { folder_id: folderId, match_patterns: matchPatterns });
+      // Refresh the cache so autofill matching sees the new patterns immediately.
+      setEntriesCache(await client.listEntries());
+      return { ok: true };
     },
 
     [MessageType.GENERATE]: async (payload) => {

@@ -39,6 +39,8 @@ function defaultStore(overrides = {}) {
     error: null,
     load: vi.fn().mockResolvedValue(undefined),
     copyField: vi.fn().mockResolvedValue(undefined),
+    toggleSite: vi.fn().mockResolvedValue(undefined),
+    removeMatch: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -141,5 +143,52 @@ describe('EntryList', () => {
     render(<EntryList />);
     expect(screen.getByText('GitHub')).toBeDefined();
     expect(screen.getByText('Google')).toBeDefined();
+  });
+
+  it('shows "+ Site" and calls toggleSite when the host is not yet a match', async () => {
+    const toggleMock = vi.fn().mockResolvedValue(undefined);
+    const entries = [makeEntry('42', 'Apple', 'https://apple.com')];
+    mockUseStore.mockReturnValue(defaultStore({ entries, currentHost: 'apple.com', toggleSite: toggleMock }));
+    render(<EntryList />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /\+ Site/ }));
+    });
+    expect(toggleMock).toHaveBeenCalledWith('42');
+  });
+
+  it('shows the active host (✓) when it is already a match pattern', () => {
+    const entries = [{ ...makeEntry('42', 'Apple'), match_patterns: ['apple.com'] }];
+    mockUseStore.mockReturnValue(defaultStore({ entries, currentHost: 'apple.com' }));
+    render(<EntryList />);
+    expect(screen.getByRole('button', { name: /✓ apple\.com/ })).toBeDefined();
+    expect(screen.queryByRole('button', { name: /\+ Site/ })).toBeNull();
+  });
+
+  it('search matches an entry via a wildcard match pattern', async () => {
+    const entries = [{ ...makeEntry('7', 'GitHub'), match_patterns: ['*.github.com'] }];
+    mockUseStore.mockReturnValue(defaultStore({ entries }));
+    render(<EntryList />);
+
+    fireEvent.change(screen.getByPlaceholderText(/grep entries/i), {
+      target: { value: 'gist.github.com' },
+    });
+    await waitFor(() => expect(screen.getByText('GitHub')).toBeDefined());
+  });
+
+  it('toggles the match-patterns list and removes a pattern', async () => {
+    const removeMock = vi.fn().mockResolvedValue(undefined);
+    const entries = [{ ...makeEntry('42', 'Apple'), match_patterns: ['apple.com', 'id.apple.com'] }];
+    mockUseStore.mockReturnValue(defaultStore({ entries, removeMatch: removeMock }));
+    render(<EntryList />);
+
+    // Collapsed by default; expand it.
+    fireEvent.click(screen.getByRole('button', { name: /2 match sites/ }));
+    expect(screen.getByText('id.apple.com')).toBeDefined();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Remove id\.apple\.com/ }));
+    });
+    expect(removeMock).toHaveBeenCalledWith('42', 'id.apple.com');
   });
 });

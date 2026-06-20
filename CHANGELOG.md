@@ -7,10 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-06-20
+
 ### Added
+- **Match-Patterns direkt im Popup verwalten:** jede Eintragszeile hat neben „Details" einen **„+ Site"-Button**, der den **exakten** Host der aktuellen Seite zu den Autofill-Match-Patterns hinzufügt bzw. wieder entfernt (`✓ host`, kein Wildcard-Handling beim Add/Remove). Vorhandene Patterns lassen sich über einen **aufklappbaren „N match sites"-Bereich** anzeigen und einzeln (×) löschen. Die **Popup-Suche matcht jetzt auch Match-Patterns** — inkl. Wildcards (z. B. findet die Suche nach `gist.github.com` einen Eintrag mit `*.github.com`)
 - **Autofill-URL-Matching wie Psono + Import der Match-Patterns:** Einträge haben jetzt ein eigenes, unverschlüsseltes Feld `match_patterns` (eigene DB-Spalte, durch alle Clients gereicht: Backend, shared-ts, CLI, Extension) für **mehrere Autofill-URL-Muster pro Eintrag**. Gematcht wird im Extension-Hintergrund ohne Entschlüsselung, mit **Host- und `*`-Wildcard-Mustern** (`github.com` → inkl. Subdomains, `*.github.com` → nur Subdomains, `host:port` → Port wird ignoriert); fehlt ein Muster, fällt der Matcher wie bisher auf das `url`-Feld zurück. **Psono-Import** übernimmt die `urlfilter`/`*_url_filter`-Werte als Match-Patterns — sowohl in der **CLI** (`pwmgr import -f psono`) als auch über eine neue **Import-Sektion auf der Options-Seite der Extension** (Psono-JSON hochladen, Einträge werden client-seitig verschlüsselt angelegt)
 
 ### Fixed
+- **Autofill funktioniert jetzt überhaupt** — vorher tat sich auf Login-Seiten nichts. Mehrere Ursachen behoben:
+  - **iframe-Logins** (Apple/SSO/Banken): das Content-Script lief nur im Top-Frame, das Passwortfeld steckt aber oft in einem cross-origin iframe (`idmsa.apple.com`). Jetzt `all_frames: true` → es läuft auch dort (der iframe-Host matcht den Eintrag per Subdomain-Regel).
+  - **postMessage-Origin**: das im Seiten-Kontext laufende Content-Script schickte `FILL_MATCHES` mit der Seiten-Origin; das Fill-Iframe verwarf das (erwartete Extension-Origin) und blieb bei „No matching entries". Validierung jetzt über `event.source === window.parent` (Secrets weiterhin nur aus dem Background mit Session-Check).
+  - **fokus-getriebenes Einblenden** statt präsenz-/mutationsgetrieben: die Box erscheint beim Fokussieren eines Login-Felds, verschwindet nach dem Ausfüllen / bei Klick daneben / mit Esc und blitzt nicht mehr in einer Endlosschleife auf.
+  - **Terminal-Theme + Auto-Höhe**: das Fill-Fenster ist jetzt im App-Look (statt hell) und schrumpft auf Inhaltshöhe (kein weißer Kasten mehr darunter).
+  - Suchfeld-Prefill und „+ Site" nutzen den **Host des Login-Frames** (also den iframe-Host, nicht die Top-Seite).
+- **Weißer Hintergrund im Popup** behoben (`html`-Element hatte keine Hintergrundfarbe; nur `body` war dunkel).
+- **Browser-Extension konnte von der Flutter-App erstellte Einträge nicht entschlüsseln** („Failed to load entry: hybrid-kem: encrypted key too short", und Autofill blieb leer). Die Flutter-App speichert Entry-Keys im **Legacy-X25519-only-Format** (`ephPub(32) || AES-GCM`, ~92 B), das die Go-Clients (CLI/Backend) per Fallback lesen — die TS-Krypto der Extension kannte aber **nur** das Hybrid-Format (X25519+ML-KEM, ~1180 B). `decryptDataKey` erkennt jetzt beide Formate (gespiegelt von `cli/internal/crypto`), sodass die Extension App-erstellte Einträge öffnen und ausfüllen kann
 - **Browser-Extension: `Extension context invalidated`-Fehlerflut** (u. a. im Admin-Panel) behoben. Der `MutationObserver` des Content-Scripts feuerte nach einem Extension-Reload/-Update weiter `sendMessage` in einen toten Runtime und spammte bei DOM-intensiven Seiten den Service-Worker zu. Nachrichten laufen jetzt durch einen abgesicherten `safeSend`, der Observer/Listener abbaut, sobald der Kontext weg ist; der Observer ist zusätzlich **entprellt (300 ms)**
 
 ## [2.2.0] - 2026-06-20

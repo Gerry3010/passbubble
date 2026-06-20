@@ -28,6 +28,11 @@ interface EntriesState {
   /** Fetch the full vault (entries + folders) and the active-tab host. */
   load: () => Promise<void>;
   copyField: (entryId: string, field: 'username' | 'password') => Promise<void>;
+  /** Add the active-tab host to the entry's match patterns, or remove it if the
+   * exact host is already present (no wildcard handling — kept deliberately simple). */
+  toggleSite: (entryId: string) => Promise<void>;
+  /** Remove a single match pattern from an entry. */
+  removeMatch: (entryId: string, pattern: string) => Promise<void>;
 }
 
 /** The folders endpoint returns a tree (roots with nested `children`); the
@@ -44,8 +49,19 @@ function flattenFolders(tree: FolderResponse[]): FolderResponse[] {
   return out;
 }
 
-/** Best-effort host of the currently active tab. Empty string if unavailable. */
+/** Best-effort host for pre-filling search + the "+ Site" toggle. Prefers the
+ * host of the frame that actually has the login form (reported by the content
+ * script — often an SSO iframe), falling back to the active tab's top URL. */
 async function activeTabHost(): Promise<string> {
+  try {
+    const resp = (await browser.runtime.sendMessage({
+      type: MessageType.GET_FILL_HOST,
+      payload: {},
+    })) as { host?: string };
+    if (resp?.host) return resp.host;
+  } catch {
+    /* fall through to the top tab URL */
+  }
   try {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
     if (!tab?.url) return '';
@@ -55,7 +71,7 @@ async function activeTabHost(): Promise<string> {
   }
 }
 
-export const useEntriesStore = create<EntriesState>((set) => ({
+export const useEntriesStore = create<EntriesState>((set, get) => ({
   entries: [],
   folders: [],
   currentHost: '',
@@ -90,4 +106,41 @@ export const useEntriesStore = create<EntriesState>((set) => ({
     const value = field === 'username' ? (resp.data.username ?? '') : (resp.data.password ?? '');
     await navigator.clipboard.writeText(value);
   },
+
+  toggleSite: async (entryId) => {
+    const { entries, currentHost } = get();
+    if (!currentHost) return;
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const current = entry.match_patterns ?? [];
+    const next = current.includes(currentHost)
+      ? current.filter((p) => p !== currentHost)
+      : [...current, currentHost];
+    await persistMatchPatterns(set, get, entry, next);
+  },
+
+  removeMatch: async (entryId, pattern) => {
+    const { entries } = get();
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const next = (entry.match_patterns ?? []).filter((p) => p !== pattern);
+    await persistMatchPatterns(set, get, entry, next);
+  },
 }));
+
+/** Persist a new match-pattern list for an entry and reflect it locally. The
+ * entry's folder is echoed back because the backend always overwrites folder_id. */
+async function persistMatchPatterns(
+  set: (partial: Partial<EntriesState>) => void,
+  get: () => EntriesState,
+  entry: EntryResponse,
+  next: string[],
+): Promise<void> {
+  await browser.runtime.sendMessage({
+    type: MessageType.UPDATE_ENTRY,
+    payload: { entryId: entry.id, matchPatterns: next, folderId: entry.folder_id },
+  });
+  set({
+    entries: get().entries.map((e) => (e.id === entry.id ? { ...e, match_patterns: next } : e)),
+  });
+}

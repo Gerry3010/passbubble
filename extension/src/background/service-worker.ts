@@ -17,20 +17,27 @@
 // All E2E crypto operations run here; never in content scripts or popup.
 
 import browser from 'webextension-polyfill';
-import { getSession, setSession } from './session-store.js';
+import { getSession, setSession, clearLoginFrameHost } from './session-store.js';
 import { buildHandlers } from './message-handler.js';
 import { PassbubbleClient } from '@passbubble/shared-ts';
 import { STORAGE_KEYS } from '../shared/constants.js';
 
 const handlers = buildHandlers();
 
-browser.runtime.onMessage.addListener((message, _sender) => {
+browser.runtime.onMessage.addListener((message, sender) => {
   const { type, payload } = message as { type: string; payload: Record<string, unknown> };
   const handler = handlers[type];
   if (!handler) return;
   // Return the promise directly so the channel stays open
-  return handler(payload ?? {});
+  return handler(payload ?? {}, sender);
 });
+
+// Forget a tab's recorded login-frame host when it navigates away or closes, so
+// the popup never pre-fills a stale host.
+browser.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status === 'loading') clearLoginFrameHost(tabId);
+});
+browser.tabs.onRemoved.addListener((tabId) => clearLoginFrameHost(tabId));
 
 // Token refresh alarm
 browser.alarms.onAlarm.addListener(async (alarm) => {

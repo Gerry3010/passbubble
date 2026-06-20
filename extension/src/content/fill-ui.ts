@@ -21,6 +21,16 @@ import browser from 'webextension-polyfill';
 import type { EntryResponse } from '@passbubble/shared-ts';
 
 let activeIframe: HTMLIFrameElement | null = null;
+let activeAnchor: HTMLInputElement | null = null;
+
+// True while a fill suggestion is currently shown for `anchor` (or for any
+// field, if no anchor is given). Used to avoid re-injecting on every DOM
+// mutation — injecting the iframe is itself a mutation, which would otherwise
+// loop and make the box flash.
+export function isFillIframeShown(anchor?: HTMLInputElement): boolean {
+  if (!activeIframe || !document.body.contains(activeIframe)) return false;
+  return anchor ? activeAnchor === anchor : true;
+}
 
 export function injectFillIframe(
   anchorField: HTMLInputElement,
@@ -36,15 +46,14 @@ export function injectFillIframe(
     'position: fixed',
     'z-index: 2147483647',
     'border: none',
-    'border-radius: 8px',
-    'box-shadow: 0 4px 24px rgba(0,0,0,0.18)',
     'width: 320px',
-    'height: 200px',
+    'height: 56px', // initial; the iframe reports its real content height (FILL_RESIZE)
     'background: transparent',
   ].join(';');
   positionIframe(iframe, anchorField);
   document.body.appendChild(iframe);
   activeIframe = iframe;
+  activeAnchor = anchorField;
 
   iframe.addEventListener('load', () => {
     iframe.contentWindow?.postMessage(
@@ -56,7 +65,12 @@ export function injectFillIframe(
   window.addEventListener('message', function handler(event) {
     // Only accept messages from our extension
     if (event.origin !== new URL(browser.runtime.getURL('')).origin) return;
-    const msg = event.data as { type: string; entryId?: string };
+    const msg = event.data as { type: string; entryId?: string; height?: number };
+    if (msg.type === 'FILL_RESIZE' && typeof msg.height === 'number') {
+      // Fit the iframe to its content so there's no empty (white) area below it.
+      iframe.style.height = `${Math.max(1, Math.ceil(msg.height))}px`;
+      return;
+    }
     if (msg.type === 'FILL_SELECTED' && msg.entryId) {
       browser.runtime
         .sendMessage({ type: 'FILL_ENTRY', payload: { entryId: msg.entryId } })
@@ -79,6 +93,7 @@ export function removeFillIframe(): void {
     activeIframe.remove();
     activeIframe = null;
   }
+  activeAnchor = null;
 }
 
 function positionIframe(iframe: HTMLIFrameElement, anchor: HTMLInputElement): void {

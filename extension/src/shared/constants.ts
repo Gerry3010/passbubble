@@ -31,6 +31,10 @@ export const MessageType = {
   // Autofill
   GET_MATCHES_FOR_URL: 'GET_MATCHES_FOR_URL',
   FILL_ENTRY: 'FILL_ENTRY',
+  // Content script reports the host of the frame that has the login form (e.g. an
+  // SSO iframe); the popup queries it to pre-fill search + the "+ Site" toggle.
+  REPORT_LOGIN_FRAME: 'REPORT_LOGIN_FRAME',
+  GET_FILL_HOST: 'GET_FILL_HOST',
   // Generator
   GENERATE: 'GENERATE',
   // Save detection

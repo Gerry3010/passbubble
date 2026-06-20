@@ -37,7 +37,7 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
         }
         setData(r.data);
       })
-      .catch(() => setError('Failed to load entry'));
+      .catch((e) => setError(`Failed to load entry: ${e instanceof Error ? e.message : String(e)}`));
   }, [entry.id]);
 
   // Live TOTP code (recomputed every second) when the entry has a secret.
