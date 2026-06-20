@@ -17,7 +17,7 @@ LDFLAGS     = -ldflags="-s -w \
         build-backend build-cli build-all \
         test test-backend test-cli test-flutter test-all \
         lint migrate migrate-down migrate-create sqlc \
-        build-extension test-extension sync-assets icons mailer-icon \
+        build-extension test-extension sync-assets icons mailer-icon launcher-icons \
         clean
 
 help:
@@ -127,11 +127,23 @@ sync-assets: ## Copy SVG sources from assets/svg/ into sub-projects
 	cp assets/svg/icon.svg flutter_app/web/favicon.svg
 	cp assets/svg/icon-extension.svg extension/icons/icon.svg
 
-icons: sync-assets mailer-icon ## Rasterize SVG → extension + email PNG icons (requires rsvg-convert)
+icons: sync-assets mailer-icon launcher-icons ## Rasterize SVG → extension + email PNG icons (requires rsvg-convert)
 	mkdir -p extension/public/icons
 	rsvg-convert -w 16  -h 16  assets/svg/icon-extension.svg -o extension/public/icons/icon16.png
 	rsvg-convert -w 48  -h 48  assets/svg/icon-extension.svg -o extension/public/icons/icon48.png
 	rsvg-convert -w 128 -h 128 assets/svg/icon-extension.svg -o extension/public/icons/icon128.png
+
+# Android launcher icons (legacy square mipmaps) rendered from the opaque app
+# SVG SSOT (assets/svg/icon.svg). Like the extension/mail PNGs these are
+# generated build artifacts (gitignored) — run this before any local Android
+# (APK/AAB) build so the mipmap resources exist. CI builds no Android target, so
+# nothing else regenerates them. Densities: mdpi 48, hdpi 72, xhdpi 96, xxhdpi 144, xxxhdpi 192.
+launcher-icons: ## Render Android launcher mipmaps from the app SVG SSOT (gitignored)
+	rsvg-convert -w 48  -h 48  assets/svg/icon.svg -o flutter_app/android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+	rsvg-convert -w 72  -h 72  assets/svg/icon.svg -o flutter_app/android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+	rsvg-convert -w 96  -h 96  assets/svg/icon.svg -o flutter_app/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+	rsvg-convert -w 144 -h 144 assets/svg/icon.svg -o flutter_app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+	rsvg-convert -w 192 -h 192 assets/svg/icon.svg -o flutter_app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
 # Transparent brand icon embedded into transactional emails (//go:embed). It is a
 # generated build artifact (gitignored): assets/svg/icon-extension.svg is the

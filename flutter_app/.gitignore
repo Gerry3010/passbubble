@@ -47,3 +47,6 @@ app.*.map.json
 # SVG assets synced from root assets/svg/ via `make sync-assets`
 /assets/svg/
 /web/favicon.svg
+
+# Android launcher icons rendered from assets/svg/icon.svg via `make launcher-icons`
+/android/app/src/main/res/mipmap-*/ic_launcher.png

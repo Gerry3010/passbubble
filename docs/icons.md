@@ -19,9 +19,15 @@ drifting copies: change the SVG once and every consumer re-renders.
 ## Distribution map
 
 ```
-assets/svg/icon.svg
-  └─ make sync-assets ─► flutter_app/assets/svg/icon.svg        (app)
-                      ─► flutter_app/web/favicon.svg
+assets/svg/icon.svg                    (opaque — app)
+  ├─ make sync-assets ──► flutter_app/assets/svg/icon.svg ...... [gitignored]
+  │                    ─► flutter_app/web/favicon.svg .......... [gitignored]
+  │
+  └─ make launcher-icons ► flutter_app/android/.../mipmap-mdpi/ic_launcher.png    [gitignored]
+      (rsvg 48/72/96/      flutter_app/android/.../mipmap-hdpi/ic_launcher.png    [gitignored]
+       144/192)           flutter_app/android/.../mipmap-xhdpi/ic_launcher.png   [gitignored]
+                          flutter_app/android/.../mipmap-xxhdpi/ic_launcher.png  [gitignored]
+                          flutter_app/android/.../mipmap-xxxhdpi/ic_launcher.png [gitignored]
 
 assets/svg/icon-extension.svg          (transparent — extension + mail)
   ├─ make sync-assets ─► extension/icons/icon.svg ............... [gitignored]
@@ -43,7 +49,14 @@ assets/svg/icon-extension.svg          (transparent — extension + mail)
 |--------|-----------|----------|
 | `make sync-assets` | copies SVGs into sub-projects | — |
 | `make mailer-icon` | the email PNG (`//go:embed` asset) | `rsvg-convert` |
-| `make icons` | all extension PNGs **+** `mailer-icon` | `rsvg-convert` |
+| `make launcher-icons` | the 5 Android launcher mipmaps | `rsvg-convert` |
+| `make icons` | all extension PNGs **+** `mailer-icon` **+** `launcher-icons` | `rsvg-convert` |
+
+> **Android builds:** the launcher mipmaps are gitignored generated artifacts,
+> and no CI job builds an Android target — so nothing regenerates them
+> automatically. Run `make launcher-icons` (or `make icons`) before a local
+> `flutter build apk`/`appbundle`, or the build fails on missing `ic_launcher`
+> resources.
 
 `rsvg-convert` comes from the `librsvg` toolset:
 - Arch/Manjaro: `pacman -S librsvg`

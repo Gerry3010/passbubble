@@ -15,12 +15,10 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-Browser-extension + transactional-email variant — single source of truth:
+Browser-extension variant of the brand icon:
   * transparent background (no #0a0a0a block, no scanlines)
-  * artwork scaled up to fill the frame (circuit traces dropped)
-  * central glyph is a padlock
-The previous "> _" terminal-prompt design is preserved in
-icon-extension-terminal.svg.
+  * artwork scaled up to fill the frame (circuit traces dropped — they
+    would clip off-canvas when enlarged and vanish at 16px anyway)
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
@@ -63,21 +61,13 @@ icon-extension-terminal.svg.
           opacity="0.62"
           filter="url(#glow)"/>
 
-    <!-- Padlock centered in bubble (visual center ≈128,129) -->
-    <g filter="url(#glow)">
-      <!-- Shackle: inverted-U, legs sink into the body top -->
-      <path d="M 114,123 L 114,105 A 14,14 0 0 1 142,105 L 142,123"
-            fill="none"
-            stroke="#00ff41"
-            stroke-width="5"
-            stroke-linecap="round"/>
-      <!-- Body -->
-      <rect x="102" y="120" width="52" height="46" rx="8"
-            fill="#00ff41" fill-opacity="0.12"
-            stroke="#00ff41" stroke-width="4"/>
-      <!-- Keyhole -->
-      <circle cx="128" cy="141" r="6" fill="#00ff41"/>
-      <rect x="125.5" y="141" width="5" height="13" fill="#00ff41"/>
-    </g>
+    <!-- Terminal prompt "> _" centered in bubble (visual center ≈128,129; baseline y=147) -->
+    <text x="128" y="147"
+          font-family="'Courier New', Courier, 'Lucida Console', monospace"
+          font-size="54"
+          font-weight="bold"
+          fill="#00ff41"
+          text-anchor="middle"
+          filter="url(#glow)">&gt;&#32;_</text>
   </g>
 </svg>

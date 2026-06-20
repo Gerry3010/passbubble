@@ -14,11 +14,6 @@ GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-Flutter app icon (mobile/desktop/web favicon) — single source of truth.
-Opaque background, scanlines and circuit traces, with a padlock as the
-central glyph. The previous "> _" terminal-prompt design is preserved in
-icon-terminal.svg.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
@@ -89,20 +84,12 @@ icon-terminal.svg.
   <rect x="10"  y="127" width="8" height="8" fill="#00ff41" opacity="0.90"/>
   <rect x="10"  y="153" width="8" height="8" fill="#00ff41" opacity="0.50"/>
 
-  <!-- Padlock centered in bubble (visual center ≈128,129) -->
-  <g filter="url(#glow)">
-    <!-- Shackle: inverted-U, legs sink into the body top -->
-    <path d="M 114,123 L 114,105 A 14,14 0 0 1 142,105 L 142,123"
-          fill="none"
-          stroke="#00ff41"
-          stroke-width="5"
-          stroke-linecap="round"/>
-    <!-- Body -->
-    <rect x="102" y="120" width="52" height="46" rx="8"
-          fill="#00ff41" fill-opacity="0.12"
-          stroke="#00ff41" stroke-width="4"/>
-    <!-- Keyhole -->
-    <circle cx="128" cy="141" r="6" fill="#00ff41"/>
-    <rect x="125.5" y="141" width="5" height="13" fill="#00ff41"/>
-  </g>
+  <!-- Terminal prompt "> _" centered in bubble (visual center ≈128,129; baseline y=147) -->
+  <text x="128" y="147"
+        font-family="'Courier New', Courier, 'Lucida Console', monospace"
+        font-size="54"
+        font-weight="bold"
+        fill="#00ff41"
+        text-anchor="middle"
+        filter="url(#glow)">&gt;&#32;<tspan>_<animate attributeName="opacity" values="1;0;1" keyTimes="0;0.5;1" dur="1s" repeatCount="indefinite" calcMode="discrete"/></tspan></text>
 </svg>
