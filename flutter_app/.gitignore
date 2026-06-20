@@ -50,3 +50,14 @@ app.*.map.json
 
 # Android launcher icons rendered from assets/svg/icon.svg via `make launcher-icons`
 /android/app/src/main/res/mipmap-*/ic_launcher.png
+
+# Native hybrid-KEM libs compiled from native/ via `make native-crypto` (host) /
+# `make native-crypto-android` (jniLibs). Build artifacts — sources live in
+# native/passbubble_crypto. CI builds no Android/desktop crypto, so regenerate
+# locally before FFI tests / desktop runs / APK builds.
+/native/passbubble_crypto/build/
+/android/app/src/main/jniLibs/
+
+# Node deps for the web-crypto esbuild bundle (`make web-crypto`); package-lock
+# is committed for a reproducible bundle, node_modules is not.
+/web_crypto/node_modules/

@@ -18,6 +18,7 @@ LDFLAGS     = -ldflags="-s -w \
         test test-backend test-cli test-flutter test-all \
         lint migrate migrate-down migrate-create sqlc \
         build-extension test-extension sync-assets icons mailer-icon launcher-icons \
+        native-crypto native-crypto-android web-crypto \
         clean
 
 help:
@@ -144,6 +145,32 @@ launcher-icons: ## Render Android launcher mipmaps from the app SVG SSOT (gitign
 	rsvg-convert -w 96  -h 96  assets/svg/icon.svg -o flutter_app/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
 	rsvg-convert -w 144 -h 144 assets/svg/icon.svg -o flutter_app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
 	rsvg-convert -w 192 -h 192 assets/svg/icon.svg -o flutter_app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
+# ── Native / Web crypto (hybrid KEM) ────────────────────────────────────────────
+# The Flutter app's hybrid KEM (X25519 + ML-KEM-768) ships two ways, both
+# GENERATED from sources (flutter_app/native = Go c-shared wrapper around
+# backend/pkg/crypto; flutter_app/web_crypto = esbuild bundle of shared-ts):
+#
+#   native-crypto          → host .so/.dylib/.dll  (desktop + `flutter test` FFI)   [gitignored]
+#   native-crypto-android  → per-ABI jniLibs .so   (local APK/AAB; needs NDK)       [gitignored]
+#   web-crypto             → flutter_app/web/passbubble_crypto.js (Flutter web)     [committed]
+#
+# CI builds no Android/desktop target, so nothing regenerates the .so libs there —
+# run native-crypto before FFI tests/desktop runs and native-crypto-android before
+# a local Android build. The web bundle stays committed because `flutter build web`
+# (Dockerfile + release) consumes it and the build context lacks the node/shared-ts
+# toolchain; rebuild + commit it with `make web-crypto` whenever the crypto sources
+# change. The FFI test skips gracefully when the host .so is absent.
+
+native-crypto: ## Build the host hybrid-KEM c-shared lib (.so/.dylib/.dll) for FFI (gitignored)
+	cd flutter_app/native && ./build.sh
+
+native-crypto-android: ## Build per-ABI Android jniLibs (.so) — needs ANDROID_NDK_HOME (gitignored)
+	cd flutter_app/native && ./build.sh android
+
+web-crypto: ## Bundle shared-ts hybrid-KEM → flutter_app/web/passbubble_crypto.js (committed)
+	cd packages/shared-ts && npm ci
+	cd flutter_app/web_crypto && npm install && npm run build
 
 # Transparent brand icon embedded into transactional emails (//go:embed). It is a
 # generated build artifact (gitignored): assets/svg/icon-extension.svg is the
