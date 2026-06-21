@@ -142,8 +142,7 @@ class _JobDetailSheet extends ConsumerWidget {
               ),
               child: SelectableText(
                 job.log.join('\n'),
-                style: const TextStyle(
-                    fontSize: 11, color: AppTheme.onBgDim, fontFamily: 'monospace'),
+                style: AppTheme.mono(fontSize: 11, color: AppTheme.onBgDim),
               ),
             ),
         ],

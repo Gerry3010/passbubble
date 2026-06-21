@@ -20,7 +20,10 @@ import 'package:go_router/go_router.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/auth/auto_lock_provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
+import '../../shared/widgets/prompt_title.dart';
+import 'autofill_settings_tile.dart';
 import 'biometric_settings_tile.dart';
 import 'pin_settings_tile.dart';
 import 'post_quantum_tile.dart';
@@ -36,11 +39,7 @@ class SettingsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('> SETTINGS'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/entries'),
-        ),
+        title: const PromptTitle('settings'),
       ),
       body: ListView(
         children: [
@@ -105,6 +104,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const BiometricSettingsTile(),
+          const AutofillSettingsTile(),
 
           const Divider(),
 
@@ -176,6 +176,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+      bottomNavigationBar: const PbBottomNav(currentIndex: 3),
     );
   }
 

@@ -55,9 +55,23 @@ class ApiClient {
   Future<void> init() async {
     _baseUrl = await _storage.read(key: _kServerUrlKey);
     _accessToken = await _storage.read(key: _kAccessTokenKey);
+    // On the web build the app is served BY the backend, so the server is
+    // simply the current origin — auto-configure it so web users skip the
+    // standalone-only "enter server URL" setup screen. Native/desktop builds
+    // keep requiring an explicit server URL.
+    if (kIsWeb && (_baseUrl == null || _baseUrl!.isEmpty)) {
+      _baseUrl = Uri.base.origin;
+    }
+    if (_baseUrl != null && _baseUrl!.isNotEmpty) {
+      _dio.options.baseUrl = _baseUrl!;
+    }
   }
 
   bool get isConfigured => _baseUrl != null && _baseUrl!.isNotEmpty;
+
+  /// Current access token, or null if not logged in. Exposed for the Android
+  /// autofill bridge, which hands it to the native service.
+  String? get accessToken => _accessToken;
 
   void setSessionExpiredCallback(VoidCallback cb) => _onSessionExpired = cb;
 
@@ -75,10 +89,16 @@ class ApiClient {
     _dio.options.baseUrl = _baseUrl!;
   }
 
+  /// Fired whenever the access token changes (login + token refresh), so the
+  /// Android autofill bridge can be re-synced with a *fresh* token. A stale
+  /// token in the bridge makes the autofill service's API calls 401.
+  VoidCallback? onTokensChanged;
+
   Future<void> setTokens(String access, String refresh) async {
     _accessToken = access;
     await _storage.write(key: _kAccessTokenKey, value: access);
     await _storage.write(key: _kRefreshTokenKey, value: refresh);
+    onTokensChanged?.call();
   }
 
   Future<void> clearTokens() async {
@@ -185,6 +205,15 @@ class ApiClient {
 
   Future<List<EntryResponse>> listEntries() async {
     final resp = await _get('/api/v1/entries');
+    return (resp.data as List)
+        .map((e) => EntryResponse.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Like [listEntries] but each entry includes `encrypted_data` and the
+  /// caller's `entry_key` (one round-trip). Used to build the autofill cache.
+  Future<List<EntryResponse>> listEntriesFull() async {
+    final resp = await _get('/api/v1/entries/full');
     return (resp.data as List)
         .map((e) => EntryResponse.fromJson(e as Map<String, dynamic>))
         .toList();

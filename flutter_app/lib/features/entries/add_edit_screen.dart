@@ -29,6 +29,7 @@ import '../../core/importexport/entry_record.dart' show CustomFieldType, CustomF
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
+import '../../shared/widgets/prompt_title.dart';
 import 'entries_list_screen.dart' show entriesProvider, foldersProvider;
 
 // ─── Custom field state ───────────────────────────────────────────────────────
@@ -856,7 +857,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(isEdit ? '> EDIT ENTRY' : '> NEW ENTRY')),
+      appBar: AppBar(title: PromptTitle(isEdit ? 'edit entry' : 'new entry')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(

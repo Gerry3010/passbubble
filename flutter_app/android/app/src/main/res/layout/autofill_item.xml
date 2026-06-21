@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Autofill dropdown row. Self-contained colors (dark surface + phosphor green)
+  so it stays readable regardless of the system autofill popup background — the
+  default simple_list_item_1 inherits the system text color and renders
+  white-on-white in the autofill popup.
+-->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/autofill_label"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#0E140F"
+    android:textColor="#00FF41"
+    android:fontFamily="monospace"
+    android:textSize="16sp"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="12dp"
+    android:singleLine="true"
+    android:ellipsize="end" />

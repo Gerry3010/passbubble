@@ -123,8 +123,8 @@ class _MarkdownTextState extends State<MarkdownText> {
       } else if (m.group(3) != null) {
         spans.add(TextSpan(
           text: m.group(4),
-          style: base?.copyWith(
-            fontFamily: 'monospace',
+          style: AppTheme.mono(
+            textStyle: base,
             backgroundColor: AppTheme.green.withValues(alpha: 0.12),
           ),
         ));

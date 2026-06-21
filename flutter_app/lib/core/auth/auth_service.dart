@@ -13,15 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
+import '../autofill/autofill_service.dart';
 import '../crypto/vault_crypto.dart';
 import '../crypto/ml_kem.dart';
 import '../crypto/pin_crypto.dart';
@@ -228,15 +230,66 @@ class AuthService {
   Uint8List? get privX25519 => _privX25519;
   Uint8List? get privMLKEM => _privMLKEM;
 
+  // Android system-autofill bridge (no-op on other platforms).
+  final AutofillBridge _autofill = const AutofillBridge();
+
   AuthService(this._api);
 
   ApiClient get api => _api;
+
+  /// Builds the Android autofill cache: decrypts every entry that has a URL and
+  /// hands the ready-to-fill credentials to the native service (which can't do
+  /// the hybrid-KEM crypto itself). No-op on non-Android / while locked.
+  /// Best-effort and runs in the background — never throws into the caller.
+  Future<void> _syncAutofill() async {
+    final privX = _privX25519;
+    final privM = _privMLKEM;
+    if (privX == null) return; // vault locked
+    if (!await _autofill.isSupported()) return; // skip non-Android platforms
+    try {
+      // One round-trip: every entry with its encrypted_data + the caller's key.
+      final entries = await _api.listEntriesFull();
+      final creds = <Map<String, String>>[];
+      for (final e in entries) {
+        if (e.url.isEmpty || e.entryKey == null || e.encryptedData.isEmpty) {
+          continue;
+        }
+        try {
+          final dataKey = await VaultCrypto.decryptDataKey(
+            e.entryKey!.encryptedKey,
+            privX,
+            privM ?? Uint8List(0),
+          );
+          final data = await VaultCrypto.decryptEntryData(
+            e.encryptedData,
+            Uint8List.fromList(dataKey),
+          );
+          final username =
+              (data['username'] ?? data['account'] ?? '').toString();
+          final password = (data['password'] ?? '').toString();
+          if (username.isEmpty && password.isEmpty) continue;
+          creds.add({
+            'url': e.url,
+            'name': e.name,
+            'username': username,
+            'password': password,
+          });
+        } catch (_) {
+          // Skip entries that fail to decrypt rather than aborting the sync.
+        }
+      }
+      await _autofill.updateCredentials(jsonEncode(creds));
+    } catch (_) {
+      // Network/other failure: leave the previous cache in place.
+    }
+  }
 
   Future<void> clearLocalSession() async {
     _privX25519 = null;
     _privMLKEM = null;
     await _api.clearTokens();
     await _storage.deleteAll();
+    await _autofill.clearVault();
   }
 
   Future<(bool, String?, String?, String?, String?)> loadSession() async {
@@ -349,6 +402,7 @@ class AuthService {
     _privX25519 = privBytes;
     _privMLKEM = privMlkemBytes;
 
+    unawaited(_syncAutofill());
     return null;
   }
 
@@ -380,6 +434,7 @@ class AuthService {
       }
       // A successful master-password unlock restarts the PIN re-auth interval.
       await _onMasterUnlock();
+      unawaited(_syncAutofill());
       return true;
     } catch (_) {
       return false;
@@ -391,6 +446,7 @@ class AuthService {
   void lock() {
     _privX25519 = null;
     _privMLKEM = null;
+    unawaited(_autofill.clearVault());
   }
 
   Future<void> logout() async {
@@ -404,6 +460,7 @@ class AuthService {
     await _storage.deleteAll();
     _privX25519 = null;
     _privMLKEM = null;
+    await _autofill.clearVault();
   }
 
   Future<String?> getPubX25519() => _storage.read(key: _kPubX25519Key);
@@ -704,6 +761,7 @@ class AuthService {
     // Success: reset the failure counter (the interval is NOT reset — only a
     // master-password unlock restarts it).
     await _storage.write(key: _kPinFailCountKey, value: '0');
+    unawaited(_syncAutofill());
     return const PinUnlockResult(PinUnlockStatus.ok);
   }
 
@@ -723,5 +781,6 @@ class AuthService {
     if (resp.encPrivMlkem768.isNotEmpty) {
       _privMLKEM = await VaultCrypto.decrypt(masterKey, base64.decode(resp.encPrivMlkem768));
     }
+    unawaited(_syncAutofill());
   }
 }

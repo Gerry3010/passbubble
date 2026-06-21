@@ -24,6 +24,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/prompt_title.dart';
 
 /// Public, unauthenticated viewer for a share link. The decryption key [k] comes
 /// from the URL fragment and never reaches the server; only [token] is sent to
@@ -104,7 +105,7 @@ class _ShareViewerScreenState extends ConsumerState<ShareViewerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('> SHARED ENTRY')),
+      appBar: AppBar(title: const PromptTitle('shared entry')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),

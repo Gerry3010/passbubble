@@ -135,7 +135,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const AppLogo(size: 64),
                   const SizedBox(height: 24),
                   Text(
-                    '> LOGIN',
+                    'passbubble:~\$ login',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                           color: AppTheme.green,
                           letterSpacing: 3,

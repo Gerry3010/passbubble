@@ -22,6 +22,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/util/strip_query.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
+import '../../shared/widgets/prompt_title.dart';
 import '../../widgets/app_logo.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -182,7 +183,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('> REGISTER'),
+        title: const PromptTitle('register'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/login'),

@@ -20,6 +20,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/markdown_text.dart';
+import '../../shared/widgets/prompt_title.dart';
 import 'providers/version_provider.dart';
 
 const _updateCmd = 'docker compose pull && docker compose up -d';
@@ -33,7 +34,7 @@ class UpdateScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('> VERSION & UPDATES'),
+        title: const PromptTitle('updates'),
       ),
       body: versionAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -83,8 +84,7 @@ class _VersionBody extends StatelessWidget {
           color: Colors.black,
           child: SelectableText(
             _updateCmd,
-            style: const TextStyle(
-              fontFamily: 'monospace',
+            style: AppTheme.mono(
               color: AppTheme.green,
               fontSize: 13,
             ),
@@ -150,7 +150,7 @@ class _VersionRow extends StatelessWidget {
           ),
           child: Text(
             value,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+            style: AppTheme.mono(fontSize: 13),
           ),
         ),
         if (badge != null) ...[

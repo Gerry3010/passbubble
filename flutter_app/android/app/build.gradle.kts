@@ -42,3 +42,10 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // EncryptedSharedPreferences for the autofill vault bridge — the decrypted
+    // X25519 private key + access token are handed to the AutofillService via an
+    // at-rest-encrypted prefs file (see AutofillVaultStore). AndroidX Security.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+}

@@ -28,6 +28,7 @@ import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/prompt_title.dart';
 import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
 import 'entries_list_screen.dart' show entriesProvider;
@@ -216,9 +217,9 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: async.when(
-          data: (e) => Text('> ${e.name.toUpperCase()}'),
-          loading: () => const Text('> LOADING...'),
-          error: (_, _) => const Text('> ERROR'),
+          data: (e) => PromptTitle(e.name.toLowerCase()),
+          loading: () => const PromptTitle('loading…'),
+          error: (_, _) => const PromptTitle('error'),
         ),
         actions: [
           if (async.hasValue) ...[

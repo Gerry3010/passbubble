@@ -1,4 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Autofill service metadata.
+
+  Browsers (Chrome, Samsung Internet, Firefox …) render forms inside a WebView
+  and do NOT expose a standard autofill view structure, so the Android Autofill
+  Framework only offers our service inside them when we opt into *compatibility
+  mode* per browser package via <compatibility-package>. Without these entries
+  there are simply no suggestions in browsers (native apps still work).
+
+  maxLongVersionCode is set very high so compat mode applies to all current and
+  future browser versions.
+-->
 <autofill-service
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsActivity="de.gerry3010.passbubble.MainActivity" />
+    android:settingsActivity="de.gerry3010.passbubble.MainActivity">
+    <compatibility-package android:name="com.android.chrome" android:maxLongVersionCode="999999999999" />
+    <compatibility-package android:name="com.chrome.beta" android:maxLongVersionCode="999999999999" />
+    <compatibility-package android:name="com.sec.android.app.sbrowser" android:maxLongVersionCode="999999999999" />
+    <compatibility-package android:name="org.mozilla.firefox" android:maxLongVersionCode="999999999999" />
+    <compatibility-package android:name="com.microsoft.emmx" android:maxLongVersionCode="999999999999" />
+    <compatibility-package android:name="com.brave.browser" android:maxLongVersionCode="999999999999" />
+    <compatibility-package android:name="com.opera.browser" android:maxLongVersionCode="999999999999" />
+    <compatibility-package android:name="com.duckduckgo.mobile.android" android:maxLongVersionCode="999999999999" />
+</autofill-service>

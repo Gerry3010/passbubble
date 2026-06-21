@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/prompt_title.dart';
 
 /// Manages account-level two-factor authentication (TOTP for login).
 class TwoFactorScreen extends ConsumerStatefulWidget {
@@ -142,7 +143,7 @@ class _TwoFactorScreenState extends ConsumerState<TwoFactorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('> TWO-FACTOR AUTH')),
+      appBar: AppBar(title: const PromptTitle('2fa')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(

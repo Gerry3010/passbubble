@@ -19,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/jobs/job_runner.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/bottom_nav.dart';
+import '../../shared/widgets/prompt_title.dart';
 import 'export_tab.dart';
 import 'import_tab.dart';
 import 'jobs_tab.dart';
@@ -40,7 +41,7 @@ class ManageScreen extends ConsumerWidget {
           : 0,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('> MANAGE'),
+          title: const PromptTitle('manage'),
           bottom: TabBar(
             labelColor: AppTheme.green,
             unselectedLabelColor: AppTheme.onBgDim,

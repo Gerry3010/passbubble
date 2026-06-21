@@ -16,18 +16,51 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Passbubble design system: angular/square, terminal green, #212121 bg, blur effects.
+/// Passbubble design system — phosphor terminal: green accents on near-black,
+/// JetBrains Mono, minimal rounding. Tokens are the canonical brand palette
+/// (extension/src/shared/theme.ts). See docs/design-guidelines.md.
+///
+/// Full-screen rule: body text stays light-gray ([onBg]); [green] is the accent,
+/// not the body color (the extension/CLI render all-green; large screens don't).
 class AppTheme {
-  static const Color bg = Color(0xFF212121);
-  static const Color surface = Color(0xFF2A2A2A);
-  static const Color surfaceVariant = Color(0xFF303030);
-  static const Color green = Color(0xFF00E676);
-  static const Color greenDim = Color(0xFF00C853);
-  static const Color greenFaint = Color(0xFF1B2A1F);
+  static const Color bg = Color(0xFF0A0A0A);
+  static const Color surface = Color(0xFF0E140F);
+  static const Color surfaceVariant = Color(0xFF121A14);
+  static const Color green = Color(0xFF00FF41);
+  static const Color greenDim = Color(0xFF19A23A);
+  static const Color greenFaint = Color(0xFF122B18);
   static const Color onBg = Color(0xFFE0E0E0);
-  static const Color onBgDim = Color(0xFF9E9E9E);
-  static const Color error = Color(0xFFCF6679);
-  static const Color border = Color(0xFF424242);
+  static const Color onBgDim = Color(0xFF5F8C6A);
+  static const Color error = Color(0xFFFF5F56);
+  static const Color amber = Color(0xFFFFB000);
+  static const Color border = Color(0xFF1D3A24);
+
+  /// Subtle brand rounding: 2px for inputs/buttons, 4px for cards/surfaces.
+  static const BorderRadius radiusSm = BorderRadius.all(Radius.circular(2));
+  static const BorderRadius radiusMd = BorderRadius.all(Radius.circular(4));
+
+  /// JetBrains Mono — the canonical brand font, with a disambiguated `0`/`O`.
+  /// Use this (never the generic `fontFamily: 'monospace'`) wherever a user
+  /// reads or copies exact characters: passwords, tokens, recovery codes,
+  /// share links, command snippets. See docs/design-guidelines.md (§2).
+  static TextStyle mono({
+    double? fontSize,
+    Color? color,
+    FontWeight? fontWeight,
+    double? letterSpacing,
+    double? height,
+    Color? backgroundColor,
+    TextStyle? textStyle,
+  }) =>
+      GoogleFonts.jetBrainsMono(
+        textStyle: textStyle,
+        fontSize: fontSize,
+        color: color,
+        fontWeight: fontWeight,
+        letterSpacing: letterSpacing,
+        height: height,
+        backgroundColor: backgroundColor,
+      );
 
   static ThemeData get dark {
     final base = ThemeData.dark(useMaterial3: true);
@@ -65,7 +98,7 @@ class AppTheme {
         color: surface,
         elevation: 0,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.zero,
+          borderRadius: radiusMd,
           side: BorderSide(color: border),
         ),
       ),
@@ -73,15 +106,15 @@ class AppTheme {
         filled: true,
         fillColor: surfaceVariant,
         border: const OutlineInputBorder(
-          borderRadius: BorderRadius.zero,
+          borderRadius: radiusSm,
           borderSide: BorderSide(color: border),
         ),
         enabledBorder: const OutlineInputBorder(
-          borderRadius: BorderRadius.zero,
+          borderRadius: radiusSm,
           borderSide: BorderSide(color: border),
         ),
         focusedBorder: const OutlineInputBorder(
-          borderRadius: BorderRadius.zero,
+          borderRadius: radiusSm,
           borderSide: BorderSide(color: green, width: 1.5),
         ),
         labelStyle: const TextStyle(color: onBgDim),
@@ -92,7 +125,7 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: green,
           foregroundColor: bg,
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          shape: const RoundedRectangleBorder(borderRadius: radiusSm),
           textStyle: GoogleFonts.jetBrainsMono(
             fontWeight: FontWeight.w600,
             letterSpacing: 1.0,
@@ -102,14 +135,14 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: green,
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          shape: const RoundedRectangleBorder(borderRadius: radiusSm),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: green,
           side: const BorderSide(color: green),
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          shape: const RoundedRectangleBorder(borderRadius: radiusSm),
         ),
       ),
       listTileTheme: const ListTileThemeData(
@@ -122,27 +155,27 @@ class AppTheme {
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: green,
         foregroundColor: bg,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        shape: RoundedRectangleBorder(borderRadius: radiusSm),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: surfaceVariant,
         labelStyle: const TextStyle(color: onBg),
         side: const BorderSide(color: border),
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        shape: const RoundedRectangleBorder(borderRadius: radiusSm),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: surfaceVariant,
         contentTextStyle: GoogleFonts.jetBrainsMono(color: onBg),
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        shape: const RoundedRectangleBorder(borderRadius: radiusSm),
         behavior: SnackBarBehavior.floating,
       ),
       dialogTheme: const DialogThemeData(
         backgroundColor: surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        shape: RoundedRectangleBorder(borderRadius: radiusMd),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        shape: RoundedRectangleBorder(borderRadius: radiusMd),
       ),
       navigationRailTheme: const NavigationRailThemeData(
         backgroundColor: bg,

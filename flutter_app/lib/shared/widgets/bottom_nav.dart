@@ -35,12 +35,12 @@ class PbBottomNav extends ConsumerWidget {
         const NavigationDestination(
           icon: Icon(Icons.lock_outline),
           selectedIcon: Icon(Icons.lock, color: AppTheme.green),
-          label: 'Vault',
+          label: './vault',
         ),
         const NavigationDestination(
           icon: Icon(Icons.casino_outlined),
           selectedIcon: Icon(Icons.casino, color: AppTheme.green),
-          label: 'Generate',
+          label: './generate',
         ),
         NavigationDestination(
           icon: Badge(
@@ -57,7 +57,12 @@ class PbBottomNav extends ConsumerWidget {
             textColor: AppTheme.bg,
             child: const Icon(Icons.tune, color: AppTheme.green),
           ),
-          label: 'Manage',
+          label: './manage',
+        ),
+        const NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings, color: AppTheme.green),
+          label: './settings',
         ),
       ],
       onDestinationSelected: (i) {
@@ -68,6 +73,8 @@ class PbBottomNav extends ConsumerWidget {
             context.go('/generate');
           case 2:
             context.go('/manage');
+          case 3:
+            context.go('/settings');
         }
       },
     );

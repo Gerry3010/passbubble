@@ -19,6 +19,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/bottom_nav.dart';
+import '../../shared/widgets/prompt_title.dart';
 
 final _foldersProvider = FutureProvider<List<FolderResponse>>((ref) {
   return ref.watch(apiClientProvider).listFolders();
@@ -31,7 +32,7 @@ class FoldersScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final folders = ref.watch(_foldersProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('> FOLDERS')),
+      appBar: AppBar(title: const PromptTitle('folders')),
       body: folders.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(

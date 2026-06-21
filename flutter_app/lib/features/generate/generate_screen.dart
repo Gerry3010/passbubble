@@ -21,6 +21,7 @@ import '../../core/api/models.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
+import '../../shared/widgets/prompt_title.dart';
 
 class GenerateScreen extends ConsumerStatefulWidget {
   const GenerateScreen({super.key});
@@ -67,7 +68,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('> GENERATE')),
+      appBar: AppBar(title: const PromptTitle('generate')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -196,8 +197,7 @@ class _PasswordCard extends StatelessWidget {
               children: [
                 Text(
                   pw.password,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
+                  style: AppTheme.mono(
                     fontSize: 14,
                     color: AppTheme.green,
                   ),

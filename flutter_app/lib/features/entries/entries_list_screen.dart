@@ -27,8 +27,11 @@ import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
+import '../../core/autofill/autofill_service.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
+import '../../shared/widgets/prompt_title.dart';
+import 'widgets/autofill_prompt.dart';
 
 final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
   return ref.watch(apiClientProvider).listEntries();
@@ -65,6 +68,11 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // One-time autofill intro after the first unlock (no-ops if already
+    // enabled / seen / unsupported).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) maybeShowAutofillIntro(context, ref);
+    });
   }
 
   @override
@@ -81,6 +89,8 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     if (state == AppLifecycleState.resumed) {
       ref.invalidate(entriesProvider);
       ref.invalidate(foldersProvider);
+      // Reflect a just-made change in the system autofill picker.
+      ref.invalidate(autofillEnabledProvider);
     }
   }
 
@@ -509,10 +519,10 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     final isSearching = _searchQuery.isNotEmpty;
 
     final title = _editMode
-        ? '> ${_selected.length} SELECTED'
+        ? '${_selected.length} selected'
         : _currentFolder == null
-            ? '> VAULT'
-            : '> ${_currentFolder!.name.toUpperCase()}';
+            ? 'vault'
+            : _currentFolder!.name.toLowerCase();
 
     return PopScope(
       canPop: _atRoot && !_editMode,
@@ -526,7 +536,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(title),
+          title: PromptTitle(title),
           leading: _editMode
               ? IconButton(
                   icon: const Icon(Icons.close),
@@ -567,10 +577,6 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
                     tooltip: 'Select',
                     onPressed: () => setState(() => _editMode = true),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.settings_outlined),
-                    onPressed: () => context.go('/settings'),
-                  ),
                 ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(56),
@@ -580,7 +586,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
                 controller: _searchCtrl,
                 onChanged: (v) => setState(() => _searchQuery = v),
                 decoration: InputDecoration(
-                  hintText: 'search entries...',
+                  hintText: 'grep entries…',
                   prefixIcon: const Icon(Icons.search, size: 18),
                   suffixIcon: _searchCtrl.text.isNotEmpty
                       ? IconButton(
@@ -599,7 +605,11 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
             ),
           ),
         ),
-        body: foldersAsync.when(
+        body: Column(
+          children: [
+            const AutofillBanner(),
+            Expanded(
+              child: foldersAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => _ErrorState(error: e.toString()),
           data: (rootFolders) => entriesAsync.when(
@@ -656,6 +666,9 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
               );
             },
           ),
+              ),
+            ),
+          ],
         ),
         floatingActionButton: _editMode
             ? null

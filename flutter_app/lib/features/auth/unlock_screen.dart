@@ -211,7 +211,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                 const AppLogo(size: 56),
                 const SizedBox(height: 24),
                 Text(
-                  '> UNLOCK VAULT',
+                  'passbubble:~\$ unlock vault',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: AppTheme.green,
                         letterSpacing: 2,

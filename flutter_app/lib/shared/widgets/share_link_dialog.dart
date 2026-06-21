@@ -185,9 +185,8 @@ class _ShareLinkDialogState extends State<ShareLinkDialog> {
           ),
           child: SelectableText(
             _url!,
-            style: const TextStyle(
+            style: AppTheme.mono(
               color: AppTheme.green,
-              fontFamily: 'monospace',
               fontSize: 12,
               height: 1.4,
             ),
