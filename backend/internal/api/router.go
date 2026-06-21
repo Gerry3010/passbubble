@@ -94,6 +94,7 @@ func (s *Server) buildRouter() http.Handler {
 			// Entries
 			r.Get("/entries", h.ListEntries)
 			r.Post("/entries", h.CreateEntry)
+			r.Get("/entries/full", h.ListEntriesFull)
 			r.Get("/entries/search", h.SearchEntries)
 			r.Get("/entries/{id}", h.GetEntry)
 			r.Put("/entries/{id}", h.UpdateEntry)

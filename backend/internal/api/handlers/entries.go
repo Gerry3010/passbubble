@@ -59,6 +59,54 @@ func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, entries)
 }
 
+// ListEntriesFull handles GET /api/v1/entries/full — like ListEntries but also
+// includes encrypted_data and the caller's entry_key for every entry, in a
+// single round-trip. Used by the Android autofill bridge, which must decrypt
+// all logins on unlock (the per-entry GetEntry path would be hundreds of calls).
+func (h *Handler) ListEntriesFull(w http.ResponseWriter, r *http.Request) {
+	claims := mw.ClaimsFromCtx(r.Context())
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url, e.match_patterns,
+			e.encrypted_data, e.data_nonce,
+			e.created_at::text, e.updated_at::text,
+			ek.encrypted_key
+		FROM entries e
+		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$1
+		LEFT JOIN entry_keys ek ON ek.entry_id=e.id AND ek.user_id=$1
+		WHERE e.owner_id=$1 OR ep.user_id=$1
+		ORDER BY e.name`, claims.UserID)
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to list entries")
+		return
+	}
+	defer rows.Close()
+
+	entries := []models.EntryResponse{}
+	for rows.Next() {
+		var e models.EntryResponse
+		var folderID *string
+		var encryptedData, dataNonce, rawEncKey []byte
+		if err := rows.Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL,
+			&e.MatchPatterns, &encryptedData, &dataNonce, &e.CreatedAt, &e.UpdatedAt,
+			&rawEncKey); err != nil {
+			continue
+		}
+		e.FolderID = folderID
+		// Encode in Go (not Postgres encode(...,'base64'), which inserts newlines
+		// that strict base64 decoders reject).
+		e.EncryptedData = base64.StdEncoding.EncodeToString(encryptedData)
+		e.DataNonce = base64.StdEncoding.EncodeToString(dataNonce)
+		if len(rawEncKey) > 0 {
+			e.EntryKey = &models.EntryKey{
+				UserID:       claims.UserID,
+				EncryptedKey: base64.StdEncoding.EncodeToString(rawEncKey),
+			}
+		}
+		entries = append(entries, e)
+	}
+	respond(w, http.StatusOK, entries)
+}
+
 // GetEntry handles GET /api/v1/entries/{id} — returns full entry with encrypted_data and caller's key.
 func (h *Handler) GetEntry(w http.ResponseWriter, r *http.Request) {
 	claims := mw.ClaimsFromCtx(r.Context())
