@@ -233,42 +233,43 @@ func NewModel(v *vaultpkg.Vault, cfg *config.Config, cfgPath string) Model {
 
 		// Styles
 		titleStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
+			Foreground(colGreen).
 			Bold(true).
 			Padding(0, 1),
 
 		listStyle: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(colBorder).
 			Padding(1, 2),
 
 		selectedStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("229")).
-			Background(lipgloss.Color("57")),
+			Foreground(colBg).
+			Background(colGreen).
+			Bold(true),
 
 		helpStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(colMuted).
 			Italic(true),
 
 		statusStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("34")).
+			Foreground(colGreen).
 			Bold(true),
 
 		progressStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")),
+			Foreground(colGreen),
 
 		detailStyle: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(colBorder).
 			Padding(1, 2),
 
 		secretStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("34")).
-			Background(lipgloss.Color("236")).
+			Foreground(colGreen).
+			Background(colSurface).
 			Padding(0, 1),
 
 		hiddenStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("238")).
+			Foreground(colMuted).
 			Italic(true),
 	}
 
@@ -965,7 +966,7 @@ func (m Model) renderSortMenu() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(m.titleStyle.Render("⇅ Sort"))
+	b.WriteString(m.titleStyle.Render("passbubble:~$ sort"))
 	b.WriteString("\n\n")
 	b.WriteString("Field:\n")
 	fmt.Fprintf(&b, "  [1] %s Name\n", check(m.sortField == sortByName))
@@ -984,7 +985,7 @@ func (m Model) renderSortMenu() string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(colBorder).
 		Padding(1, 2).
 		Render(b.String())
 
@@ -1200,12 +1201,12 @@ func (m Model) renderMainScreen() string {
 		absIdx := m.listOffset + i
 		cursor := " "
 		if absIdx == m.cursor {
-			cursor = ">"
+			cursor = "›"
 		}
 
 		var line string
 		if item.kind == folderKind {
-			label := fmt.Sprintf("%s 📁 %s", cursor, item.folder.Name)
+			label := fmt.Sprintf("%s [dir] %s", cursor, item.folder.Name)
 			if n := len(item.folder.Children); n > 0 {
 				label += fmt.Sprintf("  (%d)", n)
 			}
@@ -1242,9 +1243,9 @@ func (m Model) renderMainScreen() string {
 	searchLine := ""
 	switch {
 	case m.showSearch:
-		searchLine = m.titleStyle.Render("🔎 " + m.filter + "█")
+		searchLine = m.titleStyle.Render("grep › " + m.filter + "█")
 	case m.filter != "":
-		searchLine = m.helpStyle.Render(fmt.Sprintf("🔎 filter: %q  (Esc to clear)", m.filter))
+		searchLine = m.helpStyle.Render(fmt.Sprintf("grep: %q  (esc to clear)", m.filter))
 	}
 
 	help1 := m.helpStyle.Render(fmt.Sprintf("Enter: open  Esc: up/clear  %s: search  %s: keys/help  %s: settings  %s: quit",
@@ -1266,7 +1267,7 @@ func (m Model) renderMainScreen() string {
 
 // renderDetailScreen renders the entry detail view
 func (m Model) renderDetailScreen() string {
-	title := m.titleStyle.Render(fmt.Sprintf("📋 %s Details", m.detailEntry.Service))
+	title := m.titleStyle.Render(fmt.Sprintf("passbubble:~$ show %s", m.detailEntry.Service))
 
 	var details []string
 	details = append(details, fmt.Sprintf("Service: %s", m.detailEntry.Service))
@@ -1285,12 +1286,12 @@ func (m Model) renderDetailScreen() string {
 				// Show password as dots when masked
 				maskedPassword := strings.Repeat("•", len(m.password))
 				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(maskedPassword)))
-				details = append(details, m.helpStyle.Render("🔒 Password hidden ("+fmt.Sprintf("%d chars", len(m.password))+")"))
+				details = append(details, m.helpStyle.Render("Password hidden ("+fmt.Sprintf("%d chars", len(m.password))+")"))
 				details = append(details, m.helpStyle.Render("   Press 's' to reveal"))
 			} else {
 				// Show actual password when unmasked
 				details = append(details, fmt.Sprintf("Password: %s", m.secretStyle.Render(m.password)))
-				details = append(details, m.helpStyle.Render("🔓 Password visible"))
+				details = append(details, m.helpStyle.Render("Password visible"))
 				details = append(details, m.helpStyle.Render("   Press 's' to hide"))
 			}
 		} else {
@@ -1314,7 +1315,7 @@ func (m Model) renderDetailScreen() string {
 			}
 		} else {
 			details = append(details, "")
-			details = append(details, m.hiddenStyle.Render("🔒 TOTP code hidden - Press 's' to reveal"))
+			details = append(details, m.hiddenStyle.Render("TOTP code hidden — press 's' to reveal"))
 		}
 	}
 
@@ -1347,16 +1348,16 @@ func (m Model) renderDetailScreen() string {
 
 // renderBackupScreen renders the backup management screen
 func (m Model) renderBackupScreen() string {
-	title := m.titleStyle.Render("💾 Backup Management")
+	title := m.titleStyle.Render("passbubble:~$ backups")
 
 	var backupList []string
 	for i, backup := range m.backups {
 		cursor := " "
 		if i == m.backupCursor {
-			cursor = ">"
+			cursor = "›"
 		}
 
-		line := fmt.Sprintf("%s 📦 %s (%s)", cursor, backup.Name, backup.ModTime.Format("2006-01-02 15:04"))
+		line := fmt.Sprintf("%s [bak] %s (%s)", cursor, backup.Name, backup.ModTime.Format("2006-01-02 15:04"))
 
 		if i == m.backupCursor {
 			line = m.selectedStyle.Render(line)
@@ -1385,7 +1386,7 @@ func (m Model) renderBackupScreen() string {
 
 // renderGenerateScreen renders the password generation screen
 func (m Model) renderGenerateScreen() string {
-	title := m.titleStyle.Render("🎲 Password Generator")
+	title := m.titleStyle.Render("passbubble:~$ generate")
 
 	var content []string
 	content = append(content, "Generate secure passwords with different styles:")
@@ -1432,15 +1433,15 @@ func (m Model) renderGenerateScreen() string {
 func (m Model) getTypeIcon(entryType string) string {
 	switch entryType {
 	case "password":
-		return "🔑"
+		return "[pw]"
 	case "totp":
-		return "🔐"
+		return "[2fa]"
 	case "api-key":
-		return "🗝️"
+		return "[key]"
 	case "note":
-		return "📝"
+		return "[txt]"
 	default:
-		return "❓"
+		return "[?]"
 	}
 }
 
@@ -1637,7 +1638,7 @@ func (m *Model) clampCursor() {
 
 // breadcrumb renders the title with the current folder path.
 func (m Model) breadcrumb() string {
-	s := "🔐 Passbubble"
+	s := "passbubble:~$ vault"
 	for _, f := range m.folderStack {
 		s += " › " + f.Name
 	}
@@ -1741,9 +1742,9 @@ func (m Model) renderStatus() string {
 	var s lipgloss.Style
 	switch m.statusType {
 	case "success":
-		s = lipgloss.NewStyle().Foreground(lipgloss.Color("34")).Bold(true)
+		s = lipgloss.NewStyle().Foreground(colGreen).Bold(true)
 	case "error":
-		s = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+		s = lipgloss.NewStyle().Foreground(colRed).Bold(true)
 	default:
 		s = m.statusStyle
 	}

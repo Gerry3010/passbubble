@@ -439,10 +439,10 @@ func (m Model) renderAuthScreen() string {
 	var titleText, help, banner string
 	switch m.screen {
 	case RegisterScreen:
-		titleText = "🔐 Passbubble — Register"
+		titleText = "passbubble:~$ register"
 		help = "Tab/↑↓: fields  Enter: next/submit  Ctrl+V: paste  Esc: back to login"
 	case UnlockScreen:
-		titleText = "🔒 Passbubble — Unlock"
+		titleText = "passbubble:~$ unlock vault"
 		if m.pinMode {
 			help = "Enter: unlock with PIN  Ctrl+P: use master password  Ctrl+O: log out  Esc/Ctrl+C: quit"
 		} else {
@@ -452,13 +452,13 @@ func (m Model) renderAuthScreen() string {
 			}
 		}
 	case PINSetupScreen:
-		titleText = "📟 Passbubble — Set up PIN"
+		titleText = "passbubble:~$ setup pin"
 		help = "Tab/↑↓: fields  Enter: next/submit  Esc: cancel"
 		banner = "⚠ A PIN is less secure than your master password: it is stored on this device\n" +
 			"  in a plaintext config file and a short PIN can be brute-forced by anyone with\n" +
 			"  read access to it. Use a strong PIN and keep this machine trusted."
 	default:
-		titleText = "🔐 Passbubble — Login"
+		titleText = "passbubble:~$ login"
 		help = "Tab/↑↓: fields  Enter: next/submit  Ctrl+R: register  Esc: quit"
 	}
 
@@ -466,14 +466,14 @@ func (m Model) renderAuthScreen() string {
 	b.WriteString(m.titleStyle.Render(titleText))
 	b.WriteString("\n\n")
 	if banner != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(banner))
+		b.WriteString(lipgloss.NewStyle().Foreground(colAmber).Render(banner))
 		b.WriteString("\n\n")
 	}
 
 	for i, f := range m.authFields {
-		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+		labelStyle := lipgloss.NewStyle().Foreground(colGreen).Bold(true)
 		if i == m.authCursor {
-			labelStyle = labelStyle.Background(lipgloss.Color("57"))
+			labelStyle = labelStyle.Background(colSurface)
 		}
 		b.WriteString(labelStyle.Render(f.label))
 		b.WriteString("\n")
@@ -491,29 +491,29 @@ func (m Model) renderAuthScreen() string {
 		}
 		inputStyle := lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(colBorder).
 			Padding(0, 1).
 			Width(fieldWidth)
 		if i == m.authCursor {
-			inputStyle = inputStyle.BorderForeground(lipgloss.Color("39"))
+			inputStyle = inputStyle.BorderForeground(colGreen)
 		}
 		b.WriteString(inputStyle.Render(value))
 		b.WriteString("\n\n")
 	}
 
 	if m.authBusy {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render("Working…"))
+		b.WriteString(lipgloss.NewStyle().Foreground(colGreen).Render("Working…"))
 		b.WriteString("\n\n")
 	}
 	if m.authErr != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true).Render("Error: " + m.authErr))
+		b.WriteString(lipgloss.NewStyle().Foreground(colRed).Bold(true).Render("Error: " + m.authErr))
 		b.WriteString("\n\n")
 	}
 	b.WriteString(m.helpStyle.Render(help))
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(colBorder).
 		Padding(1, 2).
 		Render(b.String())
 }

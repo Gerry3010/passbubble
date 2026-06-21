@@ -213,7 +213,7 @@ func (m Model) renderHelp() string {
 	b.WriteString(m.helpStyle.Render("Press any key to close"))
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(colBorder).
 		Padding(1, 2).
 		Render(b.String())
 }
@@ -273,7 +273,7 @@ func logoutAPICmd(v *vaultpkg.Vault, refresh string) tea.Cmd {
 // renderSettingsScreen renders the settings screen.
 func (m Model) renderSettingsScreen() string {
 	var b strings.Builder
-	b.WriteString(m.titleStyle.Render("⚙️  Settings"))
+	b.WriteString(m.titleStyle.Render("passbubble:~$ settings"))
 	b.WriteString("\n\n")
 
 	server, email, userID := "—", "—", "—"
@@ -304,7 +304,7 @@ func (m Model) renderSettingsScreen() string {
 	fmt.Fprintf(&b, "  PIN unlock: %s  (press 'p' to %s)\n",
 		pinStatus, pinToggleVerb(m.vault))
 	if m.vault != nil && m.vault.PINEnabled() {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).
+		b.WriteString(lipgloss.NewStyle().Foreground(colAmber).
 			Render("  ⚠ PIN is stored on this device and is weaker than your master password."))
 		b.WriteString("\n")
 	}
@@ -319,7 +319,7 @@ func (m Model) renderSettingsScreen() string {
 	for i, action := range actionOrder {
 		cursor := "  "
 		if i == m.kbCursor {
-			cursor = "> "
+			cursor = "› "
 		}
 		key := m.keymap[action]
 		if key == "" {
@@ -337,7 +337,7 @@ func (m Model) renderSettingsScreen() string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(colBorder).
 		Padding(1, 2).
 		Render(b.String())
 	return box

@@ -139,16 +139,16 @@ func (m Model) moveEntryCmd(entryID string, folderID *string) tea.Cmd {
 // renderMoveMenu renders the move-entry overlay.
 func (m Model) renderMoveMenu() string {
 	var b strings.Builder
-	b.WriteString(m.titleStyle.Render("📂 Move to folder"))
+	b.WriteString(m.titleStyle.Render("passbubble:~$ mv → folder"))
 	b.WriteString("\n\n")
 	for i, t := range m.moveTargets {
 		cursor := "  "
-		line := "📁 " + t.label
+		line := "[dir] " + t.label
 		if t.id == nil {
-			line = "🏠 " + t.label
+			line = "[~] " + t.label
 		}
 		if i == m.moveCursor {
-			cursor = "> "
+			cursor = "› "
 			line = m.selectedStyle.Render(line)
 		}
 		b.WriteString(cursor + line + "\n")
@@ -158,7 +158,7 @@ func (m Model) renderMoveMenu() string {
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(colBorder).
 		Padding(1, 2).
 		Render(b.String())
 }

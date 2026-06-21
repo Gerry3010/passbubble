@@ -741,7 +741,7 @@ func (f FormModel) View() string {
 	
 	// Title
 	title := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("39")).
+		Foreground(colGreen).
 		Bold(true).
 		Padding(0, 1).
 		Render(f.Title)
@@ -763,23 +763,23 @@ func (f FormModel) View() string {
 		}
 
 		b.WriteString(lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
+			Foreground(colRed).
 			Bold(true).
 			Render(message))
 		b.WriteString("\n\n")
-		
+
 		b.WriteString(lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(colMuted).
 			Render("This action cannot be undone."))
 		b.WriteString("\n\n")
-		
+
 		b.WriteString(lipgloss.NewStyle().
-			Foreground(lipgloss.Color("34")).
+			Foreground(colGreen).
 			Render("Press 'y' to confirm, 'n' to cancel, or Esc to go back"))
-		
+
 		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("196")).
+			BorderForeground(colRed).
 			Padding(1, 2).
 			Render(b.String())
 	}
@@ -793,11 +793,11 @@ func (f FormModel) View() string {
 		}
 		
 		labelStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
+			Foreground(colGreen).
 			Bold(true)
-		
+
 		if i == f.CurrentField {
-			labelStyle = labelStyle.Background(lipgloss.Color("57"))
+			labelStyle = labelStyle.Background(colSurface)
 		}
 		
 		b.WriteString(labelStyle.Render(label))
@@ -811,7 +811,7 @@ func (f FormModel) View() string {
 		
 		if value == "" && field.Placeholder != "" {
 			value = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("241")).
+				Foreground(colMuted).
 				Italic(true).
 				Render(field.Placeholder)
 		}
@@ -822,12 +822,12 @@ func (f FormModel) View() string {
 		}
 		inputStyle := lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(colBorder).
 			Padding(0, 1).
 			Width(fieldWidth)
-		
+
 		if i == f.CurrentField {
-			inputStyle = inputStyle.BorderForeground(lipgloss.Color("39"))
+			inputStyle = inputStyle.BorderForeground(colGreen)
 			value += "█" // Cursor
 		}
 		
@@ -838,7 +838,7 @@ func (f FormModel) View() string {
 	// Error message
 	if f.Error != "" {
 		error := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
+			Foreground(colRed).
 			Bold(true).
 			Render("Error: " + f.Error)
 		b.WriteString(error)
@@ -847,16 +847,16 @@ func (f FormModel) View() string {
 	
 	// Help text
 	help := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
+		Foreground(colMuted).
 		Italic(true).
 		Render("Tab/↑↓: navigate • Enter: submit/next • Ctrl+V: paste • Esc: cancel")
-	
+
 	b.WriteString(help)
-	
+
 	// Wrap in border
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(colBorder).
 		Padding(1, 2).
 		Render(b.String())
 }

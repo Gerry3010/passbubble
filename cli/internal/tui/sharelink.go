@@ -101,7 +101,7 @@ func (m Model) renderShareMenu() string {
 		kind = "Folder"
 	}
 	var b strings.Builder
-	b.WriteString(m.titleStyle.Render("🔗 Share link"))
+	b.WriteString(m.titleStyle.Render("passbubble:~$ share"))
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "%s: %s\n\n", kind, m.shareEntryName)
 	b.WriteString("Valid for:\n")
@@ -113,7 +113,7 @@ func (m Model) renderShareMenu() string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(colBorder).
 		Padding(1, 2).
 		Render(b.String())
 	return lipgloss.JoinVertical(lipgloss.Left, box)
@@ -122,7 +122,7 @@ func (m Model) renderShareMenu() string {
 // renderShareQR renders the created link as a QR code plus the raw URL.
 func (m Model) renderShareQR() string {
 	var b strings.Builder
-	b.WriteString(m.titleStyle.Render("🔗 Share link — scan or copy"))
+	b.WriteString(m.titleStyle.Render("passbubble:~$ share — scan or copy"))
 	b.WriteString("\n\n")
 	b.WriteString(m.shareQR)
 	b.WriteString("\n")
