@@ -26,17 +26,19 @@ only manages users/invitations via plain JWT-authenticated requests.
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Passbubble Admin</title>
 <style>
+  /* Canonical brand tokens — see docs/design-guidelines.md. Phosphor terminal:
+     green accents on near-black; body text stays light-gray on full screens. */
   :root {
-    --bg: #212121;
-    --surface: #2A2A2A;
-    --surface-variant: #303030;
-    --primary: #00E676;
-    --primary-dim: #00C853;
-    --primary-faint: #1B2A1F;
+    --bg: #0a0a0a;
+    --surface: #0e140f;
+    --surface-variant: #121a14;
+    --primary: #00ff41;
+    --primary-dim: #19a23a;
+    --primary-faint: #122b18;
     --text: #E0E0E0;
-    --text-dim: #9E9E9E;
-    --error: #CF6679;
-    --border: #424242;
+    --text-dim: #5f8c6a;
+    --error: #ff5f56;
+    --border: #1d3a24;
   }
   * { box-sizing: border-box; }
   body {
@@ -61,6 +63,7 @@ only manages users/invitations via plain JWT-authenticated requests.
     width: 100%;
     max-width: 360px;
     border: 1px solid var(--border);
+    border-radius: 4px;
     background: var(--surface);
     padding: 24px;
   }
@@ -88,6 +91,7 @@ only manages users/invitations via plain JWT-authenticated requests.
     width: 100%;
     background: var(--surface-variant);
     border: 1px solid var(--border);
+    border-radius: 2px;
     color: var(--text);
     font-family: inherit;
     font-size: 14px;
@@ -105,8 +109,9 @@ only manages users/invitations via plain JWT-authenticated requests.
   button.primary {
     width: 100%;
     background: var(--primary);
-    color: #10231a;
+    color: #0a0a0a;
     border: none;
+    border-radius: 2px;
     font-weight: 700;
     letter-spacing: 1px;
     font-size: 13px;
@@ -119,12 +124,14 @@ only manages users/invitations via plain JWT-authenticated requests.
     background: transparent;
     color: var(--primary);
     border: 1px solid var(--border);
+    border-radius: 2px;
     font-size: 12px;
     padding: 8px 14px;
   }
   button.small:hover { border-color: var(--primary); }
   .error-box {
     border: 1px solid var(--error);
+    border-radius: 2px;
     color: var(--error);
     padding: 10px 12px;
     font-size: 12px;
@@ -198,6 +205,7 @@ only manages users/invitations via plain JWT-authenticated requests.
     font-size: 11px;
     letter-spacing: 1px;
     border: 1px solid var(--border);
+    border-radius: 2px;
   }
   .badge.admin { color: var(--primary); border-color: var(--primary); background: var(--primary-faint); }
   .badge.pending { color: var(--text-dim); }
@@ -224,6 +232,7 @@ only manages users/invitations via plain JWT-authenticated requests.
   .revoke-btn {
     background: none;
     border: 1px solid var(--error);
+    border-radius: 2px;
     color: var(--error);
     font-size: 11px;
     padding: 3px 8px;
@@ -242,7 +251,7 @@ only manages users/invitations via plain JWT-authenticated requests.
 
 <div id="login-view">
   <div class="login-box">
-    <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="22" height="22" style="flex-shrink:0"><rect width="256" height="256" fill="#0a0a0a"/><path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z" fill="rgba(0,255,65,0.08)" stroke="var(--primary)" stroke-width="14"/><text x="128" y="120" font-family="monospace" font-size="54" font-weight="bold" fill="var(--primary)" text-anchor="middle">&gt; _</text></svg>&gt; PASSBUBBLE ADMIN</h1>
+    <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="22" height="22" style="flex-shrink:0"><rect width="256" height="256" fill="#0a0a0a"/><path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z" fill="rgba(0,255,65,0.08)" stroke="var(--primary)" stroke-width="14"/><text x="128" y="120" font-family="monospace" font-size="54" font-weight="bold" fill="var(--primary)" text-anchor="middle">&gt; _</text></svg><span style="color:var(--text-dim)">passbubble:~$</span>&nbsp;admin</h1>
     <p class="sub">Sign in with your admin account</p>
     <form id="login-form">
       <label for="login-email">Email</label>
@@ -257,7 +266,7 @@ only manages users/invitations via plain JWT-authenticated requests.
 
 <div id="app-view" class="hidden">
   <header>
-    <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="22" height="22" style="flex-shrink:0"><rect width="256" height="256" fill="#0a0a0a"/><path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z" fill="rgba(0,255,65,0.08)" stroke="var(--primary)" stroke-width="14"/><text x="128" y="120" font-family="monospace" font-size="54" font-weight="bold" fill="var(--primary)" text-anchor="middle">&gt; _</text></svg>&gt; PASSBUBBLE ADMIN</h1>
+    <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="22" height="22" style="flex-shrink:0"><rect width="256" height="256" fill="#0a0a0a"/><path d="M 28,36 L 228,36 L 228,168 L 78,168 L 42,218 L 28,168 Z" fill="rgba(0,255,65,0.08)" stroke="var(--primary)" stroke-width="14"/><text x="128" y="120" font-family="monospace" font-size="54" font-weight="bold" fill="var(--primary)" text-anchor="middle">&gt; _</text></svg><span style="color:var(--text-dim)">passbubble:~$</span>&nbsp;admin</h1>
     <div class="who">
       <span id="who-text"></span>
       &nbsp;·&nbsp;
@@ -266,8 +275,8 @@ only manages users/invitations via plain JWT-authenticated requests.
   </header>
   <main>
     <div class="tabs">
-      <button class="tab active" data-tab="users">USERS</button>
-      <button class="tab" data-tab="invitations">INVITATIONS</button>
+      <button class="tab active" data-tab="users">./users</button>
+      <button class="tab" data-tab="invitations">./invitations</button>
     </div>
 
     <section id="tab-users">
