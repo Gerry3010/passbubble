@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-06-21
+
+### Added
+- **Android System-Autofill** — Passbubble registriert sich als **System-Autofill-Dienst** und füllt Logins in anderen Apps und Browsern aus (Chrome, Samsung Internet u. a. via Compatibility-Mode). Da das hybride X25519 + ML-KEM-768-Verfahren nicht praktikabel in Kotlin läuft, **entschlüsselt die Flutter-App beim Entsperren** alle Einträge (über den neuen `/entries/full`-Endpoint) und übergibt fertige Zugangsdaten **at-rest-verschlüsselt** (EncryptedSharedPreferences) an den nativen Dienst; bei Lock/Logout wird die Brücke gewischt. Felderkennung über HTML-/`inputType`-Heuristik (statt nur `autofillHints`), markenkonformes Dropdown, plus Settings-Tile, dismissbares Vault-Banner und einmaliges Intro zum Aktivieren
+- **Einstellungen als eigener Tab** — Settings ist jetzt ein eigener Eintrag in der Bottom-Navigation (`./settings`, 4 Tabs) statt hinter dem Vault-Zahnrad versteckt
+- **`GET /api/v1/entries/full`** — Bulk-Endpoint, der alle Einträge des Nutzers inkl. `encrypted_data` und eigenem `entry_key` in einem Request liefert (Grundlage der Autofill-Brücke)
+
+### Changed
+- **Phosphor-Terminal-Redesign über alle Oberflächen** — CLI/TUI, Flutter-App (+ `/web`) und Admin-Panel sind an das Design der Browser-Extension angeglichen: grüne Akzente auf Beinahe-Schwarz, JetBrains Mono und Shell-Prompt-Sprache (`passbubble:~$ …`, `./vault`, `grep entries…`, Glyphs statt Emoji). Neue `docs/design-guidelines.md` als verbindliche Design-Referenz
+- **Web nutzt automatisch die Origin als Server** — der `/web`-Build überspringt den Server-Auswahl-Screen und verbindet sich mit der ausliefernden Origin; Standalone-Builds (Mobile/Desktop) verlangen weiterhin die manuelle Eingabe
+- Generierte Passwörter und kopierbare Felder werden in **JetBrains Mono** dargestellt, sodass `0` und `O` eindeutig unterscheidbar sind
+
 ## [2.4.0] - 2026-06-21
 
 ### Added
