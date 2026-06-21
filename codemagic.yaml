@@ -1,0 +1,124 @@
+# Codemagic CI for the Apple/Android targets that GitHub Actions / Bitbucket
+# Pipelines can't build (Bitbucket has no hosted macOS runners; neither GH nor
+# Bitbucket builds the gitignored native crypto .so libs).
+#
+# Two workflows:
+#   safari-extension  (macOS) — builds the Safari web extension + Xcode wrapper,
+#                               signs & uploads to App Store Connect (macOS + iOS).
+#   flutter-android   (Linux) — builds the gitignored native crypto jniLibs .so
+#                               (the ".so problem"), then a signed .aab.
+#
+# One-time setup in the Codemagic UI before these run green:
+#   • Apple:   integrations.app_store_connect (API key) + a code-signing group.
+#   • Android: an environment-variable group "google_play" with a base64 keystore
+#              + a service-account JSON for Play uploads (see the vars below).
+
+workflows:
+  # ── A) Safari Web Extension (macOS + iOS) ───────────────────────────────────
+  safari-extension:
+    name: Safari Web Extension (macOS + iOS)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      node: 20
+      xcode: latest
+      vars:
+        # Bundle IDs of the converter-generated apps (set to match safari/).
+        BUNDLE_ID_MACOS: "net.geraldhofbauer.passbubble"
+        BUNDLE_ID_IOS: "net.geraldhofbauer.passbubble"
+      groups:
+        - app_store_connect   # APP_STORE_CONNECT_* (API key) — configure in UI
+    integrations:
+      app_store_connect: passbubble_asc   # name of the ASC API-key integration
+    scripts:
+      - name: Build the Safari web extension bundle
+        script: |
+          cd packages/shared-ts && npm ci && npm run build && cd -
+          cd extension && npm ci && npm run build:safari
+      - name: Build & archive the Xcode wrapper (macOS + iOS)
+        script: |
+          # The safari/ Xcode project is generated once on a Mac via:
+          #   xcrun safari-web-extension-converter extension/dist/safari \
+          #     --project-location safari/ --app-name Passbubble \
+          #     --bundle-identifier $BUNDLE_ID_MACOS --macos --ios
+          # and committed. CI re-syncs the freshly built web bundle into it,
+          # then archives both targets.
+          xcode-project use-profiles
+          # macOS app
+          xcodebuild -project safari/Passbubble.xcodeproj \
+            -scheme "Passbubble (macOS)" -configuration Release archive \
+            -archivePath build/passbubble-macos.xcarchive
+          # iOS app
+          xcodebuild -project safari/Passbubble.xcodeproj \
+            -scheme "Passbubble (iOS)" -configuration Release archive \
+            -archivePath build/passbubble-ios.xcarchive
+    artifacts:
+      - build/*.xcarchive
+      - extension/dist/safari
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
+  # ── B) Flutter Android app (.aab) — the ".so problem" ───────────────────────
+  flutter-android:
+    name: Flutter Android (.aab)
+    # MUST be Linux: native/build.sh hardcodes the NDK prebuilt path
+    # toolchains/llvm/prebuilt/linux-x86_64. The Go c-shared cross-compile to
+    # the Android ABIs needs that exact toolchain layout.
+    instance_type: linux_x2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      java: 17
+      groups:
+        - google_play   # CM_KEYSTORE (base64), CM_KEYSTORE_PASSWORD,
+                        # CM_KEY_ALIAS, CM_KEY_PASSWORD, GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+    scripts:
+      - name: Install Go (match backend/go.mod) + librsvg
+        script: |
+          GO_VERSION=$(grep -m1 '^go ' backend/go.mod | awk '{print $2}')
+          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+          sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go.tgz
+          export PATH="/usr/local/go/bin:$PATH"
+          go version
+          # librsvg for the gitignored launcher mipmaps (make launcher-icons)
+          sudo apt-get update && sudo apt-get install -y librsvg2-bin
+      - name: Resolve Android NDK path
+        script: |
+          # build.sh reads $ANDROID_NDK_HOME. Pick the newest installed NDK,
+          # installing one if Codemagic's image ships none.
+          NDK_BASE="$ANDROID_SDK_ROOT/ndk"
+          if [ ! -d "$NDK_BASE" ] || [ -z "$(ls -A "$NDK_BASE" 2>/dev/null)" ]; then
+            yes | sdkmanager "ndk;26.3.11579264"
+          fi
+          echo "ANDROID_NDK_HOME=$(ls -d "$NDK_BASE"/* | sort -V | tail -1)" >> "$CM_ENV"
+      - name: Build native crypto jniLibs (.so) + launcher icons
+        script: |
+          export PATH="/usr/local/go/bin:$PATH"
+          # gitignored build artifacts — regenerate before flutter build
+          make launcher-icons
+          make native-crypto-android   # → flutter_app/android/app/src/main/jniLibs/<abi>/
+          ls -R flutter_app/android/app/src/main/jniLibs
+      - name: Write Android signing key.properties
+        script: |
+          echo "$CM_KEYSTORE" | base64 --decode > flutter_app/android/app/passbubble-upload.jks
+          cat > flutter_app/android/key.properties <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          storeFile=passbubble-upload.jks
+          EOF
+      - name: Flutter build appbundle
+        script: |
+          cd flutter_app
+          flutter pub get
+          flutter build appbundle --release
+    artifacts:
+      - flutter_app/build/app/outputs/bundle/release/*.aab
+      - flutter_app/build/app/outputs/**/mapping.txt
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true

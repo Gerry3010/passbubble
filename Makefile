@@ -36,7 +36,7 @@ help:
 	@echo "  make migrate-down    Rollback last migration"
 	@echo "  make migrate-create  Create new migration"
 	@echo "  make sqlc            Regenerate sqlc models"
-	@echo "  make build-extension Build Chrome + Firefox extension"
+	@echo "  make build-extension Build Chrome + Firefox + Safari extension"
 	@echo "  make test-extension  Run extension tests"
 	@echo "  make sync-assets     Distribute SVGs from assets/svg/ → flutter_app + extension"
 	@echo "  make icons           Rasterize SVG → extension PNGs (needs rsvg-convert)"
@@ -114,7 +114,7 @@ sqlc:
 
 build-extension: icons
 	cd packages/shared-ts && npm run build
-	cd extension && npm run build:chrome && npm run build:firefox
+	cd extension && npm run build:chrome && npm run build:firefox && npm run build:safari
 
 test-extension:
 	cd packages/shared-ts && npm ci && npm test

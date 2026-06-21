@@ -1,5 +1,5 @@
 // Post-build script: copy manifest + icons + wasm to dist/
-// Usage: node scripts/build.js [chrome|firefox]
+// Usage: node scripts/build.js [chrome|firefox|safari]
 
 import { copyFileSync, mkdirSync, existsSync, renameSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
