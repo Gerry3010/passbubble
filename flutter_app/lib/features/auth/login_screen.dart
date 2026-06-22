@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -61,6 +62,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _emailCtrl.text.trim(),
             _passCtrl.text,
           );
+      // Let iOS/Android offer to save or update the just-used credentials.
+      TextInput.finishAutofillContext();
       if (pending != null && mounted) {
         setState(() => _pendingToken = pending);
       }
@@ -167,10 +170,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ],
                   const SizedBox(height: 32),
                   if (_pendingToken == null) ...[
+                    AutofillGroup(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                     PbTextField(
                       label: 'Email',
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [AutofillHints.username],
                       prefixIcon: Icons.alternate_email,
                       validator: (v) => v!.isEmpty ? 'Required' : null,
                       textInputAction: TextInputAction.next,
@@ -182,6 +191,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       controller: _passCtrl,
                       focusNode: _passFocus,
                       obscureText: _obscure,
+                      autofillHints: const [AutofillHints.password],
                       prefixIcon: Icons.lock_outline,
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -192,6 +202,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                       validator: (v) => v!.isEmpty ? 'Required' : null,
                       onSubmitted: (_) => _login(),
+                    ),
+                        ],
+                      ),
                     ),
                   ] else ...[
                     Text(

@@ -31,6 +31,7 @@ class PbTextField extends StatelessWidget {
   final void Function(String)? onSubmitted;
   final TextInputAction? textInputAction;
   final FocusNode? focusNode;
+  final Iterable<String>? autofillHints;
 
   const PbTextField({
     super.key,
@@ -48,6 +49,7 @@ class PbTextField extends StatelessWidget {
     this.onSubmitted,
     this.textInputAction,
     this.focusNode,
+    this.autofillHints,
   });
 
   @override
@@ -62,6 +64,7 @@ class PbTextField extends StatelessWidget {
       maxLines: maxLines,
       onChanged: onChanged,
       onFieldSubmitted: onSubmitted,
+      autofillHints: autofillHints,
       textInputAction: textInputAction ?? (onSubmitted != null ? TextInputAction.done : null),
       decoration: InputDecoration(
         labelText: label,
