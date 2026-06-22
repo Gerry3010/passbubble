@@ -116,7 +116,20 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
 
   List<FolderResponse> _subfolders(List<FolderResponse> roots) {
     if (_currentFolder == null) return roots;
-    return _currentFolder!.children;
+    // Resolve the current folder from the freshly fetched tree (by id) rather
+    // than the snapshot captured in _stack, so newly created/moved subfolders
+    // appear without leaving and re-entering the folder.
+    final fresh = _findFolder(roots, _currentFolder!.id);
+    return fresh?.children ?? _currentFolder!.children;
+  }
+
+  FolderResponse? _findFolder(List<FolderResponse> fs, String id) {
+    for (final f in fs) {
+      if (f.id == id) return f;
+      final hit = _findFolder(f.children, id);
+      if (hit != null) return hit;
+    }
+    return null;
   }
 
   List<EntryResponse> _entriesInFolder(List<EntryResponse> all) {
@@ -454,6 +467,80 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
 
   String _countLabel(int n) => '$n item${n == 1 ? '' : 's'}';
 
+  /// Pop-up menu shown when tapping the FAB: choose between creating a new
+  /// entry or a new folder. Both inherit the current folder as their parent.
+  Future<void> _showAddMenu() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.note_add_outlined,
+                  color: AppTheme.green),
+              title: const Text('New entry'),
+              onTap: () => Navigator.pop(ctx, 'entry'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.create_new_folder_outlined,
+                  color: AppTheme.green),
+              title: const Text('New folder'),
+              onTap: () => Navigator.pop(ctx, 'folder'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'entry') {
+      final fid = _currentFolder?.id;
+      context.go(fid != null ? '/entries/new?folderId=$fid' : '/entries/new');
+    } else if (choice == 'folder') {
+      await _createFolder();
+    }
+  }
+
+  /// Prompts for a folder name and creates it inside the current folder
+  /// (null parent = root), then refreshes the list.
+  Future<void> _createFolder() async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New folder'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Folder name'),
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || name == null || name.isEmpty) return;
+    try {
+      await ref.read(apiClientProvider).createFolder(
+            CreateFolderRequest(name: name, parentId: _currentFolder?.id),
+          );
+      ref.invalidate(foldersProvider);
+      _snack('Created folder "$name"');
+    } catch (e) {
+      _snack('Create folder failed: $e');
+    }
+  }
+
   /// Modal folder picker returning the chosen folder id (null = root) wrapped in
   /// a record, or null when the user cancels.
   Future<({String? id})?> _pickTargetFolder() async {
@@ -673,12 +760,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
         floatingActionButton: _editMode
             ? null
             : FloatingActionButton(
-                onPressed: () {
-                  final fid = _currentFolder?.id;
-                  context.go(fid != null
-                      ? '/entries/new?folderId=$fid'
-                      : '/entries/new');
-                },
+                onPressed: _showAddMenu,
                 child: const Icon(Icons.add),
               ),
         bottomNavigationBar: _editMode
