@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "de.gerry3010.passbubble"
+    namespace = "net.geraldhofbauer.passbubble"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "de.gerry3010.passbubble"
+        applicationId = "net.geraldhofbauer.passbubble"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

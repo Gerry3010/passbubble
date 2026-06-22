@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package de.gerry3010.passbubble
+package net.geraldhofbauer.passbubble
 
 import android.content.Context
 import android.content.SharedPreferences

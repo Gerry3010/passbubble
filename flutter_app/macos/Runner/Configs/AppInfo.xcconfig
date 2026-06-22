@@ -8,7 +8,7 @@
 PRODUCT_NAME = passbubble
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = de.gerry3010.passbubble
+PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 de.gerry3010. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 net.geraldhofbauer. All rights reserved.
