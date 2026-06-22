@@ -61,7 +61,7 @@ class CredentialProviderViewController: ASCredentialProviderViewController {
         loadEntries()
     }
 
-    /// Called by the system when AutoFill can satisfy the request without UI.
+    /// Legacy (pre-iOS 17) password-only direct provide.
     override func provideCredentialWithoutUserInteraction(for credentialIdentity: ASPasswordCredentialIdentity) {
         let all = Self.loadCredentials()
         if let entry = all.first(where: { $0.id == credentialIdentity.recordIdentifier }) {
@@ -72,6 +72,32 @@ class CredentialProviderViewController: ASCredentialProviderViewController {
         extensionContext.cancelRequest(withError:
             NSError(domain: ASExtensionErrorDomain,
                     code: ASExtensionError.credentialIdentityNotFound.rawValue))
+    }
+
+    /// iOS 17+: request-based direct provide. Invoked when the user taps a
+    /// QuickType suggestion. Handles passwords and (iOS 18+) one-time codes —
+    /// without this, tapping an OTP suggestion does nothing.
+    @available(iOS 17.0, *)
+    override func provideCredentialWithoutUserInteraction(for credentialRequest: ASCredentialRequest) {
+        let recordId = credentialRequest.credentialIdentity.recordIdentifier
+        guard let entry = Self.loadCredentials().first(where: { $0.id == recordId }) else {
+            extensionContext.cancelRequest(withError:
+                NSError(domain: ASExtensionErrorDomain,
+                        code: ASExtensionError.credentialIdentityNotFound.rawValue))
+            return
+        }
+        if #available(iOS 18.0, *), credentialRequest.type == .oneTimeCode {
+            guard let code = TOTP.generate(base32Secret: entry.totp) else {
+                extensionContext.cancelRequest(withError:
+                    NSError(domain: ASExtensionErrorDomain,
+                            code: ASExtensionError.credentialIdentityNotFound.rawValue))
+                return
+            }
+            extensionContext.completeOneTimeCodeRequest(using: ASOneTimeCodeCredential(code: code))
+        } else {
+            extensionContext.completeRequest(
+                withSelectedCredential: ASPasswordCredential(user: entry.username, password: entry.password))
+        }
     }
 
     // MARK: - UI setup
