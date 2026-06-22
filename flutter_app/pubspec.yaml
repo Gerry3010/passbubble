@@ -2,7 +2,7 @@ name: passbubble
 description: "Passbubble — E2E encrypted, self-hosted password manager"
 publish_to: 'none'
 
-version: 2.5.0+1
+version: 2.5.0+2
 
 environment:
   sdk: ^3.10.0
