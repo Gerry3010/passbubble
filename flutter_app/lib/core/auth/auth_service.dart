@@ -268,13 +268,15 @@ class AuthService {
           final username =
               (data['username'] ?? data['account'] ?? '').toString();
           final password = (data['password'] ?? '').toString();
-          if (username.isEmpty && password.isEmpty) continue;
+          final totp = (data['totp_secret'] ?? '').toString();
+          if (username.isEmpty && password.isEmpty && totp.isEmpty) continue;
           creds.add({
             'id': e.id,
             'url': e.url,
             'name': e.name,
             'username': username,
             'password': password,
+            'totp': totp,
           });
         } catch (_) {
           // Skip entries that fail to decrypt rather than aborting the sync.

@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import AuthenticationServices
+import CryptoKit
 import Security
 
 // App Group identifier shared between the main app and this extension.
@@ -33,10 +34,24 @@ class CredentialProviderViewController: ASCredentialProviderViewController {
     private let searchController = UISearchController(searchResultsController: nil)
     private var serviceIdentifiers: [ASCredentialServiceIdentifier] = []
 
+    private enum Mode { case password, oneTimeCode }
+    private var mode: Mode = .password
+
     // MARK: - ASCredentialProviderViewController overrides
 
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
         self.serviceIdentifiers = serviceIdentifiers
+        self.mode = .password
+        setupUI()
+        loadEntries()
+    }
+
+    /// iOS 18+: the system is filling a verification-code field. Show only
+    /// entries that carry a TOTP secret; on selection we return the live code.
+    @available(iOS 18.0, *)
+    override func prepareOneTimeCodeCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
+        self.serviceIdentifiers = serviceIdentifiers
+        self.mode = .oneTimeCode
         setupUI()
         loadEntries()
     }
@@ -93,7 +108,10 @@ class CredentialProviderViewController: ASCredentialProviderViewController {
     // MARK: - Data loading
 
     private func loadEntries() {
-        entries = Self.loadCredentials()
+        var all = Self.loadCredentials()
+        // For verification-code requests, only entries that carry a TOTP secret.
+        if mode == .oneTimeCode { all = all.filter { !$0.totp.isEmpty } }
+        entries = all
         if entries.isEmpty {
             showLockState()
             return
@@ -178,8 +196,13 @@ extension CredentialProviderViewController: UITableViewDataSource, UITableViewDe
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let entry = filteredEntries[indexPath.row]
-        extensionContext.completeRequest(
-            withSelectedCredential: ASPasswordCredential(user: entry.username, password: entry.password))
+        if mode == .oneTimeCode, #available(iOS 18.0, *) {
+            guard let code = TOTP.generate(base32Secret: entry.totp) else { cancel(); return }
+            extensionContext.completeOneTimeCodeRequest(using: ASOneTimeCodeCredential(code: code))
+        } else {
+            extensionContext.completeRequest(
+                withSelectedCredential: ASPasswordCredential(user: entry.username, password: entry.password))
+        }
     }
 }
 
@@ -207,8 +230,9 @@ private struct Credential: Codable {
     let url: String
     let username: String
     let password: String
+    let totp: String   // base32 TOTP secret, "" if none
 
-    enum CodingKeys: String, CodingKey { case id, name, url, username, password }
+    enum CodingKeys: String, CodingKey { case id, name, url, username, password, totp }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -217,5 +241,44 @@ private struct Credential: Codable {
         url = (try? c.decode(String.self, forKey: .url)) ?? ""
         username = (try? c.decode(String.self, forKey: .username)) ?? ""
         password = (try? c.decode(String.self, forKey: .password)) ?? ""
+        totp = (try? c.decode(String.self, forKey: .totp)) ?? ""
+    }
+}
+
+// MARK: - TOTP (SHA1, 6 digits, 30s period — matches the Flutter app)
+
+private enum TOTP {
+    static func generate(base32Secret: String, at date: Date = Date()) -> String? {
+        guard let key = base32Decode(base32Secret) else { return nil }
+        var counter = UInt64(date.timeIntervalSince1970 / 30).bigEndian
+        let counterData = Data(bytes: &counter, count: 8)
+        let mac = HMAC<Insecure.SHA1>.authenticationCode(for: counterData, using: SymmetricKey(data: key))
+        let hash = Data(mac)
+        let offset = Int(hash[hash.count - 1] & 0x0f)
+        let binary = (UInt32(hash[offset] & 0x7f) << 24)
+            | (UInt32(hash[offset + 1]) << 16)
+            | (UInt32(hash[offset + 2]) << 8)
+            | UInt32(hash[offset + 3])
+        return String(format: "%06u", binary % 1_000_000)
+    }
+
+    /// RFC 4648 base32 decode (uppercase, no padding required), tolerant of
+    /// lowercase, spaces and "=" padding as stored in entries.
+    private static func base32Decode(_ input: String) -> Data? {
+        let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        let clean = input.uppercased().filter { $0 != "=" && $0 != " " }
+        guard !clean.isEmpty else { return nil }
+        var bits = 0, value = 0
+        var out = [UInt8]()
+        for ch in clean {
+            guard let idx = alphabet.firstIndex(of: ch) else { return nil }
+            value = (value << 5) | alphabet.distance(from: alphabet.startIndex, to: idx)
+            bits += 5
+            if bits >= 8 {
+                bits -= 8
+                out.append(UInt8((value >> bits) & 0xff))
+            }
+        }
+        return Data(out)
     }
 }
