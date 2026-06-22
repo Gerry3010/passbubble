@@ -125,6 +125,15 @@ jobs:
         working-directory: flutter_app
         run: flutter analyze
 
+      # The hybrid-KEM FFI tests load the native c-shared lib; build it (host)
+      # so they run instead of failing to dlopen a missing .so.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build native hybrid-KEM lib (host)
+        run: make native-crypto
+
       - name: Flutter test
         working-directory: flutter_app
         run: flutter test --coverage
