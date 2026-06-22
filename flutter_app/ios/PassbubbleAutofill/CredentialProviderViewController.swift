@@ -100,6 +100,14 @@ class CredentialProviderViewController: ASCredentialProviderViewController {
         }
     }
 
+    /// iOS 17+: invoked when the system wants to show our UI to provide a
+    /// specific credential (e.g. the "browse" / key affordance). We hold the
+    /// data already, so fulfil it directly without extra UI.
+    @available(iOS 17.0, *)
+    override func prepareInterfaceToProvideCredential(for credentialRequest: ASCredentialRequest) {
+        provideCredentialWithoutUserInteraction(for: credentialRequest)
+    }
+
     // MARK: - UI setup
 
     private func setupUI() {
