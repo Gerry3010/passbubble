@@ -364,6 +364,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
         );
       }
       ref.invalidate(entriesProvider);
+      ref.read(authServiceProvider).refreshAutofill().ignore();
       _exitEditMode();
       _snack('Moved ${_countLabel(entries.length)}');
     } catch (e) {
@@ -412,6 +413,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
         );
       }
       ref.invalidate(entriesProvider);
+      ref.read(authServiceProvider).refreshAutofill().ignore();
       _exitEditMode();
       _snack('Duplicated ${_countLabel(entries.length)}');
     } catch (e) {
@@ -445,6 +447,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
         await api.deleteEntry(e.id);
       }
       ref.invalidate(entriesProvider);
+      ref.read(authServiceProvider).refreshAutofill().ignore();
       _exitEditMode();
       _snack('Deleted ${_countLabel(n)}');
     } catch (e) {

@@ -237,6 +237,10 @@ class AuthService {
 
   ApiClient get api => _api;
 
+  /// Re-syncs the system autofill caches (call after entries change:
+  /// create / update / delete / import). Best-effort; never throws.
+  Future<void> refreshAutofill() => _syncAutofill();
+
   /// Decrypts every entry and hands the ready-to-fill credentials to the system
   /// autofill consumers — the Android autofill service and the iOS credential-
   /// provider extension — which can't do the hybrid-KEM crypto themselves. The

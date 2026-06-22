@@ -208,6 +208,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     if (ok != true) return;
     await ref.read(apiClientProvider).deleteEntry(id);
     ref.invalidate(entriesProvider);
+    ref.read(authServiceProvider).refreshAutofill().ignore();
     if (mounted) context.go('/entries');
   }
 

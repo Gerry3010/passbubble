@@ -100,12 +100,24 @@ class CredentialProviderViewController: ASCredentialProviderViewController {
         }
     }
 
-    /// iOS 17+: invoked when the system wants to show our UI to provide a
-    /// specific credential (e.g. the "browse" / key affordance). We hold the
-    /// data already, so fulfil it directly without extra UI.
+    /// iOS 17+: invoked when the system wants our UI to provide a specific
+    /// credential. We hold the data already, so fulfil it directly when we can
+    /// resolve the identity; otherwise fall back to the browse list rather than
+    /// silently cancelling.
     @available(iOS 17.0, *)
     override func prepareInterfaceToProvideCredential(for credentialRequest: ASCredentialRequest) {
-        provideCredentialWithoutUserInteraction(for: credentialRequest)
+        let recordId = credentialRequest.credentialIdentity.recordIdentifier
+        if Self.loadCredentials().contains(where: { $0.id == recordId }) {
+            provideCredentialWithoutUserInteraction(for: credentialRequest)
+            return
+        }
+        if #available(iOS 18.0, *), credentialRequest.type == .oneTimeCode {
+            mode = .oneTimeCode
+        } else {
+            mode = .password
+        }
+        setupUI()
+        loadEntries()
     }
 
     // MARK: - UI setup

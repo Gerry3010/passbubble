@@ -312,6 +312,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         );
       }
       ref.invalidate(entriesProvider);
+      authSvc.refreshAutofill().ignore(); // refresh the system autofill cache
       if (mounted) context.go('/entries');
     } catch (e) {
       setState(() => _error = e.toString());
