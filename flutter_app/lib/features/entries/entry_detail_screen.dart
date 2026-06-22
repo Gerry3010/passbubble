@@ -514,9 +514,15 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         onPressed: () async {
           try {
             final bytes = base64Decode(base64Value);
+            // iOS requires a non-zero source rect for the share sheet/popover.
+            final box = context.findRenderObject() as RenderBox?;
+            final origin = box != null && box.hasSize
+                ? box.localToGlobal(Offset.zero) & box.size
+                : const Rect.fromLTWH(0, 0, 1, 1);
             await Share.shareXFiles(
               [XFile.fromData(Uint8List.fromList(bytes), name: filename, mimeType: mime)],
               subject: filename,
+              sharePositionOrigin: origin,
             );
           } catch (e) {
             if (mounted) {
