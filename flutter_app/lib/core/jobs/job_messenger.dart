@@ -141,5 +141,8 @@ Future<void> shareJobResult(LocalJob job) async {
       ),
     ],
     subject: 'Passbubble Export',
+    // iOS needs a non-zero source rect; no widget context here, so use a safe
+    // fallback (anchors the iPad popover to the top-left corner).
+    sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
   );
 }

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package de.gerry3010.passbubble
+package net.geraldhofbauer.passbubble
 
 import android.content.Intent
 import android.net.Uri
@@ -26,7 +26,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
 
-    private val channelName = "de.gerry3010.passbubble/autofill"
+    private val channelName = "net.geraldhofbauer.passbubble/autofill"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

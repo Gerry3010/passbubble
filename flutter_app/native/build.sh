@@ -54,9 +54,26 @@ build_android() {
   done
 }
 
+build_ios() {
+  # iOS device (arm64): static c-archive linked into the Runner target via
+  # OTHER_LDFLAGS (-force_load + -export_dynamic) so dart:ffi's
+  # DynamicLibrary.process() can dlsym the pb_* symbols. Gitignored output.
+  local sdk cc dest
+  sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+  cc="$(xcrun --sdk iphoneos --find clang)"
+  dest="../../ios/native"
+  mkdir -p "$dest"
+  echo "→ $dest/lib${NAME}.a (ios arm64)"
+  CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$cc" \
+    CGO_CFLAGS="-isysroot $sdk -arch arm64 -miphoneos-version-min=13.0" \
+    CGO_LDFLAGS="-isysroot $sdk -arch arm64 -miphoneos-version-min=13.0" \
+    go build -buildmode=c-archive -o "$dest/lib${NAME}.a" .
+}
+
 case "${1:-host}" in
   host) build_host ;;
   android) build_android ;;
-  *) echo "usage: $0 [host|android]"; exit 1 ;;
+  ios) build_ios ;;
+  *) echo "usage: $0 [host|android|ios]"; exit 1 ;;
 esac
 echo "done."

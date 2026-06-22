@@ -237,23 +237,28 @@ class AuthService {
 
   ApiClient get api => _api;
 
-  /// Builds the Android autofill cache: decrypts every entry that has a URL and
-  /// hands the ready-to-fill credentials to the native service (which can't do
-  /// the hybrid-KEM crypto itself). No-op on non-Android / while locked.
-  /// Best-effort and runs in the background — never throws into the caller.
+  /// Re-syncs the system autofill caches (call after entries change:
+  /// create / update / delete / import). Best-effort; never throws.
+  Future<void> refreshAutofill() => _syncAutofill();
+
+  /// Decrypts every entry and hands the ready-to-fill credentials to the system
+  /// autofill consumers — the Android autofill service and the iOS credential-
+  /// provider extension — which can't do the hybrid-KEM crypto themselves. The
+  /// app owns the crypto; both platforms just read the cached result. No-op while
+  /// locked or when neither platform consumes it. Best-effort; never throws.
   Future<void> _syncAutofill() async {
     final privX = _privX25519;
     final privM = _privMLKEM;
     if (privX == null) return; // vault locked
-    if (!await _autofill.isSupported()) return; // skip non-Android platforms
+
+    final androidOk = await _autofill.isSupported();
+    if (!androidOk && !_autofill.isIos) return; // no autofill consumer here
     try {
       // One round-trip: every entry with its encrypted_data + the caller's key.
       final entries = await _api.listEntriesFull();
       final creds = <Map<String, String>>[];
       for (final e in entries) {
-        if (e.url.isEmpty || e.entryKey == null || e.encryptedData.isEmpty) {
-          continue;
-        }
+        if (e.entryKey == null || e.encryptedData.isEmpty) continue;
         try {
           final dataKey = await VaultCrypto.decryptDataKey(
             e.entryKey!.encryptedKey,
@@ -267,18 +272,23 @@ class AuthService {
           final username =
               (data['username'] ?? data['account'] ?? '').toString();
           final password = (data['password'] ?? '').toString();
-          if (username.isEmpty && password.isEmpty) continue;
+          final totp = (data['totp_secret'] ?? '').toString();
+          if (username.isEmpty && password.isEmpty && totp.isEmpty) continue;
           creds.add({
+            'id': e.id,
             'url': e.url,
             'name': e.name,
             'username': username,
             'password': password,
+            'totp': totp,
           });
         } catch (_) {
           // Skip entries that fail to decrypt rather than aborting the sync.
         }
       }
-      await _autofill.updateCredentials(jsonEncode(creds));
+      final json = jsonEncode(creds);
+      await _autofill.updateCredentials(json); // Android (no-op elsewhere)
+      await _autofill.syncIosCredentials(json); // iOS (no-op elsewhere)
     } catch (_) {
       // Network/other failure: leave the previous cache in place.
     }

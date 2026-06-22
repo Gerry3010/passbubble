@@ -15,6 +15,7 @@
 
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' show Rect;
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -331,6 +332,8 @@ class JobRunner extends Notifier<List<LocalJob>> {
         await Share.shareXFiles(
           [XFile.fromData(fileBytes, name: format.filename, mimeType: format.mimeType)],
           subject: 'Passbubble Export',
+          // iOS needs a non-zero source rect; no widget context in the job runner.
+          sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
         );
       } catch (_) {}
     } catch (e) {

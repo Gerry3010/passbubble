@@ -6,6 +6,12 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Passbubble</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Passbubble uses Face ID to unlock your vault and authorize access to your stored passwords.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Passbubble only accesses your photo library if you pick an image when importing or attaching a file.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Passbubble only accesses the camera if you capture an image when importing or attaching a file.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

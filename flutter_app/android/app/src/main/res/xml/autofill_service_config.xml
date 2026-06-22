@@ -13,7 +13,7 @@
 -->
 <autofill-service
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsActivity="de.gerry3010.passbubble.MainActivity">
+    android:settingsActivity="net.geraldhofbauer.passbubble.MainActivity">
     <compatibility-package android:name="com.android.chrome" android:maxLongVersionCode="999999999999" />
     <compatibility-package android:name="com.chrome.beta" android:maxLongVersionCode="999999999999" />
     <compatibility-package android:name="com.sec.android.app.sbrowser" android:maxLongVersionCode="999999999999" />
