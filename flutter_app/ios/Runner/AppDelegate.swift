@@ -15,14 +15,95 @@
 
 import Flutter
 import UIKit
+import Security
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+
+  /// Shared with the AutoFill Credential Provider extension. Must match
+  /// `kAppGroup` in CredentialProviderViewController.swift and the App Groups
+  /// capability on both the Runner and the extension target.
+  private let kAppGroup = "group.net.geraldhofbauer.passbubble"
+  private let channelName = "net.geraldhofbauer.passbubble/autofill"
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+
+    if let controller = window?.rootViewController as? FlutterViewController {
+      let channel = FlutterMethodChannel(name: channelName,
+                                         binaryMessenger: controller.binaryMessenger)
+      channel.setMethodCallHandler { [weak self] call, result in
+        guard let self = self else { result(nil); return }
+        switch call.method {
+        // Feeds the credential-provider extension with the already-decrypted
+        // credentials (JSON), written to the shared App Group keychain. Called on
+        // unlock. The app owns the hybrid-KEM crypto; the extension does none.
+        case "iosSyncCredentials":
+          if let json = (call.arguments as? [String: Any])?["credentials"] as? String {
+            self.keychainSet(account: "autofill_credentials", data: Data(json.utf8))
+          }
+          result(nil)
+        // Vault locked / logged out — wipe the shared data.
+        case "iosClearVault", "clearVault":
+          self.iosClearVault()
+          result(nil)
+        // Opens iOS Settings so the user can enable Passbubble as an AutoFill
+        // provider (Settings → General → AutoFill & Passwords).
+        case "requestEnable":
+          self.openAppSettings()
+          result(true)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+    }
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // MARK: - Shared App Group writers
+
+  private func iosClearVault() {
+    keychainDelete(account: "autofill_credentials")
+    // Clean up keys written by older builds, if any.
+    keychainDelete(account: "priv_x25519_plain")
+    if let defaults = UserDefaults(suiteName: kAppGroup) {
+      ["server_url", "access_token", "refresh_token"].forEach { defaults.removeObject(forKey: $0) }
+    }
+  }
+
+  // MARK: - Shared keychain (App Group access group)
+
+  private func keychainSet(account: String, data: Data) {
+    let base: [CFString: Any] = [
+      kSecClass: kSecClassGenericPassword,
+      kSecAttrService: kAppGroup,
+      kSecAttrAccount: account,
+      kSecAttrAccessGroup: kAppGroup,
+    ]
+    SecItemDelete(base as CFDictionary)
+    var add = base
+    add[kSecValueData] = data
+    add[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
+    SecItemAdd(add as CFDictionary, nil)
+  }
+
+  private func keychainDelete(account: String) {
+    let query: [CFString: Any] = [
+      kSecClass: kSecClassGenericPassword,
+      kSecAttrService: kAppGroup,
+      kSecAttrAccount: account,
+      kSecAttrAccessGroup: kAppGroup,
+    ]
+    SecItemDelete(query as CFDictionary)
+  }
+
+  private func openAppSettings() {
+    if let url = URL(string: UIApplication.openSettingsURLString) {
+      UIApplication.shared.open(url)
+    }
   }
 }

@@ -57,6 +57,8 @@ app.*.map.json
 # locally before FFI tests / desktop runs / APK builds.
 /native/passbubble_crypto/build/
 /android/app/src/main/jniLibs/
+# iOS device static archive (`./native/build.sh ios`) — linked into Runner.
+/ios/native/
 
 # Node deps for the web-crypto esbuild bundle (`make web-crypto`); package-lock
 # is committed for a reproducible bundle, node_modules is not.

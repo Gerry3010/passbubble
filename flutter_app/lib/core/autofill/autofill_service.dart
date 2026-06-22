@@ -27,9 +27,14 @@ class AutofillBridge {
   const AutofillBridge();
 
   static const MethodChannel _ch =
-      MethodChannel('de.gerry3010.passbubble/autofill');
+      MethodChannel('net.geraldhofbauer.passbubble/autofill');
 
   bool get _platformOk => !kIsWeb && Platform.isAndroid;
+  bool get _iosOk => !kIsWeb && Platform.isIOS;
+
+  /// Whether this is a native iOS build (where the credential-provider
+  /// extension consumes the cached credentials).
+  bool get isIos => _iosOk;
 
   /// Whether the OS exposes an autofill framework Passbubble can plug into.
   Future<bool> isSupported() async {
@@ -75,12 +80,34 @@ class AutofillBridge {
     }
   }
 
-  /// Wipes the native bridge — called on vault lock / logout.
+  /// Wipes the native bridge — called on vault lock / logout. Clears both the
+  /// Android service cache and the iOS App Group (defaults + shared keychain).
   Future<void> clearVault() async {
-    if (!_platformOk) return;
+    if (_platformOk) {
+      try {
+        await _ch.invokeMethod<void>('clearVault');
+      } catch (_) {}
+    }
+    if (_iosOk) {
+      try {
+        await _ch.invokeMethod<void>('iosClearVault');
+      } catch (_) {}
+    }
+  }
+
+  /// iOS only: hands the already-decrypted credentials (a JSON array string) to
+  /// the AutoFill Credential Provider extension, stored in the shared App Group
+  /// keychain. The app owns the hybrid-KEM crypto, so the extension does none.
+  /// No-op on other platforms; never throws.
+  Future<void> syncIosCredentials(String credentialsJson) async {
+    if (!_iosOk) return;
     try {
-      await _ch.invokeMethod<void>('clearVault');
-    } catch (_) {}
+      await _ch.invokeMethod<void>('iosSyncCredentials', {
+        'credentials': credentialsJson,
+      });
+    } catch (_) {
+      // Best-effort: autofill simply won't have fresh data.
+    }
   }
 }
 
