@@ -1,0 +1,1025 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		88988DE62FEA05870030D1A6 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DE52FEA05870030D1A6 /* AppDelegate.swift */; };
+		88988DE82FEA05870030D1A6 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DE72FEA05870030D1A6 /* SceneDelegate.swift */; };
+		88988DEB2FEA05870030D1A6 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 88988DE92FEA05870030D1A6 /* LaunchScreen.storyboard */; };
+		88988DEE2FEA05870030D1A6 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 88988DEC2FEA05870030D1A6 /* Main.storyboard */; };
+		88988DF72FEA05870030D1A6 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DF62FEA05870030D1A6 /* AppDelegate.swift */; };
+		88988DFA2FEA05870030D1A6 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 88988DF82FEA05870030D1A6 /* Main.storyboard */; };
+		88988E012FEA05870030D1A6 /* Passbubble Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 88988E002FEA05870030D1A6 /* Passbubble Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		88988E0B2FEA05870030D1A6 /* Passbubble Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 88988E0A2FEA05870030D1A6 /* Passbubble Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		88988E102FEA05870030D1A6 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 88988DD52FEA05860030D1A6 /* Main.html */; };
+		88988E112FEA05870030D1A6 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 88988DD52FEA05860030D1A6 /* Main.html */; };
+		88988E122FEA05870030D1A6 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 88988DD72FEA05860030D1A6 /* Icon.png */; };
+		88988E132FEA05870030D1A6 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 88988DD72FEA05860030D1A6 /* Icon.png */; };
+		88988E142FEA05870030D1A6 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 88988DD82FEA05860030D1A6 /* Style.css */; };
+		88988E152FEA05870030D1A6 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 88988DD82FEA05860030D1A6 /* Style.css */; };
+		88988E162FEA05870030D1A6 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 88988DD92FEA05860030D1A6 /* Script.js */; };
+		88988E172FEA05870030D1A6 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 88988DD92FEA05860030D1A6 /* Script.js */; };
+		88988E182FEA05870030D1A6 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DDA2FEA05860030D1A6 /* ViewController.swift */; };
+		88988E192FEA05870030D1A6 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DDA2FEA05860030D1A6 /* ViewController.swift */; };
+		88988E1A2FEA05870030D1A6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 88988DDB2FEA05870030D1A6 /* Assets.xcassets */; };
+		88988E1B2FEA05870030D1A6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 88988DDB2FEA05870030D1A6 /* Assets.xcassets */; };
+		88988E1C2FEA05870030D1A6 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DDD2FEA05870030D1A6 /* SafariWebExtensionHandler.swift */; };
+		88988E1D2FEA05870030D1A6 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DDD2FEA05870030D1A6 /* SafariWebExtensionHandler.swift */; };
+		88988E392FEA05880030D1A6 /* background in Resources */ = {isa = PBXBuildFile; fileRef = 88988E2F2FEA05880030D1A6 /* background */; };
+		88988E3A2FEA05880030D1A6 /* options in Resources */ = {isa = PBXBuildFile; fileRef = 88988E302FEA05880030D1A6 /* options */; };
+		88988E3B2FEA05880030D1A6 /* popup in Resources */ = {isa = PBXBuildFile; fileRef = 88988E312FEA05880030D1A6 /* popup */; };
+		88988E3C2FEA05880030D1A6 /* wasm in Resources */ = {isa = PBXBuildFile; fileRef = 88988E322FEA05880030D1A6 /* wasm */; };
+		88988E3D2FEA05880030D1A6 /* content in Resources */ = {isa = PBXBuildFile; fileRef = 88988E332FEA05880030D1A6 /* content */; };
+		88988E3E2FEA05880030D1A6 /* chunks in Resources */ = {isa = PBXBuildFile; fileRef = 88988E342FEA05880030D1A6 /* chunks */; };
+		88988E3F2FEA05880030D1A6 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 88988E352FEA05880030D1A6 /* icons */; };
+		88988E402FEA05880030D1A6 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 88988E362FEA05880030D1A6 /* manifest.json */; };
+		88988E412FEA05880030D1A6 /* fill-iframe in Resources */ = {isa = PBXBuildFile; fileRef = 88988E372FEA05880030D1A6 /* fill-iframe */; };
+		88988E422FEA05880030D1A6 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 88988E382FEA05880030D1A6 /* assets */; };
+		88988E432FEA05880030D1A6 /* background in Resources */ = {isa = PBXBuildFile; fileRef = 88988E2F2FEA05880030D1A6 /* background */; };
+		88988E442FEA05880030D1A6 /* options in Resources */ = {isa = PBXBuildFile; fileRef = 88988E302FEA05880030D1A6 /* options */; };
+		88988E452FEA05880030D1A6 /* popup in Resources */ = {isa = PBXBuildFile; fileRef = 88988E312FEA05880030D1A6 /* popup */; };
+		88988E462FEA05880030D1A6 /* wasm in Resources */ = {isa = PBXBuildFile; fileRef = 88988E322FEA05880030D1A6 /* wasm */; };
+		88988E472FEA05880030D1A6 /* content in Resources */ = {isa = PBXBuildFile; fileRef = 88988E332FEA05880030D1A6 /* content */; };
+		88988E482FEA05880030D1A6 /* chunks in Resources */ = {isa = PBXBuildFile; fileRef = 88988E342FEA05880030D1A6 /* chunks */; };
+		88988E492FEA05880030D1A6 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 88988E352FEA05880030D1A6 /* icons */; };
+		88988E4A2FEA05880030D1A6 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 88988E362FEA05880030D1A6 /* manifest.json */; };
+		88988E4B2FEA05880030D1A6 /* fill-iframe in Resources */ = {isa = PBXBuildFile; fileRef = 88988E372FEA05880030D1A6 /* fill-iframe */; };
+		88988E4C2FEA05880030D1A6 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 88988E382FEA05880030D1A6 /* assets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		88988E022FEA05870030D1A6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 88988DCF2FEA05860030D1A6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 88988DFF2FEA05870030D1A6;
+			remoteInfo = "Passbubble Extension (iOS)";
+		};
+		88988E0C2FEA05870030D1A6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 88988DCF2FEA05860030D1A6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 88988E092FEA05870030D1A6;
+			remoteInfo = "Passbubble Extension (macOS)";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		88988E232FEA05870030D1A6 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				88988E012FEA05870030D1A6 /* Passbubble Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988E2A2FEA05870030D1A6 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				88988E0B2FEA05870030D1A6 /* Passbubble Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		88988DD62FEA05860030D1A6 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		88988DD72FEA05860030D1A6 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		88988DD82FEA05860030D1A6 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		88988DD92FEA05860030D1A6 /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		88988DDA2FEA05860030D1A6 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		88988DDB2FEA05870030D1A6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		88988DDD2FEA05870030D1A6 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		88988DE22FEA05870030D1A6 /* Passbubble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Passbubble.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		88988DE52FEA05870030D1A6 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		88988DE72FEA05870030D1A6 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		88988DEA2FEA05870030D1A6 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		88988DED2FEA05870030D1A6 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		88988DEF2FEA05870030D1A6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		88988DF42FEA05870030D1A6 /* Passbubble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Passbubble.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		88988DF62FEA05870030D1A6 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		88988DF92FEA05870030D1A6 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		88988DFB2FEA05870030D1A6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		88988E002FEA05870030D1A6 /* Passbubble Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Passbubble Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		88988E052FEA05870030D1A6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		88988E0A2FEA05870030D1A6 /* Passbubble Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Passbubble Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		88988E0F2FEA05870030D1A6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		88988E2F2FEA05880030D1A6 /* background */ = {isa = PBXFileReference; lastKnownFileType = folder; name = background; path = Resources/background; sourceTree = "<group>"; };
+		88988E302FEA05880030D1A6 /* options */ = {isa = PBXFileReference; lastKnownFileType = folder; name = options; path = Resources/options; sourceTree = "<group>"; };
+		88988E312FEA05880030D1A6 /* popup */ = {isa = PBXFileReference; lastKnownFileType = folder; name = popup; path = Resources/popup; sourceTree = "<group>"; };
+		88988E322FEA05880030D1A6 /* wasm */ = {isa = PBXFileReference; lastKnownFileType = folder; name = wasm; path = Resources/wasm; sourceTree = "<group>"; };
+		88988E332FEA05880030D1A6 /* content */ = {isa = PBXFileReference; lastKnownFileType = folder; name = content; path = Resources/content; sourceTree = "<group>"; };
+		88988E342FEA05880030D1A6 /* chunks */ = {isa = PBXFileReference; lastKnownFileType = folder; name = chunks; path = Resources/chunks; sourceTree = "<group>"; };
+		88988E352FEA05880030D1A6 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = Resources/icons; sourceTree = "<group>"; };
+		88988E362FEA05880030D1A6 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = Resources/manifest.json; sourceTree = "<group>"; };
+		88988E372FEA05880030D1A6 /* fill-iframe */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "fill-iframe"; path = "Resources/fill-iframe"; sourceTree = "<group>"; };
+		88988E382FEA05880030D1A6 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = assets; path = Resources/assets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		88988DDF2FEA05870030D1A6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988DF12FEA05870030D1A6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988DFD2FEA05870030D1A6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988E072FEA05870030D1A6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		88988DCE2FEA05860030D1A6 = {
+			isa = PBXGroup;
+			children = (
+				88988DD32FEA05860030D1A6 /* Shared (App) */,
+				88988DDC2FEA05870030D1A6 /* Shared (Extension) */,
+				88988DE42FEA05870030D1A6 /* iOS (App) */,
+				88988DF52FEA05870030D1A6 /* macOS (App) */,
+				88988E042FEA05870030D1A6 /* iOS (Extension) */,
+				88988E0E2FEA05870030D1A6 /* macOS (Extension) */,
+				88988DE32FEA05870030D1A6 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		88988DD32FEA05860030D1A6 /* Shared (App) */ = {
+			isa = PBXGroup;
+			children = (
+				88988DDA2FEA05860030D1A6 /* ViewController.swift */,
+				88988DDB2FEA05870030D1A6 /* Assets.xcassets */,
+				88988DD42FEA05860030D1A6 /* Resources */,
+			);
+			path = "Shared (App)";
+			sourceTree = "<group>";
+		};
+		88988DD42FEA05860030D1A6 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				88988DD52FEA05860030D1A6 /* Main.html */,
+				88988DD72FEA05860030D1A6 /* Icon.png */,
+				88988DD82FEA05860030D1A6 /* Style.css */,
+				88988DD92FEA05860030D1A6 /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		88988DDC2FEA05870030D1A6 /* Shared (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				88988E2E2FEA05870030D1A6 /* Resources */,
+				88988DDD2FEA05870030D1A6 /* SafariWebExtensionHandler.swift */,
+			);
+			path = "Shared (Extension)";
+			sourceTree = "<group>";
+		};
+		88988DE32FEA05870030D1A6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				88988DE22FEA05870030D1A6 /* Passbubble.app */,
+				88988DF42FEA05870030D1A6 /* Passbubble.app */,
+				88988E002FEA05870030D1A6 /* Passbubble Extension.appex */,
+				88988E0A2FEA05870030D1A6 /* Passbubble Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		88988DE42FEA05870030D1A6 /* iOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				88988DE52FEA05870030D1A6 /* AppDelegate.swift */,
+				88988DE72FEA05870030D1A6 /* SceneDelegate.swift */,
+				88988DE92FEA05870030D1A6 /* LaunchScreen.storyboard */,
+				88988DEC2FEA05870030D1A6 /* Main.storyboard */,
+				88988DEF2FEA05870030D1A6 /* Info.plist */,
+			);
+			path = "iOS (App)";
+			sourceTree = "<group>";
+		};
+		88988DF52FEA05870030D1A6 /* macOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				88988DF62FEA05870030D1A6 /* AppDelegate.swift */,
+				88988DF82FEA05870030D1A6 /* Main.storyboard */,
+				88988DFB2FEA05870030D1A6 /* Info.plist */,
+			);
+			path = "macOS (App)";
+			sourceTree = "<group>";
+		};
+		88988E042FEA05870030D1A6 /* iOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				88988E052FEA05870030D1A6 /* Info.plist */,
+			);
+			path = "iOS (Extension)";
+			sourceTree = "<group>";
+		};
+		88988E0E2FEA05870030D1A6 /* macOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				88988E0F2FEA05870030D1A6 /* Info.plist */,
+			);
+			path = "macOS (Extension)";
+			sourceTree = "<group>";
+		};
+		88988E2E2FEA05870030D1A6 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				88988E2F2FEA05880030D1A6 /* background */,
+				88988E302FEA05880030D1A6 /* options */,
+				88988E312FEA05880030D1A6 /* popup */,
+				88988E322FEA05880030D1A6 /* wasm */,
+				88988E332FEA05880030D1A6 /* content */,
+				88988E342FEA05880030D1A6 /* chunks */,
+				88988E352FEA05880030D1A6 /* icons */,
+				88988E362FEA05880030D1A6 /* manifest.json */,
+				88988E372FEA05880030D1A6 /* fill-iframe */,
+				88988E382FEA05880030D1A6 /* assets */,
+			);
+			name = Resources;
+			path = "Shared (Extension)";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		88988DE12FEA05870030D1A6 /* Passbubble (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 88988E242FEA05870030D1A6 /* Build configuration list for PBXNativeTarget "Passbubble (iOS)" */;
+			buildPhases = (
+				88988DDE2FEA05870030D1A6 /* Sources */,
+				88988DDF2FEA05870030D1A6 /* Frameworks */,
+				88988DE02FEA05870030D1A6 /* Resources */,
+				88988E232FEA05870030D1A6 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				88988E032FEA05870030D1A6 /* PBXTargetDependency */,
+			);
+			name = "Passbubble (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "Passbubble (iOS)";
+			productReference = 88988DE22FEA05870030D1A6 /* Passbubble.app */;
+			productType = "com.apple.product-type.application";
+		};
+		88988DF32FEA05870030D1A6 /* Passbubble (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 88988E2B2FEA05870030D1A6 /* Build configuration list for PBXNativeTarget "Passbubble (macOS)" */;
+			buildPhases = (
+				88988DF02FEA05870030D1A6 /* Sources */,
+				88988DF12FEA05870030D1A6 /* Frameworks */,
+				88988DF22FEA05870030D1A6 /* Resources */,
+				88988E2A2FEA05870030D1A6 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				88988E0D2FEA05870030D1A6 /* PBXTargetDependency */,
+			);
+			name = "Passbubble (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "Passbubble (macOS)";
+			productReference = 88988DF42FEA05870030D1A6 /* Passbubble.app */;
+			productType = "com.apple.product-type.application";
+		};
+		88988DFF2FEA05870030D1A6 /* Passbubble Extension (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 88988E202FEA05870030D1A6 /* Build configuration list for PBXNativeTarget "Passbubble Extension (iOS)" */;
+			buildPhases = (
+				88988DFC2FEA05870030D1A6 /* Sources */,
+				88988DFD2FEA05870030D1A6 /* Frameworks */,
+				88988DFE2FEA05870030D1A6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Passbubble Extension (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "Passbubble Extension (iOS)";
+			productReference = 88988E002FEA05870030D1A6 /* Passbubble Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		88988E092FEA05870030D1A6 /* Passbubble Extension (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 88988E272FEA05870030D1A6 /* Build configuration list for PBXNativeTarget "Passbubble Extension (macOS)" */;
+			buildPhases = (
+				88988E062FEA05870030D1A6 /* Sources */,
+				88988E072FEA05870030D1A6 /* Frameworks */,
+				88988E082FEA05870030D1A6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Passbubble Extension (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "Passbubble Extension (macOS)";
+			productReference = 88988E0A2FEA05870030D1A6 /* Passbubble Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		88988DCF2FEA05860030D1A6 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					88988DE12FEA05870030D1A6 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					88988DF32FEA05870030D1A6 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					88988DFF2FEA05870030D1A6 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					88988E092FEA05870030D1A6 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = 88988DD22FEA05860030D1A6 /* Build configuration list for PBXProject "Passbubble" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 88988DCE2FEA05860030D1A6;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 88988DE32FEA05870030D1A6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				88988DE12FEA05870030D1A6 /* Passbubble (iOS) */,
+				88988DF32FEA05870030D1A6 /* Passbubble (macOS) */,
+				88988DFF2FEA05870030D1A6 /* Passbubble Extension (iOS) */,
+				88988E092FEA05870030D1A6 /* Passbubble Extension (macOS) */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		88988DE02FEA05870030D1A6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88988E122FEA05870030D1A6 /* Icon.png in Resources */,
+				88988DEB2FEA05870030D1A6 /* LaunchScreen.storyboard in Resources */,
+				88988E102FEA05870030D1A6 /* Main.html in Resources */,
+				88988E162FEA05870030D1A6 /* Script.js in Resources */,
+				88988E1A2FEA05870030D1A6 /* Assets.xcassets in Resources */,
+				88988DEE2FEA05870030D1A6 /* Main.storyboard in Resources */,
+				88988E142FEA05870030D1A6 /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988DF22FEA05870030D1A6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88988E132FEA05870030D1A6 /* Icon.png in Resources */,
+				88988E152FEA05870030D1A6 /* Style.css in Resources */,
+				88988DFA2FEA05870030D1A6 /* Main.storyboard in Resources */,
+				88988E172FEA05870030D1A6 /* Script.js in Resources */,
+				88988E1B2FEA05870030D1A6 /* Assets.xcassets in Resources */,
+				88988E112FEA05870030D1A6 /* Main.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988DFE2FEA05870030D1A6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88988E482FEA05880030D1A6 /* chunks in Resources */,
+				88988E462FEA05880030D1A6 /* wasm in Resources */,
+				88988E452FEA05880030D1A6 /* popup in Resources */,
+				88988E432FEA05880030D1A6 /* background in Resources */,
+				88988E4A2FEA05880030D1A6 /* manifest.json in Resources */,
+				88988E4C2FEA05880030D1A6 /* assets in Resources */,
+				88988E442FEA05880030D1A6 /* options in Resources */,
+				88988E4B2FEA05880030D1A6 /* fill-iframe in Resources */,
+				88988E492FEA05880030D1A6 /* icons in Resources */,
+				88988E472FEA05880030D1A6 /* content in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988E082FEA05870030D1A6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88988E3E2FEA05880030D1A6 /* chunks in Resources */,
+				88988E3C2FEA05880030D1A6 /* wasm in Resources */,
+				88988E3B2FEA05880030D1A6 /* popup in Resources */,
+				88988E392FEA05880030D1A6 /* background in Resources */,
+				88988E402FEA05880030D1A6 /* manifest.json in Resources */,
+				88988E422FEA05880030D1A6 /* assets in Resources */,
+				88988E3A2FEA05880030D1A6 /* options in Resources */,
+				88988E412FEA05880030D1A6 /* fill-iframe in Resources */,
+				88988E3F2FEA05880030D1A6 /* icons in Resources */,
+				88988E3D2FEA05880030D1A6 /* content in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		88988DDE2FEA05870030D1A6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88988E182FEA05870030D1A6 /* ViewController.swift in Sources */,
+				88988DE62FEA05870030D1A6 /* AppDelegate.swift in Sources */,
+				88988DE82FEA05870030D1A6 /* SceneDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988DF02FEA05870030D1A6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88988E192FEA05870030D1A6 /* ViewController.swift in Sources */,
+				88988DF72FEA05870030D1A6 /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988DFC2FEA05870030D1A6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88988E1C2FEA05870030D1A6 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88988E062FEA05870030D1A6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88988E1D2FEA05870030D1A6 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		88988E032FEA05870030D1A6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 88988DFF2FEA05870030D1A6 /* Passbubble Extension (iOS) */;
+			targetProxy = 88988E022FEA05870030D1A6 /* PBXContainerItemProxy */;
+		};
+		88988E0D2FEA05870030D1A6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 88988E092FEA05870030D1A6 /* Passbubble Extension (macOS) */;
+			targetProxy = 88988E0C2FEA05870030D1A6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		88988DD52FEA05860030D1A6 /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				88988DD62FEA05860030D1A6 /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		88988DE92FEA05870030D1A6 /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				88988DEA2FEA05870030D1A6 /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		88988DEC2FEA05870030D1A6 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				88988DED2FEA05870030D1A6 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+		88988DF82FEA05870030D1A6 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				88988DF92FEA05870030D1A6 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		88988E1E2FEA05870030D1A6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		88988E1F2FEA05870030D1A6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		88988E212FEA05870030D1A6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Passbubble Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari.Extension;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
+				PRODUCT_NAME = "Passbubble Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		88988E222FEA05870030D1A6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Passbubble Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari.Extension;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
+				PRODUCT_NAME = "Passbubble Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		88988E252FEA05870030D1A6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Passbubble;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
+				PRODUCT_NAME = Passbubble;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		88988E262FEA05870030D1A6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Passbubble;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
+				PRODUCT_NAME = Passbubble;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		88988E282FEA05870030D1A6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Passbubble Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari.Extension;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
+				PRODUCT_NAME = "Passbubble Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		88988E292FEA05870030D1A6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Passbubble Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari.Extension;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
+				PRODUCT_NAME = "Passbubble Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		88988E2C2FEA05870030D1A6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Passbubble;
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
+				PRODUCT_NAME = Passbubble;
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		88988E2D2FEA05870030D1A6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Passbubble;
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
+				PRODUCT_NAME = Passbubble;
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		88988DD22FEA05860030D1A6 /* Build configuration list for PBXProject "Passbubble" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				88988E1E2FEA05870030D1A6 /* Debug */,
+				88988E1F2FEA05870030D1A6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		88988E202FEA05870030D1A6 /* Build configuration list for PBXNativeTarget "Passbubble Extension (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				88988E212FEA05870030D1A6 /* Debug */,
+				88988E222FEA05870030D1A6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		88988E242FEA05870030D1A6 /* Build configuration list for PBXNativeTarget "Passbubble (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				88988E252FEA05870030D1A6 /* Debug */,
+				88988E262FEA05870030D1A6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		88988E272FEA05870030D1A6 /* Build configuration list for PBXNativeTarget "Passbubble Extension (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				88988E282FEA05870030D1A6 /* Debug */,
+				88988E292FEA05870030D1A6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		88988E2B2FEA05870030D1A6 /* Build configuration list for PBXNativeTarget "Passbubble (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				88988E2C2FEA05870030D1A6 /* Debug */,
+				88988E2D2FEA05870030D1A6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 88988DCF2FEA05860030D1A6 /* Project object */;
+}
