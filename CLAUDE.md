@@ -163,3 +163,44 @@ git**. If it's missing, recreate it from the variables above (host, `/opt/passbu
 
 > This is a fast test-deploy path. The canonical release path is still tagging `vX.Y.Z`
 > (`release.yml` → DockerHub).
+
+## Apple-slice follow-ups (macOS-device / iOS Builder)
+
+Open work from the iOS/macOS/Safari push. The macOS Claude owns these — branch + PR.
+State at hand-off: iOS app shipped to TestFlight (v2.5.0 build 3); PRs open: macOS
+`network.client` and the Safari wrapper.
+
+### iOS AutoFill (core PW + TOTP fill works; UX polish parked)
+- **Cache not refreshed on entry change.** `AuthService.refreshAutofill()` is wired after
+  create/update/delete, but a changed entry (e.g. URL) doesn't visibly reach the extension.
+  Diagnose with `flutter run` attached + temp logging in `_syncAutofill` (does it fire? what
+  creds/identities does it write?). Likely the `ASCredentialIdentityStore` update or the
+  keychain re-write isn't taking effect mid-session.
+- **QuickType "browse / key" affordance opens nothing.** The extension is a separate process —
+  read its logs via **Console.app** (filter `PassbubbleAutofill` / `pkd` / `AuthenticationServices`)
+  while reproducing; `libimobiledevice` can't see the device here.
+
+### macOS app
+- **Link the native hybrid-KEM lib** (same fix as iOS): build the macOS c-archive
+  (`./native/build.sh` → a macOS target) and link it into the macOS Runner via
+  `OTHER_LDFLAGS = -force_load … -Wl,-export_dynamic`, so `DynamicLibrary.process()` resolves the
+  `pb_*` symbols. Without it the macOS app **can't decrypt entries**. (`network.client`
+  entitlement already added in its PR.)
+- Configure macOS signing / distribution (team + App Store record) if shipping to the Mac App Store.
+
+### Safari Web Extension (`safari/Passbubble/`, generated via `safari-web-extension-converter`)
+- Bundle ids are `net.geraldhofbauer.passbubble.safari` (+ `.safari.Extension`) — **distinct**
+  from the Flutter app (the original `codemagic.yaml` used the colliding `net.geraldhofbauer.passbubble`).
+  The Safari PR fixes `codemagic.yaml` (bundle ids, real project path `safari/Passbubble/Passbubble.xcodeproj`,
+  resource rsync) — **make sure that lands on `main`** (the Linux-side `codemagic.yaml` still has the
+  old ids + path).
+- Only the **macOS no-sign build** is verified. Still to do: iOS archive + signing, ASC records for the
+  `.safari` ids, and a **functional test** (run macOS app → enable in Safari → Settings → Extensions).
+- Decide: keep the copied web `Resources/` committed (snapshot; codemagic rsyncs fresh) vs gitignore +
+  build-on-CI.
+
+### iOS housekeeping
+- Replace the default **Launch image** (App Store flags the placeholder).
+- **`UIScene` lifecycle migration** (Flutter warns it'll become required).
+- `NSLocationWhenInUseUsageDescription` warning comes from `file_picker` → `DKImagePickerController`
+  (`DKAsset.location: CLLocation?`); left unset deliberately (unused) to avoid App Review questions.
