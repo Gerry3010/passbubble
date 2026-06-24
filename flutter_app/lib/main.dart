@@ -25,6 +25,14 @@ import 'core/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await bootstrap();
+}
+
+/// Shared app startup, used by the production entrypoint above and by the
+/// debug-only Marionette entrypoint (`dev/main_marionette.dart`). The caller
+/// must already have initialised exactly one [WidgetsBinding] before calling
+/// this — Flutter allows only one binding per process.
+Future<void> bootstrap() async {
   // Snapshot the launch URL before any MaterialApp can rewrite the browser
   // fragment — otherwise a `/share/...` deep link is lost.
   captureLaunchUri();
