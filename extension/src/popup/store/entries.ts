@@ -64,7 +64,9 @@ async function activeTabHost(): Promise<string> {
   }
   try {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.url) return '';
+    // Only web pages have a meaningful host to pre-fill; skip chrome://, about:,
+    // moz-extension://, file://, etc. so the search field is not seeded with junk.
+    if (!tab?.url || !/^https?:\/\//.test(tab.url)) return '';
     return new URL(tab.url).hostname.replace(/^www\./, '');
   } catch {
     return '';

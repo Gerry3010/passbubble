@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
 import { MessageType } from '../../shared/constants.js';
 import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled } from '../../shared/theme.js';
@@ -25,6 +25,24 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Pre-fill URL (origin) and Name (page title) from the active tab, so adding
+  // a login for the site you are on needs no typing. Only web pages (http/https)
+  // are used — chrome://, about:, extension pages leave the fields blank. Empty
+  // fields only, so it never clobbers anything the user already typed.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.url || !/^https?:\/\//.test(tab.url)) return;
+        const u = new URL(tab.url);
+        setUrl((prev) => prev || u.origin);
+        setName((prev) => prev || (tab.title?.trim() || u.hostname.replace(/^www\./, '')));
+      } catch {
+        // best-effort prefill — user can always type the fields manually
+      }
+    })();
+  }, []);
 
   async function generate() {
     try {
