@@ -36,7 +36,12 @@ import {
   DEFAULT_PIN_PW_INTERVAL_DAYS,
 } from '@passbubble/shared-ts';
 import { b64Dec, b64Enc, normaliseHost } from '../shared/utils.js';
-import { MessageType, STORAGE_KEYS } from '../shared/constants.js';
+import {
+  MessageType,
+  STORAGE_KEYS,
+  AUTO_LOCK_DEFAULT_MINUTES,
+  AUTO_LOCK_ALARM,
+} from '../shared/constants.js';
 import {
   clearSession,
   getEntriesCache,
@@ -80,6 +85,69 @@ function makeClient(serverUrl: string, accessToken?: string): PassbubbleClient {
   const c = new PassbubbleClient(serverUrl);
   if (accessToken) c.setTokens(accessToken, '', 900);
   return c;
+}
+
+// --- Idle auto-lock -------------------------------------------------------
+
+/** The configured idle-lock timeout in minutes (0 = never). Falls back to the
+ * default if unset or malformed. */
+export async function readAutoLockMinutes(): Promise<number> {
+  try {
+    const data = await browser.storage.sync.get(STORAGE_KEYS.AUTO_LOCK_MINUTES);
+    const raw = data[STORAGE_KEYS.AUTO_LOCK_MINUTES];
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  } catch {
+    /* fall through to default */
+  }
+  return AUTO_LOCK_DEFAULT_MINUTES;
+}
+
+/** Record "the vault was just used" so the auto-lock alarm restarts its countdown.
+ * Best-effort — storage.session may be unavailable in some contexts. */
+export async function touchActivity(): Promise<void> {
+  try {
+    await browser.storage.session.set({ [STORAGE_KEYS.LAST_ACTIVITY]: Date.now() });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** (Re)arm the recurring auto-lock alarm. With a 0-minute timeout ("never") the
+ * alarm is cleared instead. Called on every unlock; the alarm itself wakes the
+ * service worker so locking happens even with the popup closed. */
+export async function scheduleAutoLock(): Promise<void> {
+  const minutes = await readAutoLockMinutes();
+  if (minutes <= 0) {
+    await browser.alarms.clear(AUTO_LOCK_ALARM);
+    return;
+  }
+  await touchActivity();
+  await browser.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
+}
+
+/** Auto-lock tick: drop the in-memory session if the vault has been idle for at
+ * least the configured timeout, and retire the alarm. Returns true if it locked
+ * (or there was nothing to keep armed). Driven by the recurring AUTO_LOCK_ALARM. */
+export async function maybeAutoLock(): Promise<boolean> {
+  const minutes = await readAutoLockMinutes();
+  if (minutes <= 0) {
+    await browser.alarms.clear(AUTO_LOCK_ALARM);
+    return true;
+  }
+  // No live session (e.g. the SW was evicted and the keys are already gone):
+  // nothing to lock, so retire the alarm until the next unlock re-arms it.
+  if (!getSession()) {
+    await browser.alarms.clear(AUTO_LOCK_ALARM);
+    return true;
+  }
+  const stored = await browser.storage.session.get(STORAGE_KEYS.LAST_ACTIVITY);
+  const last = Number(stored[STORAGE_KEYS.LAST_ACTIVITY]) || 0;
+  if (Date.now() - last < minutes * 60_000) return false;
+  clearSession();
+  await browser.alarms.clear(AUTO_LOCK_ALARM);
+  await browser.storage.session.remove(STORAGE_KEYS.LAST_ACTIVITY);
+  return true;
 }
 
 async function getServerUrl(): Promise<string> {
@@ -248,6 +316,7 @@ async function buildSession(
   await browser.alarms.create('token-refresh', {
     delayInMinutes: (refreshResp.expires_in - 60) / 60,
   });
+  await scheduleAutoLock();
   return refreshResp.refresh_token;
 }
 
@@ -485,6 +554,7 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.LOCK]: async () => {
       clearSession();
       await browser.alarms.clear('token-refresh');
+      await browser.alarms.clear(AUTO_LOCK_ALARM);
       return { ok: true };
     },
 
@@ -494,6 +564,7 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.LOGOUT]: async () => {
       clearSession();
       await browser.alarms.clear('token-refresh');
+      await browser.alarms.clear(AUTO_LOCK_ALARM);
       await browser.storage.session.clear();
       // The PIN wraps the master key and holds a logged-in bootstrap — a
       // logged-out device must never leave a PIN-unlockable copy behind.

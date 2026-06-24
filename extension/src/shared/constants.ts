@@ -62,6 +62,9 @@ export const STORAGE_KEYS = {
   // chrome.storage.sync — persists across devices
   SERVER_URL: 'server_url',
   AUTOFILL_ENABLED: 'autofill_enabled',
+  // Idle auto-lock timeout in minutes. 0 = never (lock only on browser close /
+  // service-worker eviction). Default applied by readers is AUTO_LOCK_DEFAULT_MINUTES.
+  AUTO_LOCK_MINUTES: 'auto_lock_minutes',
   // chrome.storage.local — device-local, persists across browser restarts
   SAVE_BLOCKLIST: 'save_blocklist',
   // PIN quick-unlock state (chrome.storage.local — survives browser close so the
@@ -80,6 +83,9 @@ export const STORAGE_KEYS = {
   PIN_LAST_MASTER_UNLOCK: 'pin_last_master_unlock',
   PIN_BOOTSTRAP: 'pin_bootstrap',
   // chrome.storage.session — cleared on browser close
+  // Timestamp (ms) of the last vault activity; the auto-lock alarm compares it
+  // against AUTO_LOCK_MINUTES to decide when to drop the in-memory session.
+  LAST_ACTIVITY: 'last_activity',
   REFRESH_TOKEN: 'refresh_token',
   ENC_PRIV_X25519: 'enc_priv_x25519',
   ENC_PRIV_MLKEM: 'enc_priv_mlkem',
@@ -99,3 +105,9 @@ export const STORAGE_KEYS = {
   AUTH_DRAFT: 'auth_draft',
   PENDING_2FA: 'pending_2fa',
 } as const;
+
+/** Default idle auto-lock timeout (minutes) when the user has not chosen one. */
+export const AUTO_LOCK_DEFAULT_MINUTES = 15;
+
+/** Name of the recurring chrome.alarms alarm that drives the idle auto-lock. */
+export const AUTO_LOCK_ALARM = 'auto-lock';

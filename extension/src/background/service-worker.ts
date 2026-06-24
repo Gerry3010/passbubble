@@ -18,17 +18,37 @@
 
 import browser from 'webextension-polyfill';
 import { getSession, setSession, clearLoginFrameHost } from './session-store.js';
-import { buildHandlers } from './message-handler.js';
+import { buildHandlers, touchActivity, maybeAutoLock } from './message-handler.js';
 import { savePinRefreshToken } from './pin-store.js';
 import { PassbubbleClient } from '@passbubble/shared-ts';
-import { STORAGE_KEYS } from '../shared/constants.js';
+import { MessageType, STORAGE_KEYS, AUTO_LOCK_ALARM } from '../shared/constants.js';
 
 const handlers = buildHandlers();
+
+// Messages that count as "the user is actively using the vault" — receiving one
+// restarts the idle auto-lock countdown. Passive background traffic (autofill
+// URL matching, login-frame reports, save offers) is deliberately excluded so
+// that merely browsing does not keep the vault unlocked forever.
+const ACTIVITY_MESSAGES = new Set<string>([
+  MessageType.GET_SESSION,
+  MessageType.UNLOCK,
+  MessageType.UNLOCK_WITH_PIN,
+  MessageType.SEARCH_ENTRIES,
+  MessageType.LIST_FOLDERS,
+  MessageType.GET_ENTRY,
+  MessageType.CREATE_ENTRY,
+  MessageType.UPDATE_ENTRY,
+  MessageType.DELETE_ENTRY,
+  MessageType.GENERATE,
+  MessageType.FILL_ENTRY,
+  MessageType.GET_FILL_HOST,
+]);
 
 browser.runtime.onMessage.addListener((message, sender) => {
   const { type, payload } = message as { type: string; payload: Record<string, unknown> };
   const handler = handlers[type];
   if (!handler) return;
+  if (ACTIVITY_MESSAGES.has(type) && getSession()) void touchActivity();
   // Return the promise directly so the channel stays open. Normalise rejections
   // to real Error objects — otherwise a non-Error rejection (e.g. a DOMException
   // from a failed AES/ML-KEM op) surfaces to callers as the unhelpful
@@ -49,6 +69,13 @@ browser.tabs.onUpdated.addListener((tabId, info) => {
   if (info.status === 'loading') clearLoginFrameHost(tabId);
 });
 browser.tabs.onRemoved.addListener((tabId) => clearLoginFrameHost(tabId));
+
+// Idle auto-lock: a recurring 1-minute alarm checks how long ago the vault was
+// last used and drops the in-memory session once the configured timeout elapses.
+browser.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== AUTO_LOCK_ALARM) return;
+  await maybeAutoLock();
+});
 
 // Token refresh alarm
 browser.alarms.onAlarm.addListener(async (alarm) => {
