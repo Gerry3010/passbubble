@@ -8,7 +8,9 @@
     "activeTab",
     "scripting",
     "alarms",
-    "clipboardWrite"
+    "clipboardWrite",
+    "webRequest",
+    "webRequestAuthProvider"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {

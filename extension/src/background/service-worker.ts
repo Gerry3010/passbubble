@@ -19,11 +19,16 @@
 import browser from 'webextension-polyfill';
 import { getSession, setSession, clearLoginFrameHost } from './session-store.js';
 import { buildHandlers } from './message-handler.js';
+import { registerBasicAuthHandler } from './basic-auth.js';
 import { savePinRefreshToken } from './pin-store.js';
 import { PassbubbleClient } from '@passbubble/shared-ts';
 import { STORAGE_KEYS } from '../shared/constants.js';
 
 const handlers = buildHandlers();
+
+// HTTP Basic Auth autofill (Chrome/Firefox; no-op where webRequest.onAuthRequired
+// is unavailable). Registered top-level so it survives service-worker restarts.
+registerBasicAuthHandler();
 
 browser.runtime.onMessage.addListener((message, sender) => {
   const { type, payload } = message as { type: string; payload: Record<string, unknown> };
