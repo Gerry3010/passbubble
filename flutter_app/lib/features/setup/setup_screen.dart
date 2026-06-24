@@ -57,13 +57,24 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       return;
     }
     setState(() { _loading = true; _error = null; });
+    final api = ref.read(apiClientProvider);
     try {
-      await ref.read(apiClientProvider).setServerUrl(url);
+      // Point the client at the URL without persisting it yet, then verify a
+      // real Passbubble backend answers there before saving — so a typo or an
+      // unreachable host is caught here instead of failing cryptically at login.
+      api.setBaseUrlEphemeral(url);
+      final health =
+          await api.health().timeout(const Duration(seconds: 10));
+      if (health['status'] != 'ok') {
+        throw Exception('not a Passbubble server');
+      }
+      await api.setServerUrl(url); // persist only after a successful check
       if (mounted) context.go('/login');
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() =>
+          _error = 'No Passbubble server reachable at this URL');
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 

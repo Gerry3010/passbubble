@@ -77,11 +77,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Public share-link viewer is reachable without an account.
       if (path.startsWith('/share')) return null;
 
+      // Without a configured server URL every API call fails with "no host
+      // specified in URI" — so funnel to /setup regardless of auth state. This
+      // also self-heals an already-logged-in client that somehow lost its URL
+      // (the old session-wipe bug), which would otherwise be stuck on a screen
+      // it can never load. Web always has a URL (the serving origin).
+      final api = ref.read(apiClientProvider);
+      if (!api.isConfigured && !isSetup && !isRegister) {
+        return '/setup';
+      }
+
       if (!auth.isLoggedIn && !isSetup && !isLogin && !isRegister) {
-        // Send fresh installs (no server URL configured) straight to /setup so
-        // the user doesn't land on a login form with no way to enter the URL.
-        final api = ref.read(apiClientProvider);
-        return api.isConfigured ? '/login' : '/setup';
+        return '/login';
       }
       if (auth.isLoggedIn && !auth.isUnlocked &&
           !path.startsWith('/unlock') && !isLogin) {

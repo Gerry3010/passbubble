@@ -298,8 +298,20 @@ class AuthService {
     _privX25519 = null;
     _privMLKEM = null;
     await _api.clearTokens();
-    await _storage.deleteAll();
+    await _wipeStoragePreservingConfig();
     await _autofill.clearVault();
+  }
+
+  /// Wipes all secure-storage secrets (tokens, master key, PIN, biometric, …)
+  /// but restores the configured server URL afterwards. The server URL is app
+  /// configuration, not session data — losing it on session expiry left the
+  /// client with no host to talk to ("no host specified in URI /api…").
+  Future<void> _wipeStoragePreservingConfig() async {
+    final serverUrl = await _storage.read(key: kServerUrlKey);
+    await _storage.deleteAll();
+    if (serverUrl != null) {
+      await _storage.write(key: kServerUrlKey, value: serverUrl);
+    }
   }
 
   Future<(bool, String?, String?, String?, String?)> loadSession() async {
@@ -467,7 +479,7 @@ class AuthService {
       } catch (_) {}
     }
     await _api.clearTokens();
-    await _storage.deleteAll();
+    await _wipeStoragePreservingConfig();
     _privX25519 = null;
     _privMLKEM = null;
     await _autofill.clearVault();
