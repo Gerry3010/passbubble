@@ -132,4 +132,45 @@ describe('detectLoginForms', () => {
     document.body.appendChild(pw);
     expect(detectLoginForms()).toHaveLength(1);
   });
+
+  it('detects a username-first login step (visible email + hidden password in a form)', () => {
+    // Mirrors IONOS: page 1 has the email field + a hidden password placeholder;
+    // the real password field only appears on step 2.
+    const formEl = document.createElement('form');
+    const email = document.createElement('input');
+    email.type = 'email';
+    email.setAttribute('autocomplete', 'username');
+    const pw = document.createElement('input');
+    pw.type = 'password';
+    pw.style.display = 'none';
+    formEl.append(email, pw);
+    document.body.appendChild(formEl);
+
+    const forms = detectLoginForms();
+    expect(forms).toHaveLength(1);
+    expect(forms[0].usernameField).toBe(email);
+    expect(forms[0].passwordField).toBeNull();
+    expect(forms[0].form).toBe(formEl);
+  });
+
+  it('does NOT treat a password-less form (newsletter/contact) as a login', () => {
+    const formEl = document.createElement('form');
+    const email = document.createElement('input');
+    email.type = 'email';
+    formEl.append(email);
+    document.body.appendChild(formEl);
+    expect(detectLoginForms()).toHaveLength(0);
+  });
+
+  it('does not double-count a form whose password field is visible', () => {
+    const formEl = document.createElement('form');
+    const email = document.createElement('input');
+    email.type = 'email';
+    const pw = document.createElement('input');
+    pw.type = 'password';
+    formEl.append(email, pw);
+    document.body.appendChild(formEl);
+    // Visible password → one normal login form, not an extra username-first one.
+    expect(detectLoginForms()).toHaveLength(1);
+  });
 });

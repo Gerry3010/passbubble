@@ -98,7 +98,7 @@ function maybeReportLoginFrame(): void {
 function fillPasswords(form: DetectedForm, password: string): void {
   if (form.form) {
     form.form.querySelectorAll<HTMLInputElement>('input[type="password"]').forEach((f) => fillField(f, password));
-  } else {
+  } else if (form.passwordField) {
     fillField(form.passwordField, password);
   }
 }
@@ -132,6 +132,7 @@ let cachedGenerated: { origin: string; password: string } | null = null;
 async function showFillFor(form: DetectedForm): Promise<void> {
   const { usernameField, passwordField } = form;
   const anchor = usernameField ?? passwordField;
+  if (!anchor) return;
   // Already shown for this field (e.g. duplicate focus event)? Do nothing.
   if (isFillIframeShown(anchor)) return;
 
@@ -203,7 +204,7 @@ async function showFillFor(form: DetectedForm): Promise<void> {
     {
       onFillMatch: (username, password) => {
         if (usernameField) fillField(usernameField, username);
-        fillField(passwordField, password);
+        if (passwordField) fillField(passwordField, password);
       },
       onUseGenerated: () => {},
       onDismiss: () => {},
