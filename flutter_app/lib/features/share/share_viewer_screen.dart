@@ -143,20 +143,15 @@ class _ShareViewerScreenState extends ConsumerState<ShareViewerScreen> {
 
   Widget _buildFolder(Map<String, dynamic> f, List<dynamic> entries) {
     final folderName = f['folder'] as String? ?? 'Shared folder';
+    final total = _countEntriesDeep(f);
     return ListView(
       shrinkWrap: true,
       children: [
         Text(folderName, style: Theme.of(context).textTheme.headlineSmall),
-        Text('${entries.length} entries', style: const TextStyle(color: AppTheme.onBgDim)),
+        Text('$total ${total == 1 ? 'entry' : 'entries'}',
+            style: const TextStyle(color: AppTheme.onBgDim)),
         const SizedBox(height: 12),
-        for (final e in entries.whereType<Map<String, dynamic>>())
-          Card(
-            child: ExpansionTile(
-              title: Text(e['name'] as String? ?? 'Entry'),
-              childrenPadding: const EdgeInsets.symmetric(horizontal: 16),
-              children: _entryFieldTiles(e),
-            ),
-          ),
+        ..._folderNodeChildren(f),
         const SizedBox(height: 16),
         const Text(
           'Decrypted locally — the server never received the decryption key.',
@@ -164,6 +159,51 @@ class _ShareViewerScreenState extends ConsumerState<ShareViewerScreen> {
         ),
       ],
     );
+  }
+
+  /// Total entries in a folder node, recursing through nested subfolders.
+  int _countEntriesDeep(Map<String, dynamic> f) {
+    final here = (f['entries'] as List?)?.length ?? 0;
+    final subs =
+        (f['folders'] as List?)?.whereType<Map<String, dynamic>>() ??
+            const <Map<String, dynamic>>[];
+    return subs.fold<int>(here, (n, s) => n + _countEntriesDeep(s));
+  }
+
+  /// A folder node's direct entries followed by its subfolders. Each subfolder
+  /// is an expandable tile that recurses into the same builder, so an arbitrarily
+  /// deep shared hierarchy is browsable. Backward-compatible with older flat
+  /// folder payloads that carry no `folders` key.
+  List<Widget> _folderNodeChildren(Map<String, dynamic> f) {
+    final widgets = <Widget>[];
+    for (final e
+        in (f['entries'] as List? ?? const []).whereType<Map<String, dynamic>>()) {
+      widgets.add(Card(
+        child: ExpansionTile(
+          leading:
+              const Icon(Icons.lock_outline, color: AppTheme.green, size: 20),
+          title: Text(e['name'] as String? ?? 'Entry'),
+          childrenPadding: const EdgeInsets.symmetric(horizontal: 16),
+          children: _entryFieldTiles(e),
+        ),
+      ));
+    }
+    for (final sub
+        in (f['folders'] as List? ?? const []).whereType<Map<String, dynamic>>()) {
+      final count = _countEntriesDeep(sub);
+      widgets.add(Card(
+        child: ExpansionTile(
+          leading:
+              const Icon(Icons.folder_outlined, color: AppTheme.green, size: 20),
+          title: Text(sub['folder'] as String? ?? 'Folder'),
+          subtitle: Text('$count ${count == 1 ? 'entry' : 'entries'}',
+              style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
+          childrenPadding: const EdgeInsets.only(left: 12),
+          children: _folderNodeChildren(sub),
+        ),
+      ));
+    }
+    return widgets;
   }
 
   Widget _buildPasswordPrompt() {

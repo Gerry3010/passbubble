@@ -20,7 +20,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'models.dart';
 
-const _kServerUrlKey = 'server_url';
+/// Secure-storage key for the configured server URL. Public so the auth layer
+/// can preserve it across a full session wipe (deleteAll) — the server URL is
+/// app configuration, not session data, and must survive logout / session
+/// expiry. See AuthService.clearLocalSession / logout.
+const kServerUrlKey = 'server_url';
 const _kAccessTokenKey = 'access_token';
 const _kRefreshTokenKey = 'refresh_token';
 
@@ -53,7 +57,7 @@ class ApiClient {
   }
 
   Future<void> init() async {
-    _baseUrl = await _storage.read(key: _kServerUrlKey);
+    _baseUrl = await _storage.read(key: kServerUrlKey);
     _accessToken = await _storage.read(key: _kAccessTokenKey);
     // On the web build the app is served BY the backend, so the server is
     // simply the current origin — auto-configure it so web users skip the
@@ -77,7 +81,7 @@ class ApiClient {
 
   Future<void> setServerUrl(String url) async {
     _baseUrl = url.replaceAll(RegExp(r'/$'), '');
-    await _storage.write(key: _kServerUrlKey, value: _baseUrl);
+    await _storage.write(key: kServerUrlKey, value: _baseUrl);
     _dio.options.baseUrl = _baseUrl!;
   }
 
@@ -266,6 +270,15 @@ class ApiClient {
     final resp = await _post('/api/v1/folders', req.toJson());
     return (resp.data as Map<String, dynamic>)['id'] as String;
   }
+
+  /// Renames or moves a folder. The backend reuses [CreateFolderRequest]
+  /// (name + parent_id), so this single call handles both. parent_id == null
+  /// moves the folder to the root.
+  Future<void> updateFolder(String id, CreateFolderRequest req) async {
+    await _put('/api/v1/folders/$id', req.toJson());
+  }
+
+  Future<void> deleteFolder(String id) => _delete('/api/v1/folders/$id');
 
   // ── Users ─────────────────────────────────────────────────────────────────
 

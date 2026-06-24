@@ -37,6 +37,36 @@ final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
   return ref.watch(apiClientProvider).listEntries();
 });
 
+/// Decrypted usernames keyed by entry id, so the list can be searched by
+/// username (usernames are E2E-encrypted and absent from the metadata list).
+/// Only usernames are decrypted — never passwords. Best-effort: an entry that
+/// fails to decrypt is simply omitted from the index.
+final usernameIndexProvider = FutureProvider<Map<String, String>>((ref) async {
+  // Recompute whenever the entry list is invalidated (create/edit/delete/refresh),
+  // so the username search index never goes stale.
+  ref.watch(entriesProvider);
+  final api = ref.watch(apiClientProvider);
+  final authSvc = ref.watch(authServiceProvider);
+  final privX = authSvc.privX25519;
+  final privM = authSvc.privMLKEM;
+  if (privX == null || privM == null) return const {};
+  final index = <String, String>{};
+  for (final e in await api.listEntriesFull()) {
+    final encKey = e.entryKey;
+    if (encKey == null) continue;
+    try {
+      final dataKey = await VaultCrypto.decryptDataKey(encKey.encryptedKey, privX, privM);
+      final data = await VaultCrypto.decryptEntryData(
+          e.encryptedData, Uint8List.fromList(dataKey));
+      final username = data['username'];
+      if (username is String && username.isNotEmpty) index[e.id] = username;
+    } catch (_) {
+      // skip entries we cannot read
+    }
+  }
+  return index;
+});
+
 final foldersProvider = FutureProvider<List<FolderResponse>>((ref) {
   return ref.watch(apiClientProvider).listFolders();
 });
@@ -137,9 +167,11 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     return all.where((e) => e.folderId == id).toList();
   }
 
-  /// Creates a zero-knowledge share link for an entire folder: every entry in it
-  /// is decrypted and re-encrypted into a single payload under a random link key
-  /// that only ever lives in the URL fragment.
+  /// Creates a zero-knowledge share link for an entire folder subtree: every
+  /// entry in the folder and in all of its subfolders is decrypted and
+  /// re-encrypted into a single nested payload under a random link key that only
+  /// ever lives in the URL fragment. The payload mirrors the folder hierarchy
+  /// ({folder, entries, folders}) so the public viewer can render subfolders.
   Future<void> _createFolderShareLink(FolderResponse folder) async {
     final api = ref.read(apiClientProvider);
     final authSvc = ref.read(authServiceProvider);
@@ -150,26 +182,47 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
       return;
     }
     final all = ref.read(entriesProvider).valueOrNull ?? const <EntryResponse>[];
-    final inFolder = all.where((e) => e.folderId == folder.id).toList();
-    if (inFolder.isEmpty) {
+
+    // Resolve the folder from the fresh tree so its subfolders are current.
+    final roots =
+        ref.read(foldersProvider).valueOrNull ?? const <FolderResponse>[];
+    final node = _findFolder(roots, folder.id) ?? folder;
+
+    int countDeep(FolderResponse f) =>
+        all.where((e) => e.folderId == f.id).length +
+        f.children.fold<int>(0, (n, c) => n + countDeep(c));
+    if (countDeep(node) == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('This folder has no entries to share')),
       );
       return;
     }
-    List<Map<String, dynamic>> items;
-    try {
-      items = <Map<String, dynamic>>[];
-      for (final e in inFolder) {
+
+    // Recursively decrypt the subtree into a nested {folder, entries, folders}
+    // payload. `late` is needed so the closure can call itself for subfolders.
+    late Future<Map<String, dynamic>> Function(FolderResponse) buildNode;
+    buildNode = (f) async {
+      final entries = <Map<String, dynamic>>[];
+      for (final e in all.where((e) => e.folderId == f.id)) {
         final full = await api.getEntry(e.id);
         final encKey = full.entryKey;
         if (encKey == null) continue;
-        final dataKey =
-            await VaultCrypto.decryptDataKey(encKey.encryptedKey, authSvc.privX25519!, authSvc.privMLKEM!);
+        final dataKey = await VaultCrypto.decryptDataKey(
+            encKey.encryptedKey, authSvc.privX25519!, authSvc.privMLKEM!);
         final data = await VaultCrypto.decryptEntryData(
             full.encryptedData, Uint8List.fromList(dataKey));
-        items.add({'name': e.name, 'type': e.type, 'url': e.url, 'data': data});
+        entries.add({'name': e.name, 'type': e.type, 'url': e.url, 'data': data});
       }
+      final folders = <Map<String, dynamic>>[];
+      for (final child in f.children) {
+        folders.add(await buildNode(child));
+      }
+      return {'folder': f.name, 'entries': entries, 'folders': folders};
+    };
+
+    Map<String, dynamic> payload;
+    try {
+      payload = await buildNode(node);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -185,21 +238,19 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
       builder: (_) => ShareLinkDialog(
         title: folder.name,
         onCreate: (validity) =>
-            _buildFolderShareLink(folder, items, authSvc.privX25519!, validity),
+            _buildFolderShareLink(folder, payload, validity),
       ),
     );
   }
 
-  /// Encrypts the folder payload under a deterministic link key, creates (or
-  /// refreshes) the folder share link, and returns the shareable URL.
+  /// Encrypts the prepared (nested) folder payload under a random link key,
+  /// creates the folder share link, and returns the shareable URL.
   Future<String> _buildFolderShareLink(
     FolderResponse folder,
-    List<Map<String, dynamic>> items,
-    Uint8List priv,
+    Map<String, dynamic> payload,
     Duration? validity,
   ) async {
     final api = ref.read(apiClientProvider);
-    final payload = {'folder': folder.name, 'entries': items};
     final linkKey = VaultCrypto.randomKey();
     final encryptedPayload =
         await VaultCrypto.encryptShareLinkPayload(linkKey, payload);
@@ -544,9 +595,166 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     }
   }
 
+  // ── Per-folder actions (long-press sheet) ──────────────────────────────────
+
+  /// Apple-Mail-style action sheet for a single folder (opened via long-press).
+  Future<void> _showFolderActions(FolderResponse folder) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading:
+                  const Icon(Icons.folder_outlined, color: AppTheme.green),
+              title: Text(folder.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline),
+              title: const Text('Rename'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _renameFolder(folder);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_move_outline),
+              title: const Text('Move to folder'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _moveFolder(folder);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.ios_share),
+              title: const Text('Share link'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _createFolderShareLink(folder);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: AppTheme.error),
+              title: const Text('Delete',
+                  style: TextStyle(color: AppTheme.error)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteFolder(folder);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Prompts for a new name (pre-filled) and renames the folder, keeping it in
+  /// its current parent.
+  Future<void> _renameFolder(FolderResponse folder) async {
+    final ctrl = TextEditingController(text: folder.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename folder'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Folder name'),
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || name == null || name.isEmpty || name == folder.name) return;
+    try {
+      await ref.read(apiClientProvider).updateFolder(
+            folder.id,
+            CreateFolderRequest(name: name, parentId: folder.parentId),
+          );
+      ref.invalidate(foldersProvider);
+      _snack('Renamed to "$name"');
+    } catch (e) {
+      _snack('Rename failed: $e');
+    }
+  }
+
+  /// Re-parents a folder to a destination the user picks (root allowed). The
+  /// folder's own subtree is excluded from the choices to prevent cycles.
+  Future<void> _moveFolder(FolderResponse folder) async {
+    final choice = await _pickTargetFolder(excludeSubtreeId: folder.id);
+    if (choice == null) return;
+    if (choice.id == folder.parentId) return; // no change
+    try {
+      await ref.read(apiClientProvider).updateFolder(
+            folder.id,
+            CreateFolderRequest(name: folder.name, parentId: choice.id),
+          );
+      ref.invalidate(foldersProvider);
+      _snack('Moved "${folder.name}"');
+    } catch (e) {
+      _snack('Move failed: $e');
+    }
+  }
+
+  /// Deletes a folder together with every subfolder and entry inside it, after
+  /// confirmation. If the folder is currently open, navigates one level up.
+  Future<void> _deleteFolder(FolderResponse folder) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete "${folder.name}"?'),
+        content: const Text(
+            'Deletes this folder and all entries & subfolders inside it. '
+            'This cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child:
+                const Text('Delete', style: TextStyle(color: AppTheme.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(apiClientProvider).deleteFolder(folder.id);
+      // If we're standing inside the folder we just deleted, step back up.
+      if (_currentFolder?.id == folder.id && !_atRoot) {
+        setState(() => _stack.removeLast());
+      }
+      ref.invalidate(foldersProvider);
+      ref.invalidate(entriesProvider);
+      ref.read(authServiceProvider).refreshAutofill().ignore();
+      _snack('Deleted "${folder.name}"');
+    } catch (e) {
+      _snack('Delete failed: $e');
+    }
+  }
+
   /// Modal folder picker returning the chosen folder id (null = root) wrapped in
   /// a record, or null when the user cancels.
-  Future<({String? id})?> _pickTargetFolder() async {
+  ///
+  /// When [excludeSubtreeId] is given, that folder and its entire subtree are
+  /// omitted from the options — used when moving a folder so it cannot be
+  /// re-parented under itself (which would create a cycle).
+  Future<({String? id})?> _pickTargetFolder({String? excludeSubtreeId}) async {
     final roots =
         ref.read(foldersProvider).valueOrNull ?? const <FolderResponse>[];
     final options = <({String? id, String label})>[
@@ -554,6 +762,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     ];
     void walk(List<FolderResponse> fs, int depth) {
       for (final f in fs) {
+        if (f.id == excludeSubtreeId) continue; // skip folder + its descendants
         options.add((id: f.id, label: '${'    ' * depth}${f.name}'));
         walk(f.children, depth + 1);
       }
@@ -592,10 +801,12 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
 
   List<EntryResponse> _searchEntries(List<EntryResponse> all) {
     final q = _searchQuery.toLowerCase();
+    final usernames = ref.read(usernameIndexProvider).valueOrNull ?? const <String, String>{};
     return all
         .where((e) =>
             e.name.toLowerCase().contains(q) ||
-            e.url.toLowerCase().contains(q))
+            e.url.toLowerCase().contains(q) ||
+            (usernames[e.id]?.toLowerCase().contains(q) ?? false))
         .toList();
   }
 
@@ -603,6 +814,9 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
   Widget build(BuildContext context) {
     final foldersAsync = ref.watch(foldersProvider);
     final entriesAsync = ref.watch(entriesProvider);
+    // Load the username index so search can match usernames and the list
+    // rebuilds once decryption completes.
+    ref.watch(usernameIndexProvider);
     final allEntries =
         entriesAsync.valueOrNull ?? const <EntryResponse>[];
 
@@ -748,6 +962,9 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
                           _stack.add(folders[i]);
                           _selected.clear();
                         }),
+                        onLongPress: _editMode
+                            ? null
+                            : () => _showFolderActions(folders[i]),
                       );
                     }
                     return _buildEntryTile(entries[i - folders.length]);
@@ -844,7 +1061,9 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
 class _FolderTile extends StatelessWidget {
   final FolderResponse folder;
   final VoidCallback onTap;
-  const _FolderTile({required this.folder, required this.onTap});
+  final VoidCallback? onLongPress;
+  const _FolderTile(
+      {required this.folder, required this.onTap, this.onLongPress});
 
   @override
   Widget build(BuildContext context) {
@@ -870,6 +1089,7 @@ class _FolderTile extends StatelessWidget {
           : null,
       trailing: const Icon(Icons.chevron_right, size: 18, color: AppTheme.onBgDim),
       onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
 }

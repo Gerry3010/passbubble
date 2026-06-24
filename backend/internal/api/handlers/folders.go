@@ -83,7 +83,8 @@ func (h *Handler) CreateFolder(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusCreated, map[string]string{"id": id})
 }
 
-// UpdateFolder handles PUT /api/v1/folders/{id}
+// UpdateFolder handles PUT /api/v1/folders/{id} — used for both renaming and
+// moving (re-parenting) a folder.
 func (h *Handler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
 	claims := mw.ClaimsFromCtx(r.Context())
 	folderID := chi.URLParam(r, "id")
@@ -92,6 +93,33 @@ func (h *Handler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusBadRequest, "invalid request")
 		return
 	}
+
+	// Cycle guard: a folder may not become its own descendant's child (or its
+	// own parent), which would corrupt the tree built by ListFolders.
+	if req.ParentID != nil {
+		if *req.ParentID == folderID {
+			respondErr(w, http.StatusBadRequest, "cannot move folder into itself")
+			return
+		}
+		var isDescendant bool
+		err = h.pool.QueryRow(r.Context(), `
+			WITH RECURSIVE descendants AS (
+				SELECT id FROM folders WHERE parent_id=$1
+				UNION ALL
+				SELECT f.id FROM folders f JOIN descendants d ON f.parent_id=d.id
+			)
+			SELECT EXISTS(SELECT 1 FROM descendants WHERE id=$2)`,
+			folderID, *req.ParentID).Scan(&isDescendant)
+		if err != nil {
+			respondErr(w, http.StatusInternalServerError, "failed to update folder")
+			return
+		}
+		if isDescendant {
+			respondErr(w, http.StatusBadRequest, "cannot move folder into its own subfolder")
+			return
+		}
+	}
+
 	_, err = h.pool.Exec(r.Context(), `
 		UPDATE folders SET name=$2, parent_id=$3, updated_at=NOW()
 		WHERE id=$1 AND owner_id=$4`,
@@ -103,13 +131,65 @@ func (h *Handler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// DeleteFolder handles DELETE /api/v1/folders/{id}
+// DeleteFolder handles DELETE /api/v1/folders/{id} — recursively deletes the
+// folder, all of its subfolders, and every entry contained in any of them.
+// Dependent rows (entry_keys, entry_permissions, folder_permissions, share_links)
+// are removed automatically via ON DELETE CASCADE on those tables.
 func (h *Handler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 	claims := mw.ClaimsFromCtx(r.Context())
 	folderID := chi.URLParam(r, "id")
-	_, err := h.pool.Exec(r.Context(), `
-		DELETE FROM folders WHERE id=$1 AND owner_id=$2`, folderID, claims.UserID)
+
+	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to delete folder")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	// Collect the folder and all of its descendants, scoped to the owner so a
+	// non-owner cannot delete anything.
+	rows, err := tx.Query(r.Context(), `
+		WITH RECURSIVE descendants AS (
+			SELECT id FROM folders WHERE id=$1 AND owner_id=$2
+			UNION ALL
+			SELECT f.id FROM folders f JOIN descendants d ON f.parent_id=d.id
+		)
+		SELECT id FROM descendants`, folderID, claims.UserID)
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to delete folder")
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			respondErr(w, http.StatusInternalServerError, "failed to delete folder")
+			return
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		// Folder doesn't exist or isn't owned by the caller — nothing to do.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Entries first (cascades entry_keys / entry_permissions / share_links),
+	// then the folders themselves (cascades folder_permissions / share_links).
+	if _, err := tx.Exec(r.Context(),
+		`DELETE FROM entries WHERE folder_id = ANY($1)`, ids); err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to delete folder")
+		return
+	}
+	if _, err := tx.Exec(r.Context(),
+		`DELETE FROM folders WHERE id = ANY($1)`, ids); err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to delete folder")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to delete folder")
 		return
 	}
