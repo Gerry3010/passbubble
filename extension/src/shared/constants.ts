@@ -43,6 +43,8 @@ export const MessageType = {
   // SSO iframe); the popup queries it to pre-fill search + the "+ Site" toggle.
   REPORT_LOGIN_FRAME: 'REPORT_LOGIN_FRAME',
   GET_FILL_HOST: 'GET_FILL_HOST',
+  // Open the extension's toolbar popup (e.g. from the in-page unlock prompt).
+  OPEN_POPUP: 'OPEN_POPUP',
   // Generator
   GENERATE: 'GENERATE',
   // Save detection

@@ -19,6 +19,7 @@
 
 import browser from 'webextension-polyfill';
 import type { EntryResponse } from '@passbubble/shared-ts';
+import { MessageType } from '../shared/constants.js';
 
 let activeIframe: HTMLIFrameElement | null = null;
 let activeAnchor: HTMLInputElement | null = null;
@@ -37,6 +38,11 @@ export interface FillPayload {
   matches?: EntryResponse[];
   // Generate mode: a fresh password to offer on a signup/register form.
   generatePassword?: string;
+  // Locked mode: the vault is locked / logged out, so offer an "unlock" button
+  // (which opens the toolbar popup) instead of suggestions.
+  locked?: boolean;
+  // In locked mode, whether the user is logged in (→ "unlock") or not (→ "sign in").
+  loggedIn?: boolean;
 }
 
 export interface FillHandlers {
@@ -71,7 +77,13 @@ export function injectFillIframe(
 
   const postInit = () =>
     iframe.contentWindow?.postMessage(
-      { type: 'FILL_INIT', matches: payload.matches ?? [], generatePassword: payload.generatePassword },
+      {
+        type: 'FILL_INIT',
+        matches: payload.matches ?? [],
+        generatePassword: payload.generatePassword,
+        locked: payload.locked ?? false,
+        loggedIn: payload.loggedIn ?? false,
+      },
       browser.runtime.getURL(''),
     );
   // Post on load AND on the iframe's FILL_READY handshake (below) to avoid a
@@ -102,6 +114,12 @@ export function injectFillIframe(
       window.removeEventListener('message', handler);
     } else if (msg.type === 'FILL_USE_GENERATED' && typeof msg.password === 'string') {
       handlers.onUseGenerated(msg.password);
+      removeFillIframe();
+      window.removeEventListener('message', handler);
+    } else if (msg.type === 'FILL_UNLOCK') {
+      // Open the toolbar popup so the user can unlock / sign in. Best-effort —
+      // the background swallows browsers that disallow programmatic open.
+      browser.runtime.sendMessage({ type: MessageType.OPEN_POPUP, payload: {} }).catch(() => {});
       removeFillIframe();
       window.removeEventListener('message', handler);
     } else if (msg.type === 'FILL_DISMISS') {

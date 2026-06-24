@@ -135,14 +135,24 @@ async function showFillFor(form: DetectedForm): Promise<void> {
   // Already shown for this field (e.g. duplicate focus event)? Do nothing.
   if (isFillIframeShown(anchor)) return;
 
-  const sessionResp = await safeSend<{ isUnlocked?: boolean }>({
+  const stillFocused = () =>
+    document.activeElement === usernameField || document.activeElement === passwordField;
+
+  const sessionResp = await safeSend<{ isUnlocked?: boolean; isLoggedIn?: boolean }>({
     type: MessageType.GET_SESSION,
     payload: {},
   });
-  if (!sessionResp?.isUnlocked) return;
-
-  const stillFocused = () =>
-    document.activeElement === usernameField || document.activeElement === passwordField;
+  if (!sessionResp?.isUnlocked) {
+    // Locked or logged out: on a real login form (not a signup), offer an unlock
+    // prompt whose button opens the toolbar popup. Nothing to suggest on signup.
+    if (form.isSignup || !stillFocused()) return;
+    injectFillIframe(
+      anchor,
+      { locked: true, loggedIn: !!sessionResp?.isLoggedIn },
+      { onFillMatch: () => {}, onUseGenerated: () => {}, onDismiss: () => {} },
+    );
+    return;
+  }
 
   if (form.isSignup) {
     // Register form → offer a generated password (cached per origin so the

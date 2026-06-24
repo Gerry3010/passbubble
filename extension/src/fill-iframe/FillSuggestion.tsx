@@ -20,6 +20,8 @@ import { term } from '../shared/theme.js';
 export function FillSuggestion() {
   const [matches, setMatches] = useState<EntryResponse[]>([]);
   const [generatePassword, setGeneratePassword] = useState<string | undefined>(undefined);
+  const [locked, setLocked] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Tell the embedding content script our real content height so it can size the
@@ -27,7 +29,7 @@ export function FillSuggestion() {
   useLayoutEffect(() => {
     const h = rootRef.current?.getBoundingClientRect().height ?? 0;
     if (h > 0) window.parent.postMessage({ type: 'FILL_RESIZE', height: h }, '*');
-  }, [matches, generatePassword]);
+  }, [matches, generatePassword, locked]);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
@@ -37,10 +39,18 @@ export function FillSuggestion() {
       // frame) instead. The match list is non-secret metadata; actual secrets
       // are only ever fetched from the background, which gates on the session.
       if (event.source !== window.parent) return;
-      const msg = event.data as { type: string; matches?: EntryResponse[]; generatePassword?: string };
+      const msg = event.data as {
+        type: string;
+        matches?: EntryResponse[];
+        generatePassword?: string;
+        locked?: boolean;
+        loggedIn?: boolean;
+      };
       if (msg.type === 'FILL_INIT') {
         setMatches(Array.isArray(msg.matches) ? msg.matches : []);
         setGeneratePassword(msg.generatePassword);
+        setLocked(!!msg.locked);
+        setLoggedIn(!!msg.loggedIn);
       }
     }
     window.addEventListener('message', handleMessage);
@@ -59,11 +69,16 @@ export function FillSuggestion() {
     if (generatePassword) window.parent.postMessage({ type: 'FILL_USE_GENERATED', password: generatePassword }, '*');
   }
 
+  function unlock() {
+    window.parent.postMessage({ type: 'FILL_UNLOCK' }, '*');
+  }
+
   function dismiss() {
     window.parent.postMessage({ type: 'FILL_DISMISS' }, '*');
   }
 
   const isGenerate = typeof generatePassword === 'string';
+  const title = locked ? 'locked' : isGenerate ? 'generate' : 'fill';
 
   return (
     <div
@@ -79,7 +94,7 @@ export function FillSuggestion() {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
         <span style={{ fontWeight: 700, color: term.green, fontSize: '12px' }}>
-          <span style={{ color: term.muted }}>passbubble:~$</span> {isGenerate ? 'generate' : 'fill'}
+          <span style={{ color: term.muted }}>passbubble:~$</span> {title}
         </span>
         <button
           onClick={dismiss}
@@ -89,7 +104,29 @@ export function FillSuggestion() {
           ×
         </button>
       </div>
-      {isGenerate ? (
+      {locked ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <span style={{ color: term.muted, fontSize: '12px' }}>
+            {loggedIn ? 'Vault locked' : 'Not signed in'} — unlock to fill your logins.
+          </span>
+          <button
+            onClick={unlock}
+            style={{
+              background: term.green,
+              color: term.bg,
+              border: `1px solid ${term.green}`,
+              borderRadius: '4px',
+              padding: '6px 12px',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontFamily: term.font,
+            }}
+          >
+            {loggedIn ? '🔓 Unlock Passbubble' : 'Sign in to Passbubble'}
+          </button>
+        </div>
+      ) : isGenerate ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div
             style={{

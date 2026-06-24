@@ -733,6 +733,21 @@ export function buildHandlers(): Record<string, Handler> {
       return client.generate(payload as Parameters<typeof client.generate>[0]);
     },
 
+    // Open the toolbar popup so the user can unlock / sign in — triggered by the
+    // in-page "unlock" prompt on a login field. Best-effort: action.openPopup()
+    // works in Chrome 127+ from the worker, but some browsers (e.g. Firefox) only
+    // allow it from a direct user-input handler, so a failure is non-fatal — the
+    // user can always click the toolbar icon.
+    [MessageType.OPEN_POPUP]: async () => {
+      try {
+        const action = browser.action as { openPopup?: () => Promise<void> };
+        await action.openPopup?.();
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    },
+
     // A form submission (or generated-password fill) was detected. Stash the
     // credentials so the in-page bar can offer to save them — and, on a site we
     // already know, detect whether this is a *new* account or a credential
