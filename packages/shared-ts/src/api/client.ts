@@ -140,6 +140,12 @@ export class PassbubbleClient {
     return this.request<EntryResponse[]>('GET', '/api/v1/entries');
   }
 
+  /** Like listEntries() but the entries include encrypted_data and the caller's
+   * entry_key, so the client can decrypt fields (e.g. usernames) in bulk. */
+  async listEntriesFull(): Promise<EntryResponse[]> {
+    return this.request<EntryResponse[]>('GET', '/api/v1/entries/full');
+  }
+
   async getEntry(id: string): Promise<EntryResponse> {
     return this.request<EntryResponse>('GET', `/api/v1/entries/${id}`);
   }

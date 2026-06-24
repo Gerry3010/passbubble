@@ -30,6 +30,9 @@ export const MessageType = {
   SEARCH_ENTRIES: 'SEARCH_ENTRIES',
   LIST_FOLDERS: 'LIST_FOLDERS',
   GET_ENTRY: 'GET_ENTRY',
+  // Bulk-decrypted usernames ({ [id]: username }) so the popup can search by
+  // username without decrypting every entry's full data on demand.
+  GET_USERNAMES: 'GET_USERNAMES',
   CREATE_ENTRY: 'CREATE_ENTRY',
   UPDATE_ENTRY: 'UPDATE_ENTRY',
   DELETE_ENTRY: 'DELETE_ENTRY',

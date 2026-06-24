@@ -31,7 +31,7 @@ export function EntryList({
   onSelect?: (entry: EntryResponse) => void;
   onCreate?: () => void;
 } = {}) {
-  const { entries, folders, currentHost, isLoading, load, copyField, toggleSite, removeMatch } =
+  const { entries, folders, usernames, currentHost, isLoading, load, copyField, toggleSite, removeMatch } =
     useEntriesStore();
   const [query, setQuery] = useState('');
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -60,12 +60,13 @@ export function EntryList({
       (e) =>
         e.name.toLowerCase().includes(q) ||
         (e.url ?? '').toLowerCase().includes(q) ||
+        (usernames[e.id] ?? '').toLowerCase().includes(q) ||
         // Match patterns: substring (partial typing) OR wildcard host-match, so a
         // query like "gist.github.com" also finds an entry whose pattern is
         // "*.github.com". (Add/remove stay exact — only search expands wildcards.)
         (e.match_patterns ?? []).some((p) => p.toLowerCase().includes(q) || patternMatchesHost(q, p)),
     );
-  }, [entries, q, searching]);
+  }, [entries, usernames, q, searching]);
 
   // Folder-browser view (empty search): folders + entries at the current level.
   const subfolders = useMemo(

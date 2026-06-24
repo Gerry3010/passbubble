@@ -21,6 +21,9 @@ import type { EntryResponse, FolderResponse } from '@passbubble/shared-ts';
 interface EntriesState {
   entries: EntryResponse[];
   folders: FolderResponse[];
+  /** Decrypted usernames keyed by entry id, so search can match usernames
+   * (which are E2E-encrypted and not part of the metadata entry list). */
+  usernames: Record<string, string>;
   /** Host of the active tab (sans leading "www."), used to pre-filter on open. */
   currentHost: string;
   isLoading: boolean;
@@ -76,6 +79,7 @@ async function activeTabHost(): Promise<string> {
 export const useEntriesStore = create<EntriesState>((set, get) => ({
   entries: [],
   folders: [],
+  usernames: {},
   currentHost: '',
   isLoading: false,
   error: null,
@@ -83,15 +87,25 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
   load: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [entriesResp, foldersResp, host] = await Promise.all([
+      const [entriesResp, foldersResp, host, usernamesResp] = await Promise.all([
         browser.runtime.sendMessage({ type: MessageType.SEARCH_ENTRIES, payload: { query: '' } }),
         browser.runtime.sendMessage({ type: MessageType.LIST_FOLDERS, payload: {} }),
         activeTabHost(),
+        // Best-effort: search-by-username works once these resolve; a failure
+        // here must not block the entry list from rendering.
+        browser.runtime
+          .sendMessage({ type: MessageType.GET_USERNAMES, payload: {} })
+          .catch(() => ({ usernames: {} })),
       ]);
+      const usernames =
+        usernamesResp && typeof usernamesResp === 'object' && 'usernames' in usernamesResp
+          ? ((usernamesResp as { usernames?: Record<string, string> }).usernames ?? {})
+          : {};
       set({
         entries: Array.isArray(entriesResp) ? (entriesResp as EntryResponse[]) : [],
         folders: Array.isArray(foldersResp) ? flattenFolders(foldersResp as FolderResponse[]) : [],
         currentHost: host,
+        usernames,
         isLoading: false,
       });
     } catch (e) {

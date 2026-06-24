@@ -605,6 +605,27 @@ export function buildHandlers(): Record<string, Handler> {
       return { entry: apiEntry, data };
     },
 
+    // Decrypt just the username of every entry so the popup can search by
+    // username. Uses the bulk "full" listing (one request with encrypted_data +
+    // entry keys) rather than N getEntry calls. Passwords are never bulk-decrypted
+    // or cached — only usernames, which are the searchable field.
+    [MessageType.GET_USERNAMES]: async () => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const full = await client.listEntriesFull();
+      const usernames: Record<string, string> = {};
+      for (const entry of full) {
+        try {
+          const data = await decryptEntry(entry, session);
+          if (data.username) usernames[entry.id] = data.username;
+        } catch {
+          // skip entries we cannot read (e.g. shared with an incompatible key)
+        }
+      }
+      return { usernames };
+    },
+
     [MessageType.FILL_ENTRY]: async (payload) => {
       const session = getSession();
       if (!session) return { locked: true };
