@@ -17,6 +17,20 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type { EntryResponse } from '@passbubble/shared-ts';
 import { term } from '../shared/theme.js';
 
+// The padlock glyph from the Passbubble brand icon (assets/svg/icon-extension.svg),
+// drawn in currentColor so it adopts the button's text colour. viewBox frames just
+// the padlock from the 256×256 icon.
+function LockGlyph() {
+  return (
+    <svg width="11" height="15" viewBox="98 86 60 84" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M 114,123 L 114,105 A 14,14 0 0 1 142,105 L 142,123" fill="none" stroke="currentColor" strokeWidth={5} strokeLinecap="round" />
+      <rect x="102" y="120" width="52" height="46" rx="8" fill="none" stroke="currentColor" strokeWidth={4} />
+      <circle cx="128" cy="141" r="6" fill="currentColor" />
+      <rect x="125.5" y="141" width="5" height="13" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function FillSuggestion() {
   const [matches, setMatches] = useState<EntryResponse[]>([]);
   const [generatePassword, setGeneratePassword] = useState<string | undefined>(undefined);
@@ -121,9 +135,19 @@ export function FillSuggestion() {
               fontWeight: 700,
               cursor: 'pointer',
               fontFamily: term.font,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
             }}
           >
-            {loggedIn ? '🔓 Unlock Passbubble' : 'Sign in to Passbubble'}
+            {loggedIn ? (
+              <>
+                <LockGlyph /> Unlock Passbubble
+              </>
+            ) : (
+              'Sign in to Passbubble'
+            )}
           </button>
         </div>
       ) : isGenerate ? (
