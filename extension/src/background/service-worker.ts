@@ -19,11 +19,16 @@
 import browser from 'webextension-polyfill';
 import { getSession, setSession, clearLoginFrameHost } from './session-store.js';
 import { buildHandlers, touchActivity, maybeAutoLock } from './message-handler.js';
+import { registerBasicAuthHandler } from './basic-auth.js';
 import { savePinRefreshToken } from './pin-store.js';
 import { PassbubbleClient } from '@passbubble/shared-ts';
 import { MessageType, STORAGE_KEYS, AUTO_LOCK_ALARM } from '../shared/constants.js';
 
 const handlers = buildHandlers();
+
+// HTTP Basic Auth autofill (Chrome/Firefox; no-op where webRequest.onAuthRequired
+// is unavailable). Registered top-level so it survives service-worker restarts.
+registerBasicAuthHandler();
 
 // Messages that count as "the user is actively using the vault" — receiving one
 // restarts the idle auto-lock countdown. Passive background traffic (autofill

@@ -150,6 +150,33 @@ export async function maybeAutoLock(): Promise<boolean> {
   return true;
 }
 
+/** Resolve credentials to satisfy an HTTP Basic Auth challenge for `url`, reusing
+ * the autofill URL→entry matching and decrypt-on-demand. Returns null when the
+ * vault is locked, nothing matches, or the match is ambiguous (more than one
+ * entry) — in which case the browser shows its native dialog instead of risking
+ * the wrong credentials. Only usernames/passwords for a single unambiguous match
+ * are returned; passwords are never cached. */
+export async function resolveBasicAuthCredentials(
+  url: string,
+): Promise<{ username: string; password: string } | null> {
+  const session = getSession();
+  if (!session) return null;
+  const cache = getEntriesCache();
+  if (!cache) return null;
+  const matches = matchEntriesForUrl(url, cache);
+  // Exactly one match → unambiguous. Zero or several → let the user decide.
+  if (matches.length !== 1) return null;
+  try {
+    const client = makeClient(session.serverUrl, session.accessToken);
+    const data = await decryptEntry(await client.getEntry(matches[0].id), session);
+    const password = data.password ?? '';
+    if (!password) return null;
+    return { username: data.username ?? '', password };
+  } catch {
+    return null;
+  }
+}
+
 async function getServerUrl(): Promise<string> {
   const data = await browser.storage.sync.get(STORAGE_KEYS.SERVER_URL);
   return (data[STORAGE_KEYS.SERVER_URL] as string | undefined) ?? '';
