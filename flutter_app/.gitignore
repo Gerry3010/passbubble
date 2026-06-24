@@ -59,6 +59,8 @@ app.*.map.json
 /android/app/src/main/jniLibs/
 # iOS device static archive (`./native/build.sh ios`) — linked into Runner.
 /ios/native/
+# macOS device static archive (`./native/build.sh macos`) — linked into Runner.
+/macos/native/
 
 # Node deps for the web-crypto esbuild bundle (`make web-crypto`); package-lock
 # is committed for a reproducible bundle, node_modules is not.

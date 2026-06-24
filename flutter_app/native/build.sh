@@ -70,10 +70,36 @@ build_ios() {
     go build -buildmode=c-archive -o "$dest/lib${NAME}.a" .
 }
 
+build_macos() {
+  # macOS (universal arm64 + x86_64): static c-archive linked into the Runner
+  # target via OTHER_LDFLAGS (-force_load + -export_dynamic) so dart:ffi's
+  # DynamicLibrary.process() can dlsym the pb_* symbols. Gitignored output.
+  # NB: no associative arrays — macOS ships bash 3.2.
+  local sdk cc dest tmp goarch carch
+  sdk="$(xcrun --sdk macosx --show-sdk-path)"
+  cc="$(xcrun --sdk macosx --find clang)"
+  dest="../../macos/native"
+  tmp="$(mktemp -d)"
+  mkdir -p "$dest"
+  for goarch in arm64 amd64; do
+    if [ "$goarch" = "amd64" ]; then carch="x86_64"; else carch="arm64"; fi
+    echo "→ building macos $carch"
+    CGO_ENABLED=1 GOOS=darwin GOARCH="$goarch" CC="$cc" \
+      CGO_CFLAGS="-isysroot $sdk -arch $carch -mmacosx-version-min=10.15" \
+      CGO_LDFLAGS="-isysroot $sdk -arch $carch -mmacosx-version-min=10.15" \
+      go build -buildmode=c-archive -o "$tmp/lib${NAME}.$goarch.a" .
+  done
+  echo "→ $dest/lib${NAME}.a (macos universal arm64+x86_64)"
+  lipo -create "$tmp/lib${NAME}.arm64.a" "$tmp/lib${NAME}.amd64.a" -output "$dest/lib${NAME}.a"
+  cp "$tmp/lib${NAME}.arm64.h" "$dest/lib${NAME}.h"
+  rm -rf "$tmp"
+}
+
 case "${1:-host}" in
   host) build_host ;;
   android) build_android ;;
   ios) build_ios ;;
-  *) echo "usage: $0 [host|android|ios]"; exit 1 ;;
+  macos) build_macos ;;
+  *) echo "usage: $0 [host|android|ios|macos]"; exit 1 ;;
 esac
 echo "done."
