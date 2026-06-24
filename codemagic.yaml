@@ -24,8 +24,10 @@ workflows:
       xcode: latest
       vars:
         # Bundle IDs of the converter-generated apps (set to match safari/).
-        BUNDLE_ID_MACOS: "net.geraldhofbauer.passbubble"
-        BUNDLE_ID_IOS: "net.geraldhofbauer.passbubble"
+        # Distinct from the Flutter app (net.geraldhofbauer.passbubble) — two
+        # apps can't share a bundle id. Extension id is <id>.Extension.
+        BUNDLE_ID_MACOS: "net.geraldhofbauer.passbubble.safari"
+        BUNDLE_ID_IOS: "net.geraldhofbauer.passbubble.safari"
       groups:
         - app_store_connect   # APP_STORE_CONNECT_* (API key) — configure in UI
     integrations:
@@ -34,22 +36,26 @@ workflows:
       - name: Build the Safari web extension bundle
         script: |
           cd packages/shared-ts && npm ci && npm run build && cd -
-          cd extension && npm ci && npm run build:safari
+          cd extension && npm ci && npm run build:safari && cd -
+          # Re-sync the freshly built web bundle into the committed Xcode wrapper.
+          rsync -a --delete extension/dist/safari/ \
+            "safari/Passbubble/Shared (Extension)/Resources/"
       - name: Build & archive the Xcode wrapper (macOS + iOS)
         script: |
-          # The safari/ Xcode project is generated once on a Mac via:
+          # The safari/ Xcode project was generated once on a Mac via:
           #   xcrun safari-web-extension-converter extension/dist/safari \
-          #     --project-location safari/ --app-name Passbubble \
-          #     --bundle-identifier $BUNDLE_ID_MACOS --macos --ios
-          # and committed. CI re-syncs the freshly built web bundle into it,
-          # then archives both targets.
+          #     --project-location safari --app-name Passbubble \
+          #     --bundle-identifier net.geraldhofbauer.passbubble.safari \
+          #     --copy-resources
+          # (both platforms by default) and committed. The web Resources are
+          # re-synced above before archiving both targets.
           xcode-project use-profiles
           # macOS app
-          xcodebuild -project safari/Passbubble.xcodeproj \
+          xcodebuild -project safari/Passbubble/Passbubble.xcodeproj \
             -scheme "Passbubble (macOS)" -configuration Release archive \
             -archivePath build/passbubble-macos.xcarchive
           # iOS app
-          xcodebuild -project safari/Passbubble.xcodeproj \
+          xcodebuild -project safari/Passbubble/Passbubble.xcodeproj \
             -scheme "Passbubble (iOS)" -configuration Release archive \
             -archivePath build/passbubble-ios.xcarchive
     artifacts:
