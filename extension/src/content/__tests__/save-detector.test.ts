@@ -22,7 +22,7 @@ vi.mock('webextension-polyfill', () => ({
 }));
 
 import browser from 'webextension-polyfill';
-import { initSaveDetector } from '../save-detector.js';
+import { initSaveDetector, recoverPendingSave } from '../save-detector.js';
 import { MessageType } from '../../shared/constants.js';
 
 const mockSendMessage = browser.runtime.sendMessage as ReturnType<typeof vi.fn>;
@@ -191,5 +191,45 @@ describe('initSaveDetector', () => {
     expect(mockSendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MessageType.OFFER_SAVE }),
     );
+  });
+});
+
+describe('recoverPendingSave', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    mockSendMessage.mockReset();
+  });
+
+  it('re-shows the save bar when a pending save matches the current page', async () => {
+    // jsdom serves the page at https://example.com/login (see vitest config).
+    mockSendMessage.mockResolvedValue({
+      url: 'https://example.com/account',
+      username: 'alice',
+      candidates: [{ id: '1', username: 'alice' }],
+      suggestUpdateId: '1',
+    });
+
+    await recoverPendingSave();
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MessageType.GET_PENDING_SAVE }),
+    );
+    expect(barShown()).toBe(true);
+  });
+
+  it('does NOT show the bar for a pending save from a different domain', async () => {
+    mockSendMessage.mockResolvedValue({ url: 'https://other.test/login', username: 'alice' });
+
+    await recoverPendingSave();
+
+    expect(barShown()).toBe(false);
+  });
+
+  it('does nothing when there is no pending save', async () => {
+    mockSendMessage.mockResolvedValue(null);
+
+    await recoverPendingSave();
+
+    expect(barShown()).toBe(false);
   });
 });

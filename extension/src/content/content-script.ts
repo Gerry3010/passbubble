@@ -20,7 +20,7 @@ import browser from 'webextension-polyfill';
 import { MessageType } from '../shared/constants.js';
 import { detectLoginForms, type DetectedForm } from './form-detector.js';
 import { injectFillIframe, removeFillIframe, isFillIframeShown } from './fill-ui.js';
-import { initSaveDetector } from './save-detector.js';
+import { initSaveDetector, recoverPendingSave } from './save-detector.js';
 
 // Fill a form field in a way that works with React / Vue SPAs.
 function fillField(field: HTMLInputElement, value: string): void {
@@ -271,3 +271,6 @@ maybeReportLoginFrame();
 
 // Save detection
 initSaveDetector();
+// A "save this login?" offer can survive a post-login navigation in
+// storage.session; the DOM-only bar does not, so re-show it on load.
+void recoverPendingSave();

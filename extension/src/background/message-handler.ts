@@ -733,8 +733,11 @@ export function buildHandlers(): Record<string, Handler> {
         if (suggestUpdateId === undefined && u === username) suggestUpdateId = m.id;
       }
 
+      // candidates + suggestUpdateId are persisted too so the in-page bar can be
+      // fully restored (incl. the "update existing" option) after a navigation —
+      // the content script re-renders it from GET_PENDING_SAVE on the next load.
       await browser.storage.session.set({
-        [STORAGE_KEYS.PENDING_SAVE]: { name, url, username, password },
+        [STORAGE_KEYS.PENDING_SAVE]: { name, url, username, password, candidates, suggestUpdateId },
       });
       await setSaveBadge(true);
       return { ok: true, candidates, suggestUpdateId };

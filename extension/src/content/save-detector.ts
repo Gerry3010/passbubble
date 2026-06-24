@@ -21,6 +21,13 @@ import { MessageType } from '../shared/constants.js';
 import { normaliseHost } from '../shared/utils.js';
 import { showSaveBar, removeSaveBar } from './save-bar.js';
 
+interface SaveOffer {
+  host: string;
+  username: string;
+  candidates?: { id: string; username: string }[];
+  suggestUpdateId?: string;
+}
+
 interface DetectedCredentials {
   username: string;
   password: string;
@@ -69,6 +76,68 @@ function extractCredentials(form: HTMLFormElement): DetectedCredentials | null {
   return { username: findUsernameValue(form, pw), password: pw.value };
 }
 
+// Render the in-page "save this login?" bar for a given offer and wire its
+// buttons to the background. No secrets are shown — the password lives in the
+// background's pending-save and is only consumed by CONFIRM_SAVE/UPDATE_SAVE.
+// Each action swallows its own errors so a failed background call never becomes
+// an uncaught promise rejection in the page console. Shared by the submit-time
+// path and the post-navigation recovery path.
+export function renderSaveBar(offer: SaveOffer): void {
+  const send = async (type: string, p: Record<string, unknown> = {}) => {
+    try {
+      await browser.runtime.sendMessage({ type, payload: p });
+    } catch (err) {
+      console.warn('[passbubble] save action failed:', err);
+    } finally {
+      removeSaveBar();
+    }
+  };
+  showSaveBar(
+    {
+      host: offer.host,
+      username: offer.username,
+      candidates: offer.candidates,
+      suggestUpdateId: offer.suggestUpdateId,
+    },
+    {
+      onSaveNew: () => void send(MessageType.CONFIRM_SAVE),
+      onUpdate: (entryId) => void send(MessageType.UPDATE_SAVE, { entryId }),
+      onDismiss: () => void send(MessageType.DISMISS_SAVE, { host: offer.host }),
+      onNever: () => void send(MessageType.BLOCKLIST_ADD, { host: offer.host }),
+    },
+  );
+}
+
+// On a fresh page load, re-show the save bar if a pending save survived a
+// navigation (it lives in storage.session, which the DOM-only bar does not).
+// Only re-show when the pending save belongs to the page we are actually on, so
+// the bar never appears on an unrelated domain after a cross-site redirect.
+export async function recoverPendingSave(): Promise<void> {
+  let pending: {
+    url?: string;
+    username?: string;
+    candidates?: { id: string; username: string }[];
+    suggestUpdateId?: string;
+  } | null = null;
+  try {
+    pending = (await browser.runtime.sendMessage({
+      type: MessageType.GET_PENDING_SAVE,
+      payload: {},
+    })) as typeof pending;
+  } catch {
+    return; // background unreachable — nothing to restore
+  }
+  if (!pending?.url) return;
+  const host = normaliseHost(location.href);
+  if (!host || normaliseHost(pending.url) !== host) return;
+  renderSaveBar({
+    host,
+    username: pending.username ?? '',
+    candidates: pending.candidates,
+    suggestUpdateId: pending.suggestUpdateId,
+  });
+}
+
 export function initSaveDetector(): void {
   document.addEventListener(
     'submit',
@@ -99,33 +168,12 @@ export function initSaveDetector(): void {
       };
       if (!resp?.ok) return;
 
-      // In-page "save this login?" bar (no secrets shown; the password lives in
-      // the background's pending-save and is only used by CONFIRM_SAVE/UPDATE_SAVE).
-      // Each action swallows its own errors so a failed background call never
-      // becomes an uncaught promise rejection in the page console.
-      const send = async (type: string, p: Record<string, unknown> = {}) => {
-        try {
-          await browser.runtime.sendMessage({ type, payload: p });
-        } catch (err) {
-          console.warn('[passbubble] save action failed:', err);
-        } finally {
-          removeSaveBar();
-        }
-      };
-      showSaveBar(
-        {
-          host,
-          username: creds.username,
-          candidates: resp.candidates,
-          suggestUpdateId: resp.suggestUpdateId,
-        },
-        {
-          onSaveNew: () => void send(MessageType.CONFIRM_SAVE),
-          onUpdate: (entryId) => void send(MessageType.UPDATE_SAVE, { entryId }),
-          onDismiss: () => void send(MessageType.DISMISS_SAVE, { host }),
-          onNever: () => void send(MessageType.BLOCKLIST_ADD, { host }),
-        },
-      );
+      renderSaveBar({
+        host,
+        username: creds.username,
+        candidates: resp.candidates,
+        suggestUpdateId: resp.suggestUpdateId,
+      });
     },
     true, // capture phase — collect values before form handlers clear them
   );
