@@ -34,6 +34,7 @@ function defaultStore(overrides = {}) {
   return {
     entries: [],
     folders: [],
+    usernames: {},
     currentHost: '',
     isLoading: false,
     error: null,
@@ -174,6 +175,20 @@ describe('EntryList', () => {
       target: { value: 'gist.github.com' },
     });
     await waitFor(() => expect(screen.getByText('GitHub')).toBeDefined());
+  });
+
+  it('search matches an entry by its (decrypted) username', async () => {
+    const entries = [makeEntry('1', 'GitHub', 'https://github.com'), makeEntry('2', 'Google')];
+    mockUseStore.mockReturnValue(defaultStore({ entries, usernames: { '1': 'octocat@example.com' } }));
+    render(<EntryList />);
+
+    fireEvent.change(screen.getByPlaceholderText(/grep entries/i), {
+      target: { value: 'octocat' },
+    });
+    await waitFor(() => {
+      expect(screen.getByText('GitHub')).toBeDefined();
+      expect(screen.queryByText('Google')).toBeNull();
+    });
   });
 
   it('toggles the match-patterns list and removes a pattern', async () => {
