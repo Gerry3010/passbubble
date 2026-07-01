@@ -67,6 +67,13 @@ workflows:
         submit_to_testflight: true
 
   # ── B) Flutter Android app (.aab) — the ".so problem" ───────────────────────
+      scripts:
+        - name: Notify pipepush
+          script: |
+            if [ -z "$PIPEPUSH_TOKEN" ]; then echo "pipepush: PIPEPUSH_TOKEN unset — skipping"; exit 0; fi
+            if [ "$CM_BUILD_STEP_STATUS" = "success" ]; then STATUS=success; else STATUS=failure; fi
+            curl -sf -X POST "$PIPEPUSH_SERVER/api/webhook" -H "Content-Type: application/json" \
+              -d "{\"token\":\"$PIPEPUSH_TOKEN\",\"status\":\"$STATUS\",\"pipeline\":\"$CM_WORKFLOW_ID\",\"branch\":\"${CM_BRANCH:-$CM_TAG}\",\"commit\":\"$CM_COMMIT\",\"runId\":\"$BUILD_NUMBER\"}" || true
   flutter-android:
     name: Flutter Android (.aab)
     # MUST be Linux: native/build.sh hardcodes the NDK prebuilt path
@@ -128,3 +135,10 @@ workflows:
         credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
         track: internal
         submit_as_draft: true
+      scripts:
+        - name: Notify pipepush
+          script: |
+            if [ -z "$PIPEPUSH_TOKEN" ]; then echo "pipepush: PIPEPUSH_TOKEN unset — skipping"; exit 0; fi
+            if [ "$CM_BUILD_STEP_STATUS" = "success" ]; then STATUS=success; else STATUS=failure; fi
+            curl -sf -X POST "$PIPEPUSH_SERVER/api/webhook" -H "Content-Type: application/json" \
+              -d "{\"token\":\"$PIPEPUSH_TOKEN\",\"status\":\"$STATUS\",\"pipeline\":\"$CM_WORKFLOW_ID\",\"branch\":\"${CM_BRANCH:-$CM_TAG}\",\"commit\":\"$CM_COMMIT\",\"runId\":\"$BUILD_NUMBER\"}" || true
