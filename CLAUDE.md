@@ -164,6 +164,36 @@ git**. If it's missing, recreate it from the variables above (host, `/opt/passbu
 > This is a fast test-deploy path. The canonical release path is still tagging `vX.Y.Z`
 > (`release.yml` → DockerHub).
 
+## Mac-Claude brief 2026-07-03 (full-manager push — test & ship)
+
+`main` now contains seven merged feature phases (SPA save-fix, TOTP autofill,
+card/identity autofill + app wallet tab, SSO memory, trash/favorites/history,
+password health + HIBP, deeper search). All suites green on Linux (Go, vitest,
+flutter test, golangci-lint). Your jobs, in priority order — branch + PR as usual:
+
+1. **Ship a fresh TestFlight build NOW.** Gerry's installed iOS build predates
+   the existing search UI and the AutoFill credential provider. Bump the build
+   number, archive, upload, then verify on device: app-list search finds
+   entries by email/notes/card last-4 (new `searchIndexProvider`), and
+   Settings → Passwords → AutoFill shows Passbubble with a working search.
+   The autofill sync payload now includes `type` and no longer drops
+   password-only entries — nothing on the native side *requires* changes, but
+   `CredentialProviderViewController` may optionally use `type` for ranking.
+2. **Rebuild the Safari wrapper** — `manifest.safari.json` gained
+   `clipboardWrite` and `webNavigation`; the extension bundle has new
+   fill-iframe modes (TOTP, card/identity, SSO badge) and a health tab.
+   Re-run `safari-web-extension-converter` / rsync per your codemagic setup and
+   functionally test in Safari: save bar on a first click (SPA fix), TOTP
+   copy flash (openPopup limits!), card fill on a checkout form.
+   Note: `webRequest.onAuthRequired` (basic auth) stays a Safari no-op; the
+   SSO memory needs `webNavigation` — verify Safari grants it, else the badge
+   simply never appears (graceful).
+3. **Verify the new app screens on device:** Wallet tab (5-tab bottom nav!),
+   Settings → Trash (restore/purge), entry detail → favorite star + history
+   sheet (decrypt + restore), Settings → Password health (run with HIBP on —
+   check only `api.pwnedpasswords.com/range/<5 chars>` requests leave).
+4. Migration 000007 runs automatically on server start; no new env vars.
+
 ## Apple-slice follow-ups (macOS-device / iOS Builder)
 
 Open work from the iOS/macOS/Safari push. The macOS Claude owns these — branch + PR.
