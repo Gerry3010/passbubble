@@ -13,11 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-export * from './api/client.js';
-export * from './api/errors.js';
-export * from './crypto/index.js';
-export * from './health/index.js';
-export type * from './types/api.js';
-export type * from './types/vault.js';
-export * from './vault/vault.js';
-export * from './vault/pin.js';
+export { checkStrength } from './strength.js';
+export type { StrengthLevel, StrengthResult } from './strength.js';
+export { pwnedCount, clearHibpCache } from './hibp.js';
+export { computeHealthReport } from './report.js';
+export type {
+  HealthFinding,
+  HealthItemInput,
+  HealthOptions,
+  HealthReport,
+} from './report.js';

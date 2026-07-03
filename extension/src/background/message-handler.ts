@@ -23,6 +23,7 @@ import {
   decryptEntry,
   encryptEntry,
   createEntry,
+  computeHealthReport,
   generateTotp,
   deriveKey,
   aesGcmDecrypt,
@@ -855,6 +856,35 @@ export function buildHandlers(): Record<string, Handler> {
       const { host } = payload as { host: string };
       await deleteSsoRecord(host);
       return { ok: true };
+    },
+
+    // Vault-wide password health. Decrypts in bulk like GET_USERNAMES; the
+    // response carries only ids/names/category data — never a password. The
+    // HIBP breach check is opt-in (network; k-anonymity, 5 hash chars only).
+    [MessageType.HEALTH_REPORT]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { checkBreaches } = payload as { checkBreaches?: boolean };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const full = await client.listEntriesFull();
+      const items: { id: string; name: string; password: string; updatedAt?: string }[] = [];
+      for (const entry of full) {
+        try {
+          const data = await decryptEntry(entry, session);
+          if (data.password) {
+            items.push({
+              id: entry.id,
+              name: entry.name,
+              password: data.password,
+              updatedAt: entry.updated_at,
+            });
+          }
+        } catch {
+          // skip entries we cannot read
+        }
+      }
+      const report = await computeHealthReport(items, { checkBreaches: !!checkBreaches });
+      return { report };
     },
 
     [MessageType.TOGGLE_FAVORITE]: async (payload) => {

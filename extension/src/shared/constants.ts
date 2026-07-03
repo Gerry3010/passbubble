@@ -59,6 +59,9 @@ export const MessageType = {
   SSO_CANDIDATE: 'SSO_CANDIDATE',
   SSO_GET: 'SSO_GET',
   SSO_DELETE: 'SSO_DELETE',
+  // Vault-wide password health report (computed in the background; passwords
+  // never reach the popup — only ids, names and category flags).
+  HEALTH_REPORT: 'HEALTH_REPORT',
   // Generator
   GENERATE: 'GENERATE',
   // Save detection

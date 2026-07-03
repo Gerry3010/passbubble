@@ -111,6 +111,13 @@ class SettingsScreen extends ConsumerWidget {
           // Vault
           _SectionHeader(title: 'VAULT'),
           ListTile(
+            leading: const Icon(Icons.health_and_safety_outlined),
+            title: const Text('Password health'),
+            subtitle: const Text('Weak, reused, old & breached passwords'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/health'),
+          ),
+          ListTile(
             leading: const Icon(Icons.delete_outline),
             title: const Text('Trash'),
             subtitle: const Text('Deleted entries — restorable for 30 days'),
