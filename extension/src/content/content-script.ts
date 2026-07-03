@@ -20,6 +20,7 @@ import browser from 'webextension-polyfill';
 import { MessageType } from '../shared/constants.js';
 import { detectLoginForms, type DetectedForm } from './form-detector.js';
 import { CC_KINDS, classifyField, classifyOtpField, type FieldKind } from './field-classifier.js';
+import { providerFromText, SSO_PROVIDER_LABELS, type SsoProvider } from '../shared/sso.js';
 import { injectFillIframe, removeFillIframe, isFillIframeShown, type TypedFillData } from './fill-ui.js';
 import { initSaveDetector, recoverPendingSave } from './save-detector.js';
 
@@ -192,25 +193,73 @@ async function showFillFor(form: DetectedForm): Promise<void> {
     return;
   }
 
-  const matchResp = await safeSend<unknown>({
-    type: MessageType.GET_MATCHES_FOR_URL,
-    payload: { url: location.href },
-  });
-  if (!Array.isArray(matchResp) || matchResp.length === 0) return;
+  const [matchResp, ssoResp] = await Promise.all([
+    safeSend<unknown>({
+      type: MessageType.GET_MATCHES_FOR_URL,
+      payload: { url: location.href },
+    }),
+    safeSend<{ record?: { provider: SsoProvider } | null }>({
+      type: MessageType.SSO_GET,
+      payload: { host: pageHost() },
+    }),
+  ]);
+  const matches = Array.isArray(matchResp) ? matchResp : [];
+  const ssoProvider = ssoResp?.record?.provider;
+  const sso = ssoProvider
+    ? { provider: ssoProvider, label: SSO_PROVIDER_LABELS[ssoProvider] ?? ssoProvider }
+    : undefined;
+  if (matches.length === 0 && !sso) return;
   if (!stillFocused()) return;
 
   injectFillIframe(
     anchor,
-    { matches: matchResp },
+    { matches, sso },
     {
       onFillMatch: (username, password) => {
         if (usernameField) fillField(usernameField, username);
         if (passwordField) fillField(passwordField, password);
       },
       onUseGenerated: () => {},
+      onSsoSelect: () => {
+        if (ssoProvider) clickSsoButton(ssoProvider);
+      },
       onDismiss: () => {},
     },
   );
+}
+
+function pageHost(): string {
+  return location.hostname.replace(/^www\./, '');
+}
+
+// Find the page's "sign in with <provider>" button and click it; if none is
+// recognisable, scroll to and highlight the best guess so the user sees it.
+function clickSsoButton(provider: SsoProvider): void {
+  const providerRe = new RegExp(provider, 'i');
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"]'))) {
+    const text = `${el.innerText ?? ''} ${el.getAttribute('aria-label') ?? ''} ${el.title ?? ''}`;
+    if (providerFromText(text) === provider || (providerRe.test(text) && text.length < 120)) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.click();
+      return;
+    }
+  }
+}
+
+// Report clicks on "sign in with <provider>" buttons as SSO candidates; the
+// background confirms them against the OAuth navigation that follows.
+function maybeReportSsoClick(e: MouseEvent): void {
+  const path = e.composedPath?.() ?? [];
+  for (const node of path) {
+    if (!(node instanceof HTMLElement)) continue;
+    if (!node.matches('button, a, [role="button"], [type="submit"]')) continue;
+    const text = `${node.innerText ?? ''} ${node.getAttribute('aria-label') ?? ''} ${node.title ?? ''}`;
+    const provider = providerFromText(text);
+    if (provider) {
+      void safeSend({ type: MessageType.SSO_CANDIDATE, payload: { host: pageHost(), provider } });
+    }
+    return; // the innermost clickable decides
+  }
 }
 
 // Offer the current TOTP code on a focused one-time-code field. The background
@@ -371,6 +420,7 @@ function onFocusIn(e: FocusEvent): void {
 // and the user has to click twice. composedPath resolves targets inside open
 // shadow roots (Flutter web) that `e.target` would retarget to the host.
 function onDocumentPointerDown(e: MouseEvent): void {
+  if (extensionAlive()) maybeReportSsoClick(e);
   const path = e.composedPath?.();
   const target = ((path && path[0]) ?? e.target) as HTMLElement | null;
   if (!target || target.tagName === 'IFRAME' || loginFormFor(target)) return;

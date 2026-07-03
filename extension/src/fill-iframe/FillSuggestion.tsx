@@ -47,6 +47,7 @@ export function FillSuggestion() {
   const [generatePassword, setGeneratePassword] = useState<string | undefined>(undefined);
   const [totp, setTotp] = useState<TotpInfo | undefined>(undefined);
   const [typed, setTyped] = useState<TypedInfo | undefined>(undefined);
+  const [sso, setSso] = useState<{ provider: string; label: string } | undefined>(undefined);
   const [remaining, setRemaining] = useState(0);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -58,7 +59,7 @@ export function FillSuggestion() {
   useLayoutEffect(() => {
     const h = rootRef.current?.getBoundingClientRect().height ?? 0;
     if (h > 0) window.parent.postMessage({ type: 'FILL_RESIZE', height: h }, '*');
-  }, [matches, generatePassword, totp, typed, copiedCode, locked]);
+  }, [matches, generatePassword, totp, typed, sso, copiedCode, locked]);
 
   // TOTP countdown. When it runs out, ask the embedder once for the next code
   // (FILL_TOTP_UPDATE arrives if the vault can still produce one).
@@ -87,6 +88,7 @@ export function FillSuggestion() {
         generatePassword?: string;
         totp?: TotpInfo;
         typed?: TypedInfo;
+        sso?: { provider: string; label: string };
         code?: string;
         locked?: boolean;
         loggedIn?: boolean;
@@ -96,6 +98,7 @@ export function FillSuggestion() {
         setGeneratePassword(msg.generatePassword);
         setTotp(msg.totp);
         setTyped(msg.typed);
+        setSso(msg.sso);
         setRemaining(msg.totp?.remainingSeconds ?? 0);
         setLocked(!!msg.locked);
         setLoggedIn(!!msg.loggedIn);
@@ -339,9 +342,49 @@ export function FillSuggestion() {
             </li>
           ))}
         </ul>
-      ) : matches.length === 0 ? (
-        <p style={{ color: term.muted, fontSize: '12px', margin: 0 }}>No matching entries</p>
       ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {sso && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <button
+                onClick={() => window.parent.postMessage({ type: 'FILL_SSO_SELECTED' }, '*')}
+                title={`Continue with ${sso.label}`}
+                style={{
+                  flex: 1,
+                  textAlign: 'left',
+                  padding: '6px 8px',
+                  border: `1px dashed ${term.greenDim}`,
+                  borderRadius: '4px',
+                  background: term.surface,
+                  color: term.green,
+                  cursor: 'pointer',
+                  fontFamily: term.font,
+                  fontSize: '12px',
+                }}
+              >
+                → You sign in here with <b>{sso.label}</b>
+              </button>
+              <button
+                onClick={() => window.parent.postMessage({ type: 'FILL_SSO_FORGET' }, '*')}
+                aria-label="Forget this"
+                title="Forget this"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: term.muted,
+                  fontSize: '14px',
+                  lineHeight: 1,
+                  fontFamily: term.font,
+                }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {matches.length === 0 ? (
+            !sso && <p style={{ color: term.muted, fontSize: '12px', margin: 0 }}>No matching entries</p>
+          ) : (
         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {matches.map((m) => (
             <li key={m.id}>
@@ -382,6 +425,8 @@ export function FillSuggestion() {
             </li>
           ))}
         </ul>
+          )}
+        </div>
       )}
     </div>
   );

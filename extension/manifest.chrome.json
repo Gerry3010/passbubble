@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Passbubble",
   "version": "1.0.0",
-  "description": "Self-hosted password manager — autofill & vault access",
+  "description": "Self-hosted password manager \u2014 autofill & vault access",
   "permissions": [
     "storage",
     "activeTab",
@@ -10,9 +10,12 @@
     "alarms",
     "clipboardWrite",
     "webRequest",
-    "webRequestAuthProvider"
+    "webRequestAuthProvider",
+    "webNavigation"
   ],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
@@ -31,16 +34,26 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/content-script.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/content-script.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["fill-iframe/index.html", "icons/*", "wasm/*"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "fill-iframe/index.html",
+        "icons/*",
+        "wasm/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
   "content_security_policy": {

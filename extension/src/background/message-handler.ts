@@ -64,6 +64,8 @@ import {
   type PinRecord,
 } from './pin-store.js';
 import { matchEntriesForUrl } from './autofill-service.js';
+import { deleteSsoRecord, getSsoRecord, noteSsoCandidate } from './sso-memory.js';
+import type { SsoProvider } from '../shared/sso.js';
 import type { EntryData, LoginResponse, SessionInfo, UnlockedSession } from '@passbubble/shared-ts';
 
 // Uniform (already-encrypted / non-secret) session material, sourced from either
@@ -832,6 +834,26 @@ export function buildHandlers(): Record<string, Handler> {
       await client.updateEntry(entryId, { folder_id: folderId, match_patterns: matchPatterns });
       // Refresh the cache so autofill matching sees the new patterns immediately.
       setEntriesCache(await client.listEntries());
+      return { ok: true };
+    },
+
+    // "Sign in with …" memory. Candidates come from content-script clicks and
+    // are confirmed by the OAuth navigation (sso-memory.ts); GET feeds the
+    // in-page badge; DELETE is the badge's "forget" affordance.
+    [MessageType.SSO_CANDIDATE]: async (payload) => {
+      const { host, provider } = payload as { host: string; provider: SsoProvider };
+      noteSsoCandidate(host, provider);
+      return { ok: true };
+    },
+
+    [MessageType.SSO_GET]: async (payload) => {
+      const { host } = payload as { host: string };
+      return { record: await getSsoRecord(host) };
+    },
+
+    [MessageType.SSO_DELETE]: async (payload) => {
+      const { host } = payload as { host: string };
+      await deleteSsoRecord(host);
       return { ok: true };
     },
 

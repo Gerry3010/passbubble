@@ -57,6 +57,8 @@ export interface FillPayload {
   totp?: TotpSuggestion;
   // Typed mode: credit cards / identities to offer on a checkout/address form.
   typed?: TypedSuggestion;
+  // "You sign in here with <label>" badge on login forms.
+  sso?: { provider: string; label: string };
   // Locked mode: the vault is locked / logged out, so offer an "unlock" button
   // (which opens the toolbar popup) instead of suggestions.
   locked?: boolean;
@@ -73,6 +75,8 @@ export interface FillHandlers {
   onFillTotp?: (code: string) => void;
   // A card/identity entry was chosen (resolved to its field map via the background).
   onFillTyped?: (entryType: string, data: TypedFillData) => void;
+  // The SSO badge was clicked → click the page's provider button.
+  onSsoSelect?: () => void;
   onDismiss: () => void;
 }
 
@@ -116,6 +120,7 @@ export function injectFillIframe(
         generatePassword: payload.generatePassword,
         totp: payload.totp,
         typed: payload.typed,
+        sso: payload.sso,
         locked: payload.locked ?? false,
         loggedIn: payload.loggedIn ?? false,
       },
@@ -186,6 +191,19 @@ export function injectFillIframe(
           removeFillIframe();
           window.removeEventListener('message', handler);
         });
+    } else if (msg.type === 'FILL_SSO_SELECTED') {
+      handlers.onSsoSelect?.();
+      removeFillIframe();
+      window.removeEventListener('message', handler);
+    } else if (msg.type === 'FILL_SSO_FORGET') {
+      browser.runtime
+        .sendMessage({
+          type: MessageType.SSO_DELETE,
+          payload: { host: location.hostname.replace(/^www\./, '') },
+        })
+        .catch(() => {});
+      removeFillIframe();
+      window.removeEventListener('message', handler);
     } else if (msg.type === 'FILL_TOTP_SELECTED' && typeof msg.code === 'string') {
       handlers.onFillTotp?.(msg.code);
       removeFillIframe();

@@ -54,6 +54,10 @@ export const MessageType = {
   GET_FILL_HOST: 'GET_FILL_HOST',
   // Open the extension's toolbar popup (e.g. from the in-page unlock prompt).
   OPEN_POPUP: 'OPEN_POPUP',
+  // "Sign in with …" memory (device-local, per host)
+  SSO_CANDIDATE: 'SSO_CANDIDATE',
+  SSO_GET: 'SSO_GET',
+  SSO_DELETE: 'SSO_DELETE',
   // Generator
   GENERATE: 'GENERATE',
   // Save detection
@@ -81,6 +85,9 @@ export const STORAGE_KEYS = {
   AUTO_LOCK_MINUTES: 'auto_lock_minutes',
   // chrome.storage.local — device-local, persists across browser restarts
   SAVE_BLOCKLIST: 'save_blocklist',
+  // Per-host "signs in with <provider>" records ({ [host]: { provider,
+  // lastUsed, hits } }). Deliberately not synced — browsing metadata.
+  SSO_MEMORY: 'sso_memory',
   // PIN quick-unlock state (chrome.storage.local — survives browser close so the
   // PIN can unlock after a restart). The PIN itself is never stored; PIN_WRAPPED
   // is the master key encrypted under a PIN-derived key. PIN_BOOTSTRAP holds the
