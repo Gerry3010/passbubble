@@ -25,6 +25,7 @@ import (
 
 	"github.com/Gerry3010/passbubble/backend/internal/api"
 	"github.com/Gerry3010/passbubble/backend/internal/db"
+	"github.com/Gerry3010/passbubble/backend/internal/services"
 )
 
 func main() {
@@ -62,6 +63,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Daily hard-delete of trash entries older than the retention window.
+	services.StartPurgeLoop(ctx, pool)
 
 	go func() {
 		slog.Info("starting server", "addr", cfg.Addr())

@@ -36,6 +36,8 @@ interface EntriesState {
   toggleSite: (entryId: string) => Promise<void>;
   /** Remove a single match pattern from an entry. */
   removeMatch: (entryId: string, pattern: string) => Promise<void>;
+  /** Flip an entry's favorite flag (optimistic; favorites sort first on reload). */
+  toggleFavorite: (entryId: string) => Promise<void>;
 }
 
 /** The folders endpoint returns a tree (roots with nested `children`); the
@@ -141,6 +143,24 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
     if (!entry) return;
     const next = (entry.match_patterns ?? []).filter((p) => p !== pattern);
     await persistMatchPatterns(set, get, entry, next);
+  },
+
+  toggleFavorite: async (entryId) => {
+    const { entries } = get();
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const favorite = !entry.favorite;
+    // Optimistic flip; the server-side ordering (favorites first) applies on
+    // the next load, so the row doesn't jump around under the cursor.
+    set({ entries: entries.map((e) => (e.id === entryId ? { ...e, favorite } : e)) });
+    try {
+      await browser.runtime.sendMessage({
+        type: MessageType.TOGGLE_FAVORITE,
+        payload: { entryId, favorite },
+      });
+    } catch {
+      set({ entries: get().entries.map((e) => (e.id === entryId ? { ...e, favorite: !favorite } : e)) });
+    }
   },
 }));
 

@@ -34,11 +34,11 @@ func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request) {
 	claims := mw.ClaimsFromCtx(r.Context())
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url, e.match_patterns,
-			e.created_at::text, e.updated_at::text
+			e.favorite, e.created_at::text, e.updated_at::text
 		FROM entries e
 		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$1
-		WHERE e.owner_id=$1 OR ep.user_id=$1
-		ORDER BY e.name`, claims.UserID)
+		WHERE (e.owner_id=$1 OR ep.user_id=$1) AND e.deleted_at IS NULL
+		ORDER BY e.favorite DESC, e.name`, claims.UserID)
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to list entries")
 		return
@@ -50,7 +50,7 @@ func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request) {
 		var e models.EntryResponse
 		var folderID *string
 		if err := rows.Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL,
-			&e.MatchPatterns, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			&e.MatchPatterns, &e.Favorite, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			continue
 		}
 		e.FolderID = folderID
@@ -67,14 +67,14 @@ func (h *Handler) ListEntriesFull(w http.ResponseWriter, r *http.Request) {
 	claims := mw.ClaimsFromCtx(r.Context())
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url, e.match_patterns,
-			e.encrypted_data, e.data_nonce,
+			e.favorite, e.encrypted_data, e.data_nonce,
 			e.created_at::text, e.updated_at::text,
 			ek.encrypted_key
 		FROM entries e
 		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$1
 		LEFT JOIN entry_keys ek ON ek.entry_id=e.id AND ek.user_id=$1
-		WHERE e.owner_id=$1 OR ep.user_id=$1
-		ORDER BY e.name`, claims.UserID)
+		WHERE (e.owner_id=$1 OR ep.user_id=$1) AND e.deleted_at IS NULL
+		ORDER BY e.favorite DESC, e.name`, claims.UserID)
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to list entries")
 		return
@@ -87,7 +87,7 @@ func (h *Handler) ListEntriesFull(w http.ResponseWriter, r *http.Request) {
 		var folderID *string
 		var encryptedData, dataNonce, rawEncKey []byte
 		if err := rows.Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL,
-			&e.MatchPatterns, &encryptedData, &dataNonce, &e.CreatedAt, &e.UpdatedAt,
+			&e.MatchPatterns, &e.Favorite, &encryptedData, &dataNonce, &e.CreatedAt, &e.UpdatedAt,
 			&rawEncKey); err != nil {
 			continue
 		}
@@ -117,14 +117,14 @@ func (h *Handler) GetEntry(w http.ResponseWriter, r *http.Request) {
 	var encryptedData, dataNonce []byte
 	err := h.pool.QueryRow(r.Context(), `
 		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url, e.match_patterns,
-			e.encrypted_data, e.data_nonce,
+			e.favorite, e.encrypted_data, e.data_nonce,
 			e.created_at::text, e.updated_at::text
 		FROM entries e
 		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$2
-		WHERE e.id=$1 AND (e.owner_id=$2 OR ep.user_id=$2)`,
+		WHERE e.id=$1 AND (e.owner_id=$2 OR ep.user_id=$2) AND e.deleted_at IS NULL`,
 		entryID, claims.UserID,
 	).Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL, &e.MatchPatterns,
-		&encryptedData, &dataNonce, &e.CreatedAt, &e.UpdatedAt)
+		&e.Favorite, &encryptedData, &dataNonce, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		respondErr(w, http.StatusNotFound, "entry not found")
 		return
@@ -210,7 +210,25 @@ func (h *Handler) UpdateEntry(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}
-	_, err = h.pool.Exec(r.Context(), `
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to update entry")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	// When the encrypted payload is being replaced, snapshot the current state
+	// first: the blob AND the current entry_keys (every update re-wraps a fresh
+	// data key, so the old blob is only readable with the keys of its time).
+	if req.EncryptedData != "" {
+		if err := h.snapshotVersionTx(r.Context(), tx, entryID, claims.UserID); err != nil {
+			respondErr(w, http.StatusInternalServerError, "failed to version entry")
+			return
+		}
+	}
+
+	_, err = tx.Exec(r.Context(), `
 		UPDATE entries SET
 			name = COALESCE(NULLIF($2,''), name),
 			url  = COALESCE(NULLIF($3,''), url),
@@ -225,16 +243,21 @@ func (h *Handler) UpdateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, ek := range req.EntryKeys {
-		_, _ = h.pool.Exec(r.Context(), `
+		_, _ = tx.Exec(r.Context(), `
 			INSERT INTO entry_keys (id, entry_id, user_id, encrypted_key)
 			VALUES ($1,$2,$3,decode($4,'base64'))
 			ON CONFLICT (entry_id, user_id) DO UPDATE SET encrypted_key=EXCLUDED.encrypted_key`,
 			uuid.New().String(), entryID, ek.UserID, ek.EncryptedKey)
 	}
+	if err := tx.Commit(r.Context()); err != nil {
+		respondErr(w, http.StatusInternalServerError, "failed to update entry")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// DeleteEntry handles DELETE /api/v1/entries/{id}
+// DeleteEntry handles DELETE /api/v1/entries/{id} — soft delete: the entry
+// moves to the trash and can be restored until the purge (30 days) removes it.
 func (h *Handler) DeleteEntry(w http.ResponseWriter, r *http.Request) {
 	claims := mw.ClaimsFromCtx(r.Context())
 	entryID := chi.URLParam(r, "id")
@@ -242,7 +265,8 @@ func (h *Handler) DeleteEntry(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusForbidden, "only owner can delete")
 		return
 	}
-	if _, err := h.pool.Exec(r.Context(), `DELETE FROM entries WHERE id=$1`, entryID); err != nil {
+	if _, err := h.pool.Exec(r.Context(),
+		`UPDATE entries SET deleted_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, entryID); err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to delete entry")
 		return
 	}
@@ -294,12 +318,12 @@ func (h *Handler) SearchEntries(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT e.id, e.folder_id, e.owner_id, e.type, e.name, e.url, e.match_patterns,
-			e.created_at::text, e.updated_at::text
+			e.favorite, e.created_at::text, e.updated_at::text
 		FROM entries e
 		LEFT JOIN entry_permissions ep ON ep.entry_id=e.id AND ep.user_id=$1
-		WHERE (e.owner_id=$1 OR ep.user_id=$1)
+		WHERE (e.owner_id=$1 OR ep.user_id=$1) AND e.deleted_at IS NULL
 			AND (e.name ILIKE $2 OR e.url ILIKE $2 OR array_to_string(e.match_patterns, ' ') ILIKE $2)
-		ORDER BY e.name LIMIT 50`,
+		ORDER BY e.favorite DESC, e.name LIMIT 50`,
 		claims.UserID, "%"+q+"%")
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, "search failed")
@@ -312,7 +336,7 @@ func (h *Handler) SearchEntries(w http.ResponseWriter, r *http.Request) {
 		var e models.EntryResponse
 		var folderID *string
 		if err := rows.Scan(&e.ID, &folderID, &e.OwnerID, &e.Type, &e.Name, &e.URL,
-			&e.MatchPatterns, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			&e.MatchPatterns, &e.Favorite, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			continue
 		}
 		e.FolderID = folderID

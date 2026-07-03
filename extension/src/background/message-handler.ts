@@ -857,6 +857,16 @@ export function buildHandlers(): Record<string, Handler> {
       return { ok: true };
     },
 
+    [MessageType.TOGGLE_FAVORITE]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { entryId, favorite } = payload as { entryId: string; favorite: boolean };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      await client.setFavorite(entryId, favorite);
+      setEntriesCache(await client.listEntries());
+      return { ok: true };
+    },
+
     [MessageType.GENERATE]: async (payload) => {
       const session = getSession();
       if (!session) return { locked: true };

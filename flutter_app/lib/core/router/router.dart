@@ -27,6 +27,7 @@ import '../../features/auth/register_screen.dart';
 import '../../features/entries/entries_list_screen.dart';
 import '../../features/entries/entry_detail_screen.dart';
 import '../../features/entries/add_edit_screen.dart';
+import '../../features/entries/trash_screen.dart';
 import '../../features/generate/generate_screen.dart';
 import '../../features/manage/manage_screen.dart';
 import '../../features/settings/settings_screen.dart';
@@ -143,6 +144,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
       GoRoute(path: '/wallet', builder: (_, _) => const WalletScreen()),
+      GoRoute(path: '/trash', builder: (_, _) => const TrashScreen()),
       GoRoute(path: '/generate', builder: (_, _) => const GenerateScreen()),
       GoRoute(
         path: '/manage',

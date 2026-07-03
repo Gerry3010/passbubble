@@ -17,6 +17,7 @@ import { ApiError } from './errors.js';
 import type {
   CreateEntryRequest,
   EntryResponse,
+  EntryVersionResponse,
   FolderResponse,
   GenerateRequest,
   GenerateResponse,
@@ -160,6 +161,37 @@ export class PassbubbleClient {
 
   async updateEntry(id: string, req: UpdateEntryRequest): Promise<void> {
     return this.request<void>('PUT', `/api/v1/entries/${id}`, req);
+  }
+
+  async listTrash(): Promise<EntryResponse[]> {
+    return this.request<EntryResponse[]>('GET', '/api/v1/entries/trash');
+  }
+
+  async restoreEntry(id: string): Promise<void> {
+    await this.request<void>('POST', `/api/v1/entries/${id}/restore`);
+  }
+
+  /** Irreversible — removes the entry (and its history) from the trash. */
+  async purgeEntry(id: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/v1/entries/${id}/permanent`);
+  }
+
+  async setFavorite(id: string, favorite: boolean): Promise<void> {
+    await this.request<void>('PUT', `/api/v1/entries/${id}/favorite`, { favorite });
+  }
+
+  async listVersions(id: string): Promise<EntryVersionResponse[]> {
+    return this.request<EntryVersionResponse[]>('GET', `/api/v1/entries/${id}/versions`);
+  }
+
+  async getVersion(id: string, versionId: string): Promise<EntryVersionResponse> {
+    return this.request<EntryVersionResponse>('GET', `/api/v1/entries/${id}/versions/${versionId}`);
+  }
+
+  /** Server-side restore: current state is snapshotted first, then the
+   * version's blob and its contemporaneous wrapped keys are copied back. */
+  async restoreVersion(id: string, versionId: string): Promise<void> {
+    await this.request<void>('POST', `/api/v1/entries/${id}/versions/${versionId}/restore`);
   }
 
   async deleteEntry(id: string): Promise<void> {

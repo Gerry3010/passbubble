@@ -1120,9 +1120,21 @@ class _EntryTile extends StatelessWidget {
               color: selected ? AppTheme.green : AppTheme.onBgDim,
             )
           : _typeIcon(entry.type),
-      title: Text(
-        entry.name,
-        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+      title: Row(
+        children: [
+          if (entry.favorite)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Icon(Icons.star, size: 14, color: AppTheme.amber),
+            ),
+          Expanded(
+            child: Text(
+              entry.name,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
       subtitle: entry.url.isNotEmpty
           ? Text(
@@ -1146,6 +1158,10 @@ class _EntryTile extends StatelessWidget {
       'note' => (Icons.note_outlined, Colors.amber),
       'api-key' => (Icons.api_outlined, Colors.purple),
       'ssh-key' => (Icons.terminal_outlined, Colors.cyan),
+      'credit-card' => (Icons.credit_card, Colors.lightBlue),
+      'bank-account' => (Icons.account_balance_outlined, Colors.teal),
+      'identity' => (Icons.person_outline, Colors.orange),
+      'license' => (Icons.workspace_premium_outlined, Colors.purpleAccent),
       _ => (Icons.lock_outline, AppTheme.onBgDim),
     };
     return Container(

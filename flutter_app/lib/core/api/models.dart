@@ -372,8 +372,12 @@ class EntryResponse {
   final String dataNonce;
   final EntryKey? entryKey;
   final String permission;
+  final bool favorite;
   final String createdAt;
   final String updatedAt;
+
+  /// Set only in trash listings.
+  final String? deletedAt;
   const EntryResponse({
     required this.id,
     this.folderId,
@@ -384,8 +388,10 @@ class EntryResponse {
     required this.dataNonce,
     this.entryKey,
     required this.permission,
+    this.favorite = false,
     required this.createdAt,
     required this.updatedAt,
+    this.deletedAt,
   });
   factory EntryResponse.fromJson(Map<String, dynamic> j) => EntryResponse(
         id: j['id'] as String,
@@ -399,8 +405,65 @@ class EntryResponse {
             ? EntryKey.fromJson(j['entry_key'] as Map<String, dynamic>)
             : null,
         permission: j['permission'] as String? ?? 'read',
+        favorite: j['favorite'] as bool? ?? false,
         createdAt: j['created_at'] as String? ?? '',
         updatedAt: j['updated_at'] as String? ?? '',
+        deletedAt: j['deleted_at'] as String?,
+      );
+}
+
+/// One history snapshot of an entry. The single-GET variant carries the blob
+/// plus the caller's contemporaneous wrapped key in [EntryResponse] shape, so
+/// the normal decrypt path can be reused (see [toEntryResponse]).
+class EntryVersionResponse {
+  final String id;
+  final String entryId;
+  final String name;
+  final String url;
+  final String? editedBy;
+  final String encryptedData;
+  final String dataNonce;
+  final EntryKey? entryKey;
+  final String createdAt;
+  const EntryVersionResponse({
+    required this.id,
+    required this.entryId,
+    required this.name,
+    required this.url,
+    this.editedBy,
+    required this.encryptedData,
+    required this.dataNonce,
+    this.entryKey,
+    required this.createdAt,
+  });
+  factory EntryVersionResponse.fromJson(Map<String, dynamic> j) =>
+      EntryVersionResponse(
+        id: j['id'] as String,
+        entryId: j['entry_id'] as String,
+        name: j['name'] as String? ?? '',
+        url: j['url'] as String? ?? '',
+        editedBy: j['edited_by'] as String?,
+        encryptedData: j['encrypted_data'] as String? ?? '',
+        dataNonce: j['data_nonce'] as String? ?? '',
+        entryKey: j['entry_key'] != null
+            ? EntryKey.fromJson(j['entry_key'] as Map<String, dynamic>)
+            : null,
+        createdAt: j['created_at'] as String? ?? '',
+      );
+
+  /// Adapts the version into an [EntryResponse] so VaultCrypto's entry
+  /// decryption works on it unchanged.
+  EntryResponse toEntryResponse({required String type}) => EntryResponse(
+        id: entryId,
+        type: type,
+        name: name,
+        url: url,
+        encryptedData: encryptedData,
+        dataNonce: dataNonce,
+        entryKey: entryKey,
+        permission: 'read',
+        createdAt: createdAt,
+        updatedAt: createdAt,
       );
 }
 

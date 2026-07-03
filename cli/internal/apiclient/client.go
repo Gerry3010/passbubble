@@ -110,8 +110,43 @@ func (c *Client) UpdateEntry(id string, req UpdateEntryRequest) (*EntryResponse,
 	return &resp, c.put("/api/v1/entries/"+id, req, &resp)
 }
 
+// DeleteEntry soft-deletes: the entry moves to the trash (restorable ~30 days).
 func (c *Client) DeleteEntry(id string) error {
 	return c.delete("/api/v1/entries/" + id)
+}
+
+func (c *Client) ListTrash() ([]EntryResponse, error) {
+	var resp []EntryResponse
+	return resp, c.get("/api/v1/entries/trash", &resp)
+}
+
+func (c *Client) RestoreEntry(id string) error {
+	return c.post("/api/v1/entries/"+id+"/restore", map[string]string{}, nil)
+}
+
+// PurgeEntry is irreversible — removes the entry (and its history) for good.
+func (c *Client) PurgeEntry(id string) error {
+	return c.delete("/api/v1/entries/" + id + "/permanent")
+}
+
+func (c *Client) SetFavorite(id string, favorite bool) error {
+	return c.put("/api/v1/entries/"+id+"/favorite", map[string]bool{"favorite": favorite}, nil)
+}
+
+func (c *Client) ListVersions(id string) ([]EntryVersionResponse, error) {
+	var resp []EntryVersionResponse
+	return resp, c.get("/api/v1/entries/"+id+"/versions", &resp)
+}
+
+func (c *Client) GetVersion(id, versionID string) (*EntryVersionResponse, error) {
+	var resp EntryVersionResponse
+	return &resp, c.get("/api/v1/entries/"+id+"/versions/"+versionID, &resp)
+}
+
+// RestoreVersion is server-side: the current state is snapshotted first, then
+// the version's blob and its contemporaneous wrapped keys are copied back.
+func (c *Client) RestoreVersion(id, versionID string) error {
+	return c.post("/api/v1/entries/"+id+"/versions/"+versionID+"/restore", map[string]string{}, nil)
 }
 
 func (c *Client) SearchEntries(query string) ([]EntryResponse, error) {

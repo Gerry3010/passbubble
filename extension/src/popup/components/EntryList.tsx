@@ -31,8 +31,18 @@ export function EntryList({
   onSelect?: (entry: EntryResponse) => void;
   onCreate?: () => void;
 } = {}) {
-  const { entries, folders, usernames, currentHost, isLoading, load, copyField, toggleSite, removeMatch } =
-    useEntriesStore();
+  const {
+    entries,
+    folders,
+    usernames,
+    currentHost,
+    isLoading,
+    load,
+    copyField,
+    toggleSite,
+    removeMatch,
+    toggleFavorite,
+  } = useEntriesStore();
   const [query, setQuery] = useState('');
   const [folderId, setFolderId] = useState<string | null>(null);
   const [seededHost, setSeededHost] = useState(false);
@@ -151,6 +161,7 @@ export function EntryList({
             onSelect={onSelect}
             onToggleSite={toggleSite}
             onRemoveMatch={removeMatch}
+            onToggleFavorite={toggleFavorite}
           />
         ))}
       </ul>
@@ -196,6 +207,7 @@ function EntryItem({
   onSelect,
   onToggleSite,
   onRemoveMatch,
+  onToggleFavorite,
 }: {
   entry: EntryResponse;
   copied: CopyState | null;
@@ -204,6 +216,7 @@ function EntryItem({
   onSelect?: (entry: EntryResponse) => void;
   onToggleSite: (id: string) => void;
   onRemoveMatch: (id: string, pattern: string) => void;
+  onToggleFavorite: (id: string) => void;
 }) {
   const isCopiedUser = copied?.entryId === entry.id && copied.field === 'username';
   const isCopiedPw = copied?.entryId === entry.id && copied.field === 'password';
@@ -225,21 +238,42 @@ function EntryItem({
         minWidth: 0,
       }}
     >
-      <span
-        onClick={onSelect ? () => onSelect(entry) : undefined}
-        style={{
-          fontWeight: 700,
-          fontSize: '13px',
-          color: term.green,
-          cursor: onSelect ? 'pointer' : 'default',
-          display: 'block',
-          overflow: 'hidden',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {typeIcon(entry.type)}
-        {entry.name}
+      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+        <button
+          onClick={() => onToggleFavorite(entry.id)}
+          aria-label={entry.favorite ? 'Remove from favorites' : 'Add to favorites'}
+          title={entry.favorite ? 'Remove from favorites' : 'Add to favorites'}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+            fontSize: '13px',
+            lineHeight: 1,
+            color: entry.favorite ? term.green : term.muted,
+            flexShrink: 0,
+          }}
+        >
+          {entry.favorite ? '★' : '☆'}
+        </button>
+        <span
+          onClick={onSelect ? () => onSelect(entry) : undefined}
+          style={{
+            fontWeight: 700,
+            fontSize: '13px',
+            color: term.green,
+            cursor: onSelect ? 'pointer' : 'default',
+            display: 'block',
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          {typeIcon(entry.type)}
+          {entry.name}
+        </span>
       </span>
       {entry.url && (
         <span

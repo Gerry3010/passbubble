@@ -108,6 +108,18 @@ class SettingsScreen extends ConsumerWidget {
 
           const Divider(),
 
+          // Vault
+          _SectionHeader(title: 'VAULT'),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Trash'),
+            subtitle: const Text('Deleted entries — restorable for 30 days'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/trash'),
+          ),
+
+          const Divider(),
+
           // Server
           _SectionHeader(title: 'SERVER'),
           ListTile(
