@@ -73,11 +73,29 @@ export interface EntryResponse {
   url?: string;
   /** Plaintext autofill URL patterns (host / *.host wildcards). */
   match_patterns?: string[];
+  favorite?: boolean;
   encrypted_data?: string;
   data_nonce?: string;
   entry_key?: EntryKey;
   created_at: string;
   updated_at: string;
+  /** Set only in trash listings. */
+  deleted_at?: string;
+}
+
+/** One history snapshot of an entry. The single-GET variant carries the blob
+ * plus the caller's contemporaneous wrapped key (EntryResponse-shaped, so the
+ * normal decrypt path can be reused). */
+export interface EntryVersionResponse {
+  id: string;
+  entry_id: string;
+  name: string;
+  url?: string;
+  edited_by?: string;
+  encrypted_data?: string;
+  data_nonce?: string;
+  entry_key?: EntryKey;
+  created_at: string;
 }
 
 export interface CreateEntryRequest {

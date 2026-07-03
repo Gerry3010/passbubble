@@ -38,6 +38,11 @@ class PbBottomNav extends ConsumerWidget {
           label: './vault',
         ),
         const NavigationDestination(
+          icon: Icon(Icons.wallet_outlined),
+          selectedIcon: Icon(Icons.wallet, color: AppTheme.green),
+          label: './wallet',
+        ),
+        const NavigationDestination(
           icon: Icon(Icons.casino_outlined),
           selectedIcon: Icon(Icons.casino, color: AppTheme.green),
           label: './generate',
@@ -70,10 +75,12 @@ class PbBottomNav extends ConsumerWidget {
           case 0:
             context.go('/entries');
           case 1:
-            context.go('/generate');
+            context.go('/wallet');
           case 2:
-            context.go('/manage');
+            context.go('/generate');
           case 3:
+            context.go('/manage');
+          case 4:
             context.go('/settings');
         }
       },

@@ -23,6 +23,8 @@ import {
   decryptEntry,
   encryptEntry,
   createEntry,
+  computeHealthReport,
+  generateTotp,
   deriveKey,
   aesGcmDecrypt,
   wrapMasterKeyWithPin,
@@ -36,13 +38,20 @@ import {
   DEFAULT_PIN_PW_INTERVAL_DAYS,
 } from '@passbubble/shared-ts';
 import { b64Dec, b64Enc, normaliseHost } from '../shared/utils.js';
-import { MessageType, STORAGE_KEYS } from '../shared/constants.js';
+import {
+  MessageType,
+  STORAGE_KEYS,
+  AUTO_LOCK_DEFAULT_MINUTES,
+  AUTO_LOCK_ALARM,
+} from '../shared/constants.js';
 import {
   clearSession,
   getEntriesCache,
+  getLastFilledEntry,
   getLoginFrameHost,
   getSession,
   setEntriesCache,
+  setLastFilledEntry,
   setLoginFrameHost,
   setSession,
 } from './session-store.js';
@@ -56,6 +65,8 @@ import {
   type PinRecord,
 } from './pin-store.js';
 import { matchEntriesForUrl } from './autofill-service.js';
+import { deleteSsoRecord, getSsoRecord, noteSsoCandidate } from './sso-memory.js';
+import type { SsoProvider } from '../shared/sso.js';
 import type { EntryData, LoginResponse, SessionInfo, UnlockedSession } from '@passbubble/shared-ts';
 
 // Uniform (already-encrypted / non-secret) session material, sourced from either
@@ -80,6 +91,96 @@ function makeClient(serverUrl: string, accessToken?: string): PassbubbleClient {
   const c = new PassbubbleClient(serverUrl);
   if (accessToken) c.setTokens(accessToken, '', 900);
   return c;
+}
+
+// --- Idle auto-lock -------------------------------------------------------
+
+/** The configured idle-lock timeout in minutes (0 = never). Falls back to the
+ * default if unset or malformed. */
+export async function readAutoLockMinutes(): Promise<number> {
+  try {
+    const data = await browser.storage.sync.get(STORAGE_KEYS.AUTO_LOCK_MINUTES);
+    const raw = data[STORAGE_KEYS.AUTO_LOCK_MINUTES];
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  } catch {
+    /* fall through to default */
+  }
+  return AUTO_LOCK_DEFAULT_MINUTES;
+}
+
+/** Record "the vault was just used" so the auto-lock alarm restarts its countdown.
+ * Best-effort — storage.session may be unavailable in some contexts. */
+export async function touchActivity(): Promise<void> {
+  try {
+    await browser.storage.session.set({ [STORAGE_KEYS.LAST_ACTIVITY]: Date.now() });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** (Re)arm the recurring auto-lock alarm. With a 0-minute timeout ("never") the
+ * alarm is cleared instead. Called on every unlock; the alarm itself wakes the
+ * service worker so locking happens even with the popup closed. */
+export async function scheduleAutoLock(): Promise<void> {
+  const minutes = await readAutoLockMinutes();
+  if (minutes <= 0) {
+    await browser.alarms.clear(AUTO_LOCK_ALARM);
+    return;
+  }
+  await touchActivity();
+  await browser.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
+}
+
+/** Auto-lock tick: drop the in-memory session if the vault has been idle for at
+ * least the configured timeout, and retire the alarm. Returns true if it locked
+ * (or there was nothing to keep armed). Driven by the recurring AUTO_LOCK_ALARM. */
+export async function maybeAutoLock(): Promise<boolean> {
+  const minutes = await readAutoLockMinutes();
+  if (minutes <= 0) {
+    await browser.alarms.clear(AUTO_LOCK_ALARM);
+    return true;
+  }
+  // No live session (e.g. the SW was evicted and the keys are already gone):
+  // nothing to lock, so retire the alarm until the next unlock re-arms it.
+  if (!getSession()) {
+    await browser.alarms.clear(AUTO_LOCK_ALARM);
+    return true;
+  }
+  const stored = await browser.storage.session.get(STORAGE_KEYS.LAST_ACTIVITY);
+  const last = Number(stored[STORAGE_KEYS.LAST_ACTIVITY]) || 0;
+  if (Date.now() - last < minutes * 60_000) return false;
+  clearSession();
+  await browser.alarms.clear(AUTO_LOCK_ALARM);
+  await browser.storage.session.remove(STORAGE_KEYS.LAST_ACTIVITY);
+  return true;
+}
+
+/** Resolve credentials to satisfy an HTTP Basic Auth challenge for `url`, reusing
+ * the autofill URL→entry matching and decrypt-on-demand. Returns null when the
+ * vault is locked, nothing matches, or the match is ambiguous (more than one
+ * entry) — in which case the browser shows its native dialog instead of risking
+ * the wrong credentials. Only usernames/passwords for a single unambiguous match
+ * are returned; passwords are never cached. */
+export async function resolveBasicAuthCredentials(
+  url: string,
+): Promise<{ username: string; password: string } | null> {
+  const session = getSession();
+  if (!session) return null;
+  const cache = getEntriesCache();
+  if (!cache) return null;
+  const matches = matchEntriesForUrl(url, cache);
+  // Exactly one match → unambiguous. Zero or several → let the user decide.
+  if (matches.length !== 1) return null;
+  try {
+    const client = makeClient(session.serverUrl, session.accessToken);
+    const data = await decryptEntry(await client.getEntry(matches[0].id), session);
+    const password = data.password ?? '';
+    if (!password) return null;
+    return { username: data.username ?? '', password };
+  } catch {
+    return null;
+  }
 }
 
 async function getServerUrl(): Promise<string> {
@@ -248,6 +349,7 @@ async function buildSession(
   await browser.alarms.create('token-refresh', {
     delayInMinutes: (refreshResp.expires_in - 60) / 60,
   });
+  await scheduleAutoLock();
   return refreshResp.refresh_token;
 }
 
@@ -485,6 +587,7 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.LOCK]: async () => {
       clearSession();
       await browser.alarms.clear('token-refresh');
+      await browser.alarms.clear(AUTO_LOCK_ALARM);
       return { ok: true };
     },
 
@@ -494,6 +597,7 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.LOGOUT]: async () => {
       clearSession();
       await browser.alarms.clear('token-refresh');
+      await browser.alarms.clear(AUTO_LOCK_ALARM);
       await browser.storage.session.clear();
       // The PIN wraps the master key and holds a logged-in bootstrap — a
       // logged-out device must never leave a PIN-unlockable copy behind.
@@ -534,14 +638,141 @@ export function buildHandlers(): Record<string, Handler> {
       return { entry: apiEntry, data };
     },
 
-    [MessageType.FILL_ENTRY]: async (payload) => {
+    // Decrypt just the username of every entry so the popup can search by
+    // username. Uses the bulk "full" listing (one request with encrypted_data +
+    // entry keys) rather than N getEntry calls. Passwords are never bulk-decrypted
+    // or cached — only usernames, which are the searchable field.
+    [MessageType.GET_USERNAMES]: async () => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const full = await client.listEntriesFull();
+      const usernames: Record<string, string> = {};
+      for (const entry of full) {
+        try {
+          const data = await decryptEntry(entry, session);
+          if (data.username) usernames[entry.id] = data.username;
+        } catch {
+          // skip entries we cannot read (e.g. shared with an incompatible key)
+        }
+      }
+      return { usernames };
+    },
+
+    [MessageType.FILL_ENTRY]: async (payload, sender) => {
       const session = getSession();
       if (!session) return { locked: true };
       const { entryId } = payload as { entryId: string };
       const client = makeClient(session.serverUrl, session.accessToken);
       const apiEntry = await client.getEntry(entryId);
       const data = await decryptEntry(apiEntry, session);
-      return { username: data.username ?? '', password: data.password ?? '' };
+      // Remember the fill per tab so the 2FA step that usually follows can find
+      // this entry's TOTP code even when the 2FA page's URL no longer matches.
+      const tabId = sender?.tab?.id;
+      if (typeof tabId === 'number') setLastFilledEntry(tabId, entryId);
+      // When the entry has a TOTP secret, hand the current code along — the fill
+      // UI copies it to the clipboard so it's ready for the 2FA prompt. Only the
+      // short-lived code leaves the background, never the secret.
+      let totpCode = '';
+      if (data.totp_secret) {
+        try {
+          totpCode = (await generateTotp(data.totp_secret, { period: data.period, digits: data.digits })).code;
+        } catch {
+          // malformed secret — fill username/password anyway
+        }
+      }
+      return { username: data.username ?? '', password: data.password ?? '', totpCode };
+    },
+
+    // The current TOTP code for the entry relevant to `url`: preferably the
+    // entry just filled in this tab (the 2FA page often matches no URL pattern),
+    // otherwise the first URL match that has a TOTP secret.
+    [MessageType.GET_TOTP_FOR_URL]: async (payload, sender) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { url } = payload as { url: string };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const tabId = sender?.tab?.id;
+      const lastFilled = typeof tabId === 'number' ? getLastFilledEntry(tabId) : '';
+      const cache = getEntriesCache();
+      const matchIds = cache ? matchEntriesForUrl(url, cache).map((m) => m.id) : [];
+      const tryIds = [...new Set([...(lastFilled ? [lastFilled] : []), ...matchIds])];
+      for (const id of tryIds) {
+        try {
+          const apiEntry = await client.getEntry(id);
+          const data = await decryptEntry(apiEntry, session);
+          if (!data.totp_secret) continue;
+          const r = await generateTotp(data.totp_secret, { period: data.period, digits: data.digits });
+          return { code: r.code, remainingSeconds: r.secondsRemaining, entryName: apiEntry.name };
+        } catch {
+          // skip entries we cannot read or with malformed secrets
+        }
+      }
+      return { code: '' };
+    },
+
+    // Entries of a given type (credit-card / identity) with a short non-secret
+    // display hint for the picker: cards show their last 4 digits, identities
+    // the email or name. Full data only via FILL_TYPED_ENTRY after selection.
+    [MessageType.GET_ENTRIES_BY_TYPE]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { type } = payload as { type: string };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      let cache = getEntriesCache();
+      if (!cache) {
+        cache = await client.listEntries();
+        setEntriesCache(cache);
+      }
+      const items: { id: string; name: string; hint: string }[] = [];
+      for (const meta of cache.filter((e) => e.type === type)) {
+        let hint = '';
+        try {
+          const data = await decryptEntry(await client.getEntry(meta.id), session);
+          if (type === 'credit-card') {
+            const digits = (data.card_number ?? '').replace(/\D/g, '');
+            hint = digits ? `•••• ${digits.slice(-4)}` : (data.holder_name ?? '');
+          } else {
+            hint = data.email || [data.first_name, data.last_name].filter(Boolean).join(' ');
+          }
+        } catch {
+          // undecryptable entry — still list it by name
+        }
+        items.push({ id: meta.id, name: meta.name, hint });
+      }
+      return { items };
+    },
+
+    // Decrypted field map of a card/identity entry for the content script to
+    // fill into classified form fields. Same trust path as FILL_ENTRY.
+    [MessageType.FILL_TYPED_ENTRY]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { entryId } = payload as { entryId: string };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const apiEntry = await client.getEntry(entryId);
+      const data = await decryptEntry(apiEntry, session);
+      return {
+        type: apiEntry.type,
+        data: {
+          card_number: data.card_number ?? '',
+          holder_name: data.holder_name ?? '',
+          expiry_month: data.expiry_month ?? '',
+          expiry_year: data.expiry_year ?? '',
+          cvv: data.cvv ?? '',
+          title: data.title ?? '',
+          first_name: data.first_name ?? '',
+          last_name: data.last_name ?? '',
+          company: data.company ?? '',
+          email: data.email ?? '',
+          phone: data.phone ?? '',
+          street: data.street ?? '',
+          city: data.city ?? '',
+          state: data.state ?? '',
+          postal_code: data.postal_code ?? '',
+          country: data.country ?? '',
+        },
+      };
     },
 
     // The content script (running in the frame that has a login form) reports
@@ -607,11 +838,85 @@ export function buildHandlers(): Record<string, Handler> {
       return { ok: true };
     },
 
+    // "Sign in with …" memory. Candidates come from content-script clicks and
+    // are confirmed by the OAuth navigation (sso-memory.ts); GET feeds the
+    // in-page badge; DELETE is the badge's "forget" affordance.
+    [MessageType.SSO_CANDIDATE]: async (payload) => {
+      const { host, provider } = payload as { host: string; provider: SsoProvider };
+      noteSsoCandidate(host, provider);
+      return { ok: true };
+    },
+
+    [MessageType.SSO_GET]: async (payload) => {
+      const { host } = payload as { host: string };
+      return { record: await getSsoRecord(host) };
+    },
+
+    [MessageType.SSO_DELETE]: async (payload) => {
+      const { host } = payload as { host: string };
+      await deleteSsoRecord(host);
+      return { ok: true };
+    },
+
+    // Vault-wide password health. Decrypts in bulk like GET_USERNAMES; the
+    // response carries only ids/names/category data — never a password. The
+    // HIBP breach check is opt-in (network; k-anonymity, 5 hash chars only).
+    [MessageType.HEALTH_REPORT]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { checkBreaches } = payload as { checkBreaches?: boolean };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const full = await client.listEntriesFull();
+      const items: { id: string; name: string; password: string; updatedAt?: string }[] = [];
+      for (const entry of full) {
+        try {
+          const data = await decryptEntry(entry, session);
+          if (data.password) {
+            items.push({
+              id: entry.id,
+              name: entry.name,
+              password: data.password,
+              updatedAt: entry.updated_at,
+            });
+          }
+        } catch {
+          // skip entries we cannot read
+        }
+      }
+      const report = await computeHealthReport(items, { checkBreaches: !!checkBreaches });
+      return { report };
+    },
+
+    [MessageType.TOGGLE_FAVORITE]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { entryId, favorite } = payload as { entryId: string; favorite: boolean };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      await client.setFavorite(entryId, favorite);
+      setEntriesCache(await client.listEntries());
+      return { ok: true };
+    },
+
     [MessageType.GENERATE]: async (payload) => {
       const session = getSession();
       if (!session) return { locked: true };
       const client = makeClient(session.serverUrl, session.accessToken);
       return client.generate(payload as Parameters<typeof client.generate>[0]);
+    },
+
+    // Open the toolbar popup so the user can unlock / sign in — triggered by the
+    // in-page "unlock" prompt on a login field. Best-effort: action.openPopup()
+    // works in Chrome 127+ from the worker, but some browsers (e.g. Firefox) only
+    // allow it from a direct user-input handler, so a failure is non-fatal — the
+    // user can always click the toolbar icon.
+    [MessageType.OPEN_POPUP]: async () => {
+      try {
+        const action = browser.action as { openPopup?: () => Promise<void> };
+        await action.openPopup?.();
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
     },
 
     // A form submission (or generated-password fill) was detected. Stash the
@@ -662,8 +967,11 @@ export function buildHandlers(): Record<string, Handler> {
         if (suggestUpdateId === undefined && u === username) suggestUpdateId = m.id;
       }
 
+      // candidates + suggestUpdateId are persisted too so the in-page bar can be
+      // fully restored (incl. the "update existing" option) after a navigation —
+      // the content script re-renders it from GET_PENDING_SAVE on the next load.
       await browser.storage.session.set({
-        [STORAGE_KEYS.PENDING_SAVE]: { name, url, username, password },
+        [STORAGE_KEYS.PENDING_SAVE]: { name, url, username, password, candidates, suggestUpdateId },
       });
       await setSaveBadge(true);
       return { ok: true, candidates, suggestUpdateId };

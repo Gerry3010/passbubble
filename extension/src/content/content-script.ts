@@ -19,8 +19,10 @@
 import browser from 'webextension-polyfill';
 import { MessageType } from '../shared/constants.js';
 import { detectLoginForms, type DetectedForm } from './form-detector.js';
-import { injectFillIframe, removeFillIframe, isFillIframeShown } from './fill-ui.js';
-import { initSaveDetector } from './save-detector.js';
+import { CC_KINDS, classifyField, classifyOtpField, type FieldKind } from './field-classifier.js';
+import { providerFromText, SSO_PROVIDER_LABELS, type SsoProvider } from '../shared/sso.js';
+import { injectFillIframe, removeFillIframe, isFillIframeShown, type TypedFillData } from './fill-ui.js';
+import { initSaveDetector, recoverPendingSave } from './save-detector.js';
 
 // Fill a form field in a way that works with React / Vue SPAs.
 function fillField(field: HTMLInputElement, value: string): void {
@@ -98,7 +100,7 @@ function maybeReportLoginFrame(): void {
 function fillPasswords(form: DetectedForm, password: string): void {
   if (form.form) {
     form.form.querySelectorAll<HTMLInputElement>('input[type="password"]').forEach((f) => fillField(f, password));
-  } else {
+  } else if (form.passwordField) {
     fillField(form.passwordField, password);
   }
 }
@@ -132,17 +134,28 @@ let cachedGenerated: { origin: string; password: string } | null = null;
 async function showFillFor(form: DetectedForm): Promise<void> {
   const { usernameField, passwordField } = form;
   const anchor = usernameField ?? passwordField;
+  if (!anchor) return;
   // Already shown for this field (e.g. duplicate focus event)? Do nothing.
   if (isFillIframeShown(anchor)) return;
 
-  const sessionResp = await safeSend<{ isUnlocked?: boolean }>({
+  const stillFocused = () =>
+    document.activeElement === usernameField || document.activeElement === passwordField;
+
+  const sessionResp = await safeSend<{ isUnlocked?: boolean; isLoggedIn?: boolean }>({
     type: MessageType.GET_SESSION,
     payload: {},
   });
-  if (!sessionResp?.isUnlocked) return;
-
-  const stillFocused = () =>
-    document.activeElement === usernameField || document.activeElement === passwordField;
+  if (!sessionResp?.isUnlocked) {
+    // Locked or logged out: on a real login form (not a signup), offer an unlock
+    // prompt whose button opens the toolbar popup. Nothing to suggest on signup.
+    if (form.isSignup || !stillFocused()) return;
+    injectFillIframe(
+      anchor,
+      { locked: true, loggedIn: !!sessionResp?.isLoggedIn },
+      { onFillMatch: () => {}, onUseGenerated: () => {}, onDismiss: () => {} },
+    );
+    return;
+  }
 
   if (form.isSignup) {
     // Register form → offer a generated password (cached per origin so the
@@ -180,22 +193,195 @@ async function showFillFor(form: DetectedForm): Promise<void> {
     return;
   }
 
-  const matchResp = await safeSend<unknown>({
-    type: MessageType.GET_MATCHES_FOR_URL,
-    payload: { url: location.href },
-  });
-  if (!Array.isArray(matchResp) || matchResp.length === 0) return;
+  const [matchResp, ssoResp] = await Promise.all([
+    safeSend<unknown>({
+      type: MessageType.GET_MATCHES_FOR_URL,
+      payload: { url: location.href },
+    }),
+    safeSend<{ record?: { provider: SsoProvider } | null }>({
+      type: MessageType.SSO_GET,
+      payload: { host: pageHost() },
+    }),
+  ]);
+  const matches = Array.isArray(matchResp) ? matchResp : [];
+  const ssoProvider = ssoResp?.record?.provider;
+  const sso = ssoProvider
+    ? { provider: ssoProvider, label: SSO_PROVIDER_LABELS[ssoProvider] ?? ssoProvider }
+    : undefined;
+  if (matches.length === 0 && !sso) return;
   if (!stillFocused()) return;
 
   injectFillIframe(
     anchor,
-    { matches: matchResp },
+    { matches, sso },
     {
       onFillMatch: (username, password) => {
         if (usernameField) fillField(usernameField, username);
-        fillField(passwordField, password);
+        if (passwordField) fillField(passwordField, password);
       },
       onUseGenerated: () => {},
+      onSsoSelect: () => {
+        if (ssoProvider) clickSsoButton(ssoProvider);
+      },
+      onDismiss: () => {},
+    },
+  );
+}
+
+function pageHost(): string {
+  return location.hostname.replace(/^www\./, '');
+}
+
+// Find the page's "sign in with <provider>" button and click it; if none is
+// recognisable, scroll to and highlight the best guess so the user sees it.
+function clickSsoButton(provider: SsoProvider): void {
+  const providerRe = new RegExp(provider, 'i');
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="button"]'))) {
+    const text = `${el.innerText ?? ''} ${el.getAttribute('aria-label') ?? ''} ${el.title ?? ''}`;
+    if (providerFromText(text) === provider || (providerRe.test(text) && text.length < 120)) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.click();
+      return;
+    }
+  }
+}
+
+// Report clicks on "sign in with <provider>" buttons as SSO candidates; the
+// background confirms them against the OAuth navigation that follows.
+function maybeReportSsoClick(e: MouseEvent): void {
+  const path = e.composedPath?.() ?? [];
+  for (const node of path) {
+    if (!(node instanceof HTMLElement)) continue;
+    if (!node.matches('button, a, [role="button"], [type="submit"]')) continue;
+    const text = `${node.innerText ?? ''} ${node.getAttribute('aria-label') ?? ''} ${node.title ?? ''}`;
+    const provider = providerFromText(text);
+    if (provider) {
+      void safeSend({ type: MessageType.SSO_CANDIDATE, payload: { host: pageHost(), provider } });
+    }
+    return; // the innermost clickable decides
+  }
+}
+
+// Offer the current TOTP code on a focused one-time-code field. The background
+// picks the entry (the one just filled in this tab, or a URL match with a 2FA
+// secret) and returns only the short-lived code — never the secret.
+async function showTotpFor(field: HTMLInputElement): Promise<void> {
+  if (isFillIframeShown(field)) return;
+  const resp = await safeSend<{
+    code?: string;
+    remainingSeconds?: number;
+    entryName?: string;
+    locked?: boolean;
+  }>({ type: MessageType.GET_TOTP_FOR_URL, payload: { url: location.href } });
+  if (!resp?.code) return;
+  // Still focused? (activeElement is checked on the field's own root so fields
+  // inside open shadow roots compare correctly.)
+  const root = field.getRootNode() as Document | ShadowRoot;
+  if (root.activeElement !== field) return;
+  injectFillIframe(
+    field,
+    { totp: { code: resp.code, remainingSeconds: resp.remainingSeconds ?? 0, entryName: resp.entryName } },
+    {
+      onFillMatch: () => {},
+      onUseGenerated: () => {},
+      onFillTotp: (code) => fillField(field, code),
+      onDismiss: () => {},
+    },
+  );
+}
+
+// The value a typed entry provides for a classified field kind.
+function valueForKind(kind: FieldKind, data: TypedFillData): string {
+  const mm = (data.expiry_month ?? '').padStart(2, '0');
+  const yy = data.expiry_year ?? '';
+  switch (kind) {
+    case 'cc-number':
+      return data.card_number ?? '';
+    case 'cc-name':
+      return data.holder_name || [data.first_name, data.last_name].filter(Boolean).join(' ');
+    case 'cc-exp':
+      return data.expiry_month && yy ? `${mm}/${yy.slice(-2)}` : '';
+    case 'cc-exp-month':
+      return data.expiry_month ?? '';
+    case 'cc-exp-year':
+      return yy;
+    case 'cc-csc':
+      return data.cvv ?? '';
+    case 'name':
+      return [data.first_name, data.last_name].filter(Boolean).join(' ') || (data.holder_name ?? '');
+    case 'given-name':
+      return data.first_name ?? '';
+    case 'family-name':
+      return data.last_name ?? '';
+    case 'organization':
+      return data.company ?? '';
+    case 'email':
+      return data.email ?? '';
+    case 'tel':
+      return data.phone ?? '';
+    case 'street-address':
+      return data.street ?? '';
+    case 'postal-code':
+      return data.postal_code ?? '';
+    case 'city':
+      return data.city ?? '';
+    case 'state':
+      return data.state ?? '';
+    case 'country':
+      return data.country ?? '';
+  }
+}
+
+// Select a <select> option by value or visible text (case-insensitive); also
+// tolerates "03" vs "3" for expiry-month selects.
+function fillSelect(sel: HTMLSelectElement, value: string): void {
+  const v = value.trim().toLowerCase();
+  const vNum = v.replace(/^0+/, '');
+  const opt = Array.from(sel.options).find((o) => {
+    const ov = o.value.trim().toLowerCase();
+    const ot = o.text.trim().toLowerCase();
+    return ov === v || ot === v || ov.replace(/^0+/, '') === vNum || ot.replace(/^0+/, '') === vNum;
+  });
+  if (!opt) return;
+  sel.value = opt.value;
+  sel.dispatchEvent(new Event('input', { bubbles: true }));
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// Fill every classified field around `anchor` (its <form>, or its root when
+// formless) with the matching values of the chosen card/identity entry.
+function fillTypedFields(anchor: HTMLInputElement | HTMLSelectElement, data: TypedFillData): void {
+  const scope = anchor.closest('form') ?? (anchor.getRootNode() as ParentNode);
+  for (const el of Array.from(scope.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select'))) {
+    const kind = classifyField(el);
+    if (!kind) continue;
+    const value = valueForKind(kind, data);
+    if (!value) continue;
+    if (el instanceof HTMLSelectElement) fillSelect(el, value);
+    else fillField(el, value);
+  }
+}
+
+// Offer stored credit cards / identities on a focused checkout/address field.
+// The picker shows only names + a non-secret hint; the field map is fetched
+// (and decrypted) only after the user chooses an entry.
+async function showTypedFor(field: HTMLInputElement | HTMLSelectElement, kind: FieldKind): Promise<void> {
+  if (field instanceof HTMLInputElement && isFillIframeShown(field)) return;
+  const entryType = CC_KINDS.has(kind) ? 'credit-card' : 'identity';
+  const resp = await safeSend<{ items?: { id: string; name: string; hint: string }[]; locked?: boolean }>({
+    type: MessageType.GET_ENTRIES_BY_TYPE,
+    payload: { type: entryType },
+  });
+  if (!resp?.items?.length) return;
+  const root = field.getRootNode() as Document | ShadowRoot;
+  if (root.activeElement !== field) return;
+  injectFillIframe(
+    field as HTMLInputElement,
+    { typed: { entryType, items: resp.items } },
+    {
+      onFillMatch: () => {},
+      onUseGenerated: () => {},
+      onFillTyped: (_type, data) => fillTypedFields(field, data),
       onDismiss: () => {},
     },
   );
@@ -209,14 +395,35 @@ function onFocusIn(e: FocusEvent): void {
     return;
   }
   const form = loginFormFor(e.target);
-  if (form) void showFillFor(form);
+  if (form) {
+    void showFillFor(form);
+    return;
+  }
+  const path = e.composedPath?.();
+  const target = (path && path[0]) ?? e.target;
+  if (target instanceof HTMLInputElement && classifyOtpField(target)) {
+    void showTotpFor(target);
+    return;
+  }
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) {
+    const kind = classifyField(target);
+    // Only offer typed fill on fields specific enough to signal a card/address
+    // form — a lone email/name/tel field is usually a login or contact form.
+    if (kind && kind !== 'email' && kind !== 'name' && kind !== 'tel') void showTypedFor(target, kind);
+  }
 }
 
-// Dismiss when clicking outside the suggestion AND outside a login field (so
-// clicking the field to focus it doesn't immediately close the box).
-function onDocumentClick(e: MouseEvent): void {
-  const target = e.target as HTMLElement;
-  if (target.tagName === 'IFRAME' || loginFormFor(target)) return;
+// Dismiss when pressing outside the suggestion AND outside a login field (so
+// clicking the field to focus it doesn't immediately close the box). mousedown
+// instead of click so the overlay is gone BEFORE the page processes the press —
+// otherwise a press on a button right under the field hits the overlay first
+// and the user has to click twice. composedPath resolves targets inside open
+// shadow roots (Flutter web) that `e.target` would retarget to the host.
+function onDocumentPointerDown(e: MouseEvent): void {
+  if (extensionAlive()) maybeReportSsoClick(e);
+  const path = e.composedPath?.();
+  const target = ((path && path[0]) ?? e.target) as HTMLElement | null;
+  if (!target || target.tagName === 'IFRAME' || loginFormFor(target)) return;
   removeFillIframe();
 }
 
@@ -249,14 +456,14 @@ const observer = new MutationObserver(() => {
 function teardown(): void {
   observer.disconnect();
   document.removeEventListener('focusin', onFocusIn);
-  document.removeEventListener('click', onDocumentClick);
+  document.removeEventListener('mousedown', onDocumentPointerDown, true);
   document.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('focus', onWindowFocus);
   removeFillIframe();
 }
 
 document.addEventListener('focusin', onFocusIn);
-document.addEventListener('click', onDocumentClick);
+document.addEventListener('mousedown', onDocumentPointerDown, true);
 document.addEventListener('keydown', onKeyDown);
 window.addEventListener('focus', onWindowFocus);
 observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -271,3 +478,6 @@ maybeReportLoginFrame();
 
 // Save detection
 initSaveDetector();
+// A "save this login?" offer can survive a post-login navigation in
+// storage.session; the DOM-only bar does not, so re-show it on load.
+void recoverPendingSave();

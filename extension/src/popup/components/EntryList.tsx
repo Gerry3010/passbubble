@@ -31,8 +31,18 @@ export function EntryList({
   onSelect?: (entry: EntryResponse) => void;
   onCreate?: () => void;
 } = {}) {
-  const { entries, folders, currentHost, isLoading, load, copyField, toggleSite, removeMatch } =
-    useEntriesStore();
+  const {
+    entries,
+    folders,
+    usernames,
+    currentHost,
+    isLoading,
+    load,
+    copyField,
+    toggleSite,
+    removeMatch,
+    toggleFavorite,
+  } = useEntriesStore();
   const [query, setQuery] = useState('');
   const [folderId, setFolderId] = useState<string | null>(null);
   const [seededHost, setSeededHost] = useState(false);
@@ -60,12 +70,13 @@ export function EntryList({
       (e) =>
         e.name.toLowerCase().includes(q) ||
         (e.url ?? '').toLowerCase().includes(q) ||
+        (usernames[e.id] ?? '').toLowerCase().includes(q) ||
         // Match patterns: substring (partial typing) OR wildcard host-match, so a
         // query like "gist.github.com" also finds an entry whose pattern is
         // "*.github.com". (Add/remove stay exact — only search expands wildcards.)
         (e.match_patterns ?? []).some((p) => p.toLowerCase().includes(q) || patternMatchesHost(q, p)),
     );
-  }, [entries, q, searching]);
+  }, [entries, usernames, q, searching]);
 
   // Folder-browser view (empty search): folders + entries at the current level.
   const subfolders = useMemo(
@@ -150,6 +161,7 @@ export function EntryList({
             onSelect={onSelect}
             onToggleSite={toggleSite}
             onRemoveMatch={removeMatch}
+            onToggleFavorite={toggleFavorite}
           />
         ))}
       </ul>
@@ -195,6 +207,7 @@ function EntryItem({
   onSelect,
   onToggleSite,
   onRemoveMatch,
+  onToggleFavorite,
 }: {
   entry: EntryResponse;
   copied: CopyState | null;
@@ -203,6 +216,7 @@ function EntryItem({
   onSelect?: (entry: EntryResponse) => void;
   onToggleSite: (id: string) => void;
   onRemoveMatch: (id: string, pattern: string) => void;
+  onToggleFavorite: (id: string) => void;
 }) {
   const isCopiedUser = copied?.entryId === entry.id && copied.field === 'username';
   const isCopiedPw = copied?.entryId === entry.id && copied.field === 'password';
@@ -224,20 +238,42 @@ function EntryItem({
         minWidth: 0,
       }}
     >
-      <span
-        onClick={onSelect ? () => onSelect(entry) : undefined}
-        style={{
-          fontWeight: 700,
-          fontSize: '13px',
-          color: term.green,
-          cursor: onSelect ? 'pointer' : 'default',
-          display: 'block',
-          overflow: 'hidden',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {entry.name}
+      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+        <button
+          onClick={() => onToggleFavorite(entry.id)}
+          aria-label={entry.favorite ? 'Remove from favorites' : 'Add to favorites'}
+          title={entry.favorite ? 'Remove from favorites' : 'Add to favorites'}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+            fontSize: '13px',
+            lineHeight: 1,
+            color: entry.favorite ? term.green : term.muted,
+            flexShrink: 0,
+          }}
+        >
+          {entry.favorite ? '★' : '☆'}
+        </button>
+        <span
+          onClick={onSelect ? () => onSelect(entry) : undefined}
+          style={{
+            fontWeight: 700,
+            fontSize: '13px',
+            color: term.green,
+            cursor: onSelect ? 'pointer' : 'default',
+            display: 'block',
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          {typeIcon(entry.type)}
+          {entry.name}
+        </span>
       </span>
       {entry.url && (
         <span
@@ -255,16 +291,22 @@ function EntryItem({
         </span>
       )}
       <div style={{ display: 'flex', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
-        <CopyButton
-          label={isCopiedUser ? 'Copied!' : 'Username'}
-          copied={isCopiedUser}
-          onClick={() => onCopy(entry.id, 'username')}
-        />
-        <CopyButton
-          label={isCopiedPw ? 'Copied!' : 'Password'}
-          copied={isCopiedPw}
-          onClick={() => onCopy(entry.id, 'password')}
-        />
+        {/* Username/password shortcuts only for login-ish types — cards,
+            identities and notes have neither. */}
+        {['password', 'api-key', 'ssh-key', 'totp'].includes(entry.type) && (
+          <>
+            <CopyButton
+              label={isCopiedUser ? 'Copied!' : 'Username'}
+              copied={isCopiedUser}
+              onClick={() => onCopy(entry.id, 'username')}
+            />
+            <CopyButton
+              label={isCopiedPw ? 'Copied!' : 'Password'}
+              copied={isCopiedPw}
+              onClick={() => onCopy(entry.id, 'password')}
+            />
+          </>
+        )}
         {onSelect && (
           <CopyButton label="Details" copied={false} onClick={() => onSelect(entry)} />
         )}
@@ -316,6 +358,28 @@ function EntryItem({
       )}
     </li>
   );
+}
+
+// Small type marker in front of the entry name; logins stay unmarked (they are
+// the default and the list would otherwise be a wall of keys).
+function typeIcon(type: string): string {
+  switch (type) {
+    case 'credit-card':
+      return '💳 ';
+    case 'bank-account':
+      return '🏦 ';
+    case 'identity':
+      return '👤 ';
+    case 'note':
+      return '📝 ';
+    case 'license':
+      return '📜 ';
+    case 'api-key':
+    case 'ssh-key':
+      return '⚙ ';
+    default:
+      return '';
+  }
 }
 
 function CopyButton({

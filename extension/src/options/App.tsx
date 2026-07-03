@@ -18,6 +18,7 @@ import { AccountSection } from './components/AccountSection.js';
 import { ImportSection } from './components/ImportSection.js';
 import { BlocklistSection } from './components/BlocklistSection.js';
 import { PinSection } from './components/PinSection.js';
+import { AutoLockSection } from './components/AutoLockSection.js';
 import { term } from '../shared/theme.js';
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
       <AccountSection />
       <ServerUrlForm />
       <PinSection />
+      <AutoLockSection />
       <ImportSection />
       <BlocklistSection />
       <section style={{ color: term.muted, fontSize: '13px' }}>
@@ -39,7 +41,8 @@ export function App() {
           Your master password is never stored. Without a PIN, the vault locks when the browser
           closes. With a PIN enabled, a logged-in copy of your keys (encrypted under the PIN) is
           kept on this device so you can unlock with the PIN until the master-password interval
-          elapses.
+          elapses. The vault also locks automatically after the inactivity timeout configured
+          under <strong>auto-lock</strong>.
         </p>
       </section>
     </div>

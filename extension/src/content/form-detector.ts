@@ -16,7 +16,9 @@
 export interface DetectedForm {
   form: HTMLFormElement | null;
   usernameField: HTMLInputElement | null;
-  passwordField: HTMLInputElement;
+  // null for a multi-step "username first" login step, where the password field
+  // is not on this page yet (only a hidden placeholder, if any).
+  passwordField: HTMLInputElement | null;
   isSignup: boolean;
 }
 
@@ -56,7 +58,7 @@ export function detectLoginForms(): DetectedForm[] {
     document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
   ).filter(isVisible);
 
-  return passwordFields.map((pw) => {
+  const forms: DetectedForm[] = passwordFields.map((pw) => {
     const autocomplete = pw.getAttribute('autocomplete') ?? '';
     const isSignup =
       autocomplete.includes('new-password') ||
@@ -68,4 +70,27 @@ export function detectLoginForms(): DetectedForm[] {
       isSignup,
     };
   });
+
+  // Multi-step "username first" logins (IONOS, Google, Microsoft, …): the first
+  // page shows only the username/email field; the password field comes on the
+  // next step. We detect these by a <form> that DOES contain a password field
+  // but none visible (a hidden placeholder is the tell that it's a login form,
+  // not a newsletter/contact form) plus a visible username/email field — so the
+  // fill / unlock box appears on the username field too.
+  const seenUser = new Set(forms.map((f) => f.usernameField).filter(Boolean));
+  const userSelector =
+    'input[autocomplete="username"], input[type="email"], input[type="text"], input:not([type])';
+  for (const formEl of Array.from(document.querySelectorAll<HTMLFormElement>('form'))) {
+    const pwInForm = Array.from(formEl.querySelectorAll<HTMLInputElement>('input[type="password"]'));
+    if (pwInForm.length === 0 || pwInForm.some(isVisible)) continue; // no pw, or handled above
+    const candidates = Array.from(formEl.querySelectorAll<HTMLInputElement>(userSelector)).filter(isVisible);
+    const user =
+      candidates.find((u) => u.getAttribute('autocomplete') === 'username' || u.type === 'email') ??
+      candidates[0];
+    if (user && !seenUser.has(user)) {
+      seenUser.add(user);
+      forms.push({ form: formEl, usernameField: user, passwordField: null, isSignup: false });
+    }
+  }
+  return forms;
 }

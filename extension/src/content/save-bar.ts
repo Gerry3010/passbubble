@@ -30,6 +30,13 @@ const term = {
 
 let barHost: HTMLElement | null = null;
 
+// True when `node` is (inside) the save bar. The shadow root is closed, so
+// events from inside it are retargeted to the host element — checking the host
+// and its subtree is sufficient for outside listeners.
+export function saveBarContains(node: unknown): boolean {
+  return !!barHost && node instanceof Node && (node === barHost || barHost.contains(node));
+}
+
 export function removeSaveBar(): void {
   if (barHost) {
     barHost.remove();

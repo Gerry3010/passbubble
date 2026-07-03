@@ -30,16 +30,38 @@ export const MessageType = {
   SEARCH_ENTRIES: 'SEARCH_ENTRIES',
   LIST_FOLDERS: 'LIST_FOLDERS',
   GET_ENTRY: 'GET_ENTRY',
+  // Bulk-decrypted usernames ({ [id]: username }) so the popup can search by
+  // username without decrypting every entry's full data on demand.
+  GET_USERNAMES: 'GET_USERNAMES',
   CREATE_ENTRY: 'CREATE_ENTRY',
   UPDATE_ENTRY: 'UPDATE_ENTRY',
   DELETE_ENTRY: 'DELETE_ENTRY',
+  TOGGLE_FAVORITE: 'TOGGLE_FAVORITE',
   // Autofill
   GET_MATCHES_FOR_URL: 'GET_MATCHES_FOR_URL',
   FILL_ENTRY: 'FILL_ENTRY',
+  // Current TOTP code for the entry relevant to a URL (prefers the entry that
+  // was just filled in the sender's tab). The secret never leaves the background
+  // — only the short-lived code and its remaining lifetime are returned.
+  GET_TOTP_FOR_URL: 'GET_TOTP_FOR_URL',
+  // Typed autofill (credit cards / identities): list entries of a type with a
+  // non-secret display hint, and fetch one entry's decrypted field map to fill
+  // a checkout/address form.
+  GET_ENTRIES_BY_TYPE: 'GET_ENTRIES_BY_TYPE',
+  FILL_TYPED_ENTRY: 'FILL_TYPED_ENTRY',
   // Content script reports the host of the frame that has the login form (e.g. an
   // SSO iframe); the popup queries it to pre-fill search + the "+ Site" toggle.
   REPORT_LOGIN_FRAME: 'REPORT_LOGIN_FRAME',
   GET_FILL_HOST: 'GET_FILL_HOST',
+  // Open the extension's toolbar popup (e.g. from the in-page unlock prompt).
+  OPEN_POPUP: 'OPEN_POPUP',
+  // "Sign in with …" memory (device-local, per host)
+  SSO_CANDIDATE: 'SSO_CANDIDATE',
+  SSO_GET: 'SSO_GET',
+  SSO_DELETE: 'SSO_DELETE',
+  // Vault-wide password health report (computed in the background; passwords
+  // never reach the popup — only ids, names and category flags).
+  HEALTH_REPORT: 'HEALTH_REPORT',
   // Generator
   GENERATE: 'GENERATE',
   // Save detection
@@ -62,8 +84,14 @@ export const STORAGE_KEYS = {
   // chrome.storage.sync — persists across devices
   SERVER_URL: 'server_url',
   AUTOFILL_ENABLED: 'autofill_enabled',
+  // Idle auto-lock timeout in minutes. 0 = never (lock only on browser close /
+  // service-worker eviction). Default applied by readers is AUTO_LOCK_DEFAULT_MINUTES.
+  AUTO_LOCK_MINUTES: 'auto_lock_minutes',
   // chrome.storage.local — device-local, persists across browser restarts
   SAVE_BLOCKLIST: 'save_blocklist',
+  // Per-host "signs in with <provider>" records ({ [host]: { provider,
+  // lastUsed, hits } }). Deliberately not synced — browsing metadata.
+  SSO_MEMORY: 'sso_memory',
   // PIN quick-unlock state (chrome.storage.local — survives browser close so the
   // PIN can unlock after a restart). The PIN itself is never stored; PIN_WRAPPED
   // is the master key encrypted under a PIN-derived key. PIN_BOOTSTRAP holds the
@@ -80,6 +108,9 @@ export const STORAGE_KEYS = {
   PIN_LAST_MASTER_UNLOCK: 'pin_last_master_unlock',
   PIN_BOOTSTRAP: 'pin_bootstrap',
   // chrome.storage.session — cleared on browser close
+  // Timestamp (ms) of the last vault activity; the auto-lock alarm compares it
+  // against AUTO_LOCK_MINUTES to decide when to drop the in-memory session.
+  LAST_ACTIVITY: 'last_activity',
   REFRESH_TOKEN: 'refresh_token',
   ENC_PRIV_X25519: 'enc_priv_x25519',
   ENC_PRIV_MLKEM: 'enc_priv_mlkem',
@@ -99,3 +130,9 @@ export const STORAGE_KEYS = {
   AUTH_DRAFT: 'auth_draft',
   PENDING_2FA: 'pending_2fa',
 } as const;
+
+/** Default idle auto-lock timeout (minutes) when the user has not chosen one. */
+export const AUTO_LOCK_DEFAULT_MINUTES = 15;
+
+/** Name of the recurring chrome.alarms alarm that drives the idle auto-lock. */
+export const AUTO_LOCK_ALARM = 'auto-lock';

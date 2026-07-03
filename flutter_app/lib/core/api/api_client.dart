@@ -240,7 +240,44 @@ class ApiClient {
     await _put('/api/v1/entries/$id', req.toJson());
   }
 
+  /// Soft delete: the entry moves to the trash (restorable for 30 days).
   Future<void> deleteEntry(String id) => _delete('/api/v1/entries/$id');
+
+  Future<List<EntryResponse>> listTrash() async {
+    final resp = await _get('/api/v1/entries/trash');
+    return (resp.data as List)
+        .map((e) => EntryResponse.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> restoreEntry(String id) async {
+    await _post('/api/v1/entries/$id/restore', {});
+  }
+
+  /// Irreversible — removes the entry (and its history) from the trash.
+  Future<void> purgeEntry(String id) => _delete('/api/v1/entries/$id/permanent');
+
+  Future<void> setFavorite(String id, bool favorite) async {
+    await _put('/api/v1/entries/$id/favorite', {'favorite': favorite});
+  }
+
+  Future<List<EntryVersionResponse>> listVersions(String id) async {
+    final resp = await _get('/api/v1/entries/$id/versions');
+    return (resp.data as List)
+        .map((v) => EntryVersionResponse.fromJson(v as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<EntryVersionResponse> getVersion(String id, String versionId) async {
+    final resp = await _get('/api/v1/entries/$id/versions/$versionId');
+    return EntryVersionResponse.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Server-side restore: current state is snapshotted first, then the
+  /// version's blob and its contemporaneous wrapped keys are copied back.
+  Future<void> restoreVersion(String id, String versionId) async {
+    await _post('/api/v1/entries/$id/versions/$versionId/restore', {});
+  }
 
   /// Rotates the caller's own key material (post-quantum upgrade).
   Future<void> updateKeys(UpdateKeysRequest req) async {

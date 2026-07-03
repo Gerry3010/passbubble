@@ -108,6 +108,25 @@ class SettingsScreen extends ConsumerWidget {
 
           const Divider(),
 
+          // Vault
+          _SectionHeader(title: 'VAULT'),
+          ListTile(
+            leading: const Icon(Icons.health_and_safety_outlined),
+            title: const Text('Password health'),
+            subtitle: const Text('Weak, reused, old & breached passwords'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/health'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Trash'),
+            subtitle: const Text('Deleted entries — restorable for 30 days'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/trash'),
+          ),
+
+          const Divider(),
+
           // Server
           _SectionHeader(title: 'SERVER'),
           ListTile(
@@ -176,7 +195,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      bottomNavigationBar: const PbBottomNav(currentIndex: 3),
+      bottomNavigationBar: const PbBottomNav(currentIndex: 4),
     );
   }
 

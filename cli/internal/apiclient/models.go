@@ -177,8 +177,24 @@ type EntryResponse struct {
 	DataNonce     string    `json:"data_nonce"`               // base64
 	EntryKey      *EntryKey `json:"entry_key"`                // caller's key, set on single GET
 	Permission    string    `json:"permission"`
+	Favorite      bool      `json:"favorite,omitempty"`
 	CreatedAt     string    `json:"created_at"`
 	UpdatedAt     string    `json:"updated_at"`
+	DeletedAt     *string   `json:"deleted_at,omitempty"` // set only in trash listings
+}
+
+// EntryVersionResponse is one history snapshot of an entry. The single-GET
+// variant carries the blob plus the caller's contemporaneous wrapped key.
+type EntryVersionResponse struct {
+	ID            string    `json:"id"`
+	EntryID       string    `json:"entry_id"`
+	Name          string    `json:"name"`
+	URL           string    `json:"url,omitempty"`
+	EditedBy      *string   `json:"edited_by,omitempty"`
+	EncryptedData string    `json:"encrypted_data,omitempty"` // base64
+	DataNonce     string    `json:"data_nonce,omitempty"`     // base64
+	EntryKey      *EntryKey `json:"entry_key,omitempty"`
+	CreatedAt     string    `json:"created_at"`
 }
 
 type ShareEntryRequest struct {

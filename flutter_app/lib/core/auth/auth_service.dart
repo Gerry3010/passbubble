@@ -273,11 +273,16 @@ class AuthService {
               (data['username'] ?? data['account'] ?? '').toString();
           final password = (data['password'] ?? '').toString();
           final totp = (data['totp_secret'] ?? '').toString();
-          if (username.isEmpty && password.isEmpty && totp.isEmpty) continue;
+          // Only credential-bearing entries are useful to system autofill —
+          // a password alone is enough (some logins have no username).
+          if (password.isEmpty && totp.isEmpty) continue;
           creds.add({
             'id': e.id,
             'url': e.url,
             'name': e.name,
+            // Entry type so the native side can rank/filter (e.g. prefer
+            // logins over api-keys for browser fields).
+            'type': e.type,
             'username': username,
             'password': password,
             'totp': totp,

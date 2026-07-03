@@ -21,11 +21,12 @@ import { SavePrompt } from './components/SavePrompt.js';
 import { MasterPasswordPrompt } from './components/MasterPasswordPrompt.js';
 import { VaultPanel } from './components/VaultPanel.js';
 import { GeneratorPanel } from './components/GeneratorPanel.js';
+import { HealthPanel } from './components/HealthPanel.js';
 import browser from 'webextension-polyfill';
 import { STORAGE_KEYS } from '../shared/constants.js';
 import { term, buttonPrimary } from '../shared/theme.js';
 
-type Tab = 'vault' | 'generator';
+type Tab = 'vault' | 'generator' | 'health';
 
 export function App() {
   const { isLoggedIn, isUnlocked, userName, userEmail, lock, checkSession, isLoading, totpRequired } =
@@ -117,7 +118,7 @@ export function App() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: `1px solid ${term.border}` }}>
-        {(['vault', 'generator'] as Tab[]).map((t) => (
+        {(['vault', 'generator', 'health'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -134,7 +135,7 @@ export function App() {
               color: tab === t ? term.green : term.muted,
             }}
           >
-            {t === 'vault' ? './vault' : './generator'}
+            {t === 'vault' ? './vault' : t === 'generator' ? './generator' : './health'}
           </button>
         ))}
       </div>
@@ -144,7 +145,7 @@ export function App() {
 
       {/* Content */}
       <div style={{ padding: '12px', flex: 1, overflowY: 'auto' }}>
-        {tab === 'vault' ? <VaultPanel /> : <GeneratorPanel />}
+        {tab === 'vault' ? <VaultPanel /> : tab === 'generator' ? <GeneratorPanel /> : <HealthPanel />}
       </div>
     </div>
   );

@@ -92,11 +92,72 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
               onCopy={() => copy(totp.code)}
             />
           )}
+          {TYPED_FIELDS.map(([key, label, secret]) => {
+            const value = data[key];
+            if (typeof value !== 'string' || !value) return null;
+            return (
+              <Field
+                key={key}
+                label={label}
+                value={secret && !reveal ? mask(key, value) : value}
+                onCopy={() => copy(value)}
+                extra={
+                  secret ? (
+                    <button onClick={() => setReveal((v) => !v)} style={link}>
+                      {reveal ? 'Hide' : 'Show'}
+                    </button>
+                  ) : undefined
+                }
+              />
+            );
+          })}
+          {(data.custom_fields ?? []).map(
+            (cf, i) =>
+              cf.value && (
+                <Field key={`cf-${i}`} label={cf.label || 'Custom'} value={cf.value} onCopy={() => copy(cf.value)} />
+              ),
+          )}
           {data.notes && <Field label="Notes" value={data.notes} onCopy={() => copy(data.notes!)} />}
         </div>
       )}
     </div>
   );
+}
+
+// Non-login fields rendered when present, in display order. `secret` fields
+// are masked until revealed.
+const TYPED_FIELDS: Array<[keyof EntryData & string, string, boolean?]> = [
+  ['card_number', 'Card number', true],
+  ['holder_name', 'Cardholder'],
+  ['expiry_month', 'Expiry month'],
+  ['expiry_year', 'Expiry year'],
+  ['cvv', 'CVV', true],
+  ['bank_name', 'Bank'],
+  ['iban', 'IBAN'],
+  ['bic', 'BIC'],
+  ['account_number', 'Account number'],
+  ['title', 'Title'],
+  ['first_name', 'First name'],
+  ['last_name', 'Last name'],
+  ['company', 'Company'],
+  ['email', 'Email'],
+  ['phone', 'Phone'],
+  ['street', 'Street'],
+  ['postal_code', 'Postal code'],
+  ['city', 'City'],
+  ['state', 'State'],
+  ['country', 'Country'],
+  ['product_name', 'Product'],
+  ['license_key', 'License key', true],
+  ['purchase_email', 'Purchase email'],
+];
+
+function mask(key: string, value: string): string {
+  if (key === 'card_number') {
+    const digits = value.replace(/\D/g, '');
+    return digits.length >= 4 ? `•••• ${digits.slice(-4)}` : '••••';
+  }
+  return '•'.repeat(Math.min(value.length, 8));
 }
 
 function Field({

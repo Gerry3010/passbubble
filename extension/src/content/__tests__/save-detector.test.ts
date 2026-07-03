@@ -22,7 +22,7 @@ vi.mock('webextension-polyfill', () => ({
 }));
 
 import browser from 'webextension-polyfill';
-import { initSaveDetector } from '../save-detector.js';
+import { initSaveDetector, recoverPendingSave } from '../save-detector.js';
 import { MessageType } from '../../shared/constants.js';
 
 const mockSendMessage = browser.runtime.sendMessage as ReturnType<typeof vi.fn>;
@@ -191,5 +191,214 @@ describe('initSaveDetector', () => {
     expect(mockSendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MessageType.OFFER_SAVE }),
     );
+  });
+});
+
+// SPAs (Flutter web, React, …) never fire a native submit — the detector
+// snapshots credentials from composed input events and offers on Enter,
+// mousedown outside a text field, or pagehide.
+describe('SPA triggers (no native submit)', () => {
+  function offerCalls(): unknown[] {
+    return mockSendMessage.mock.calls.filter(
+      ([msg]) => (msg as { type: string }).type === MessageType.OFFER_SAVE,
+    );
+  }
+
+  // Formless fields, like an SPA login: type into them via composed input events.
+  function buildFormlessLogin(root: ParentNode & Node = document.body): {
+    user: HTMLInputElement;
+    pw: HTMLInputElement;
+  } {
+    const user = document.createElement('input');
+    user.type = 'email';
+    const pw = document.createElement('input');
+    pw.type = 'password';
+    root.appendChild(user);
+    root.appendChild(pw);
+    return { user, pw };
+  }
+
+  function typeInto(field: HTMLInputElement, value: string): void {
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  }
+
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    mockSendMessage.mockReset();
+    mockSendMessage.mockResolvedValue({ ok: true });
+    initSaveDetector();
+  });
+
+  it('offers on mousedown outside a text field (e.g. a canvas-painted button)', async () => {
+    const { user, pw } = buildFormlessLogin();
+    typeInto(user, 'alice@example.com');
+    typeInto(pw, 'hunter2');
+
+    const canvas = document.createElement('div');
+    document.body.appendChild(canvas);
+    canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+    await flush();
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.OFFER_SAVE,
+        payload: expect.objectContaining({ username: 'alice@example.com', password: 'hunter2' }),
+      }),
+    );
+    expect(barShown()).toBe(true);
+  });
+
+  it('offers on Enter in a login field', async () => {
+    const { user, pw } = buildFormlessLogin();
+    typeInto(user, 'bob');
+    typeInto(pw, 'pa55w0rd');
+
+    pw.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true }));
+    await flush();
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.OFFER_SAVE,
+        payload: expect.objectContaining({ username: 'bob', password: 'pa55w0rd' }),
+      }),
+    );
+  });
+
+  it('does NOT offer on mousedown into another input (just moving focus)', async () => {
+    const { user, pw } = buildFormlessLogin();
+    typeInto(pw, 'hunter2');
+
+    user.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+    await flush();
+
+    expect(offerCalls()).toHaveLength(0);
+  });
+
+  it('does NOT offer when no password value exists', async () => {
+    buildFormlessLogin();
+    const btn = document.createElement('button');
+    document.body.appendChild(btn);
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+    await flush();
+
+    expect(offerCalls()).toHaveLength(0);
+  });
+
+  it('offers the same credentials only once across multiple triggers', async () => {
+    const { user, pw } = buildFormlessLogin();
+    typeInto(user, 'alice');
+    typeInto(pw, 'hunter2');
+
+    const btn = document.createElement('button');
+    document.body.appendChild(btn);
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+    pw.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true }));
+    window.dispatchEvent(new Event('pagehide'));
+    await flush();
+
+    expect(offerCalls()).toHaveLength(1);
+  });
+
+  it('sees fields inside an open shadow root (Flutter web) via composed events', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const { user, pw } = buildFormlessLogin(shadow);
+    typeInto(user, 'shadow@example.com');
+    typeInto(pw, 'sh4d0w');
+
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+    outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+    await flush();
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.OFFER_SAVE,
+        payload: expect.objectContaining({ username: 'shadow@example.com', password: 'sh4d0w' }),
+      }),
+    );
+  });
+
+  it('offers on pagehide with a fresh snapshot, without rendering the bar', async () => {
+    const { user, pw } = buildFormlessLogin();
+    typeInto(user, 'alice');
+    typeInto(pw, 'hunter2');
+
+    window.dispatchEvent(new Event('pagehide'));
+    await flush();
+
+    expect(offerCalls()).toHaveLength(1);
+    expect(barShown()).toBe(false); // recoverPendingSave re-shows it on the next page
+  });
+
+  it('does NOT offer after the user cleared the password field', async () => {
+    const { user, pw } = buildFormlessLogin();
+    typeInto(user, 'alice');
+    typeInto(pw, 'hunter2');
+    typeInto(pw, ''); // user cleared it — field still connected
+
+    const btn = document.createElement('button');
+    document.body.appendChild(btn);
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+    await flush();
+
+    expect(offerCalls()).toHaveLength(0);
+  });
+
+  it('keeps the snapshot when the SPA removed the fields (offers on pagehide)', async () => {
+    const { user, pw } = buildFormlessLogin();
+    typeInto(user, 'alice');
+    typeInto(pw, 'hunter2');
+    user.remove();
+    pw.remove(); // SPA swapped the view after login
+
+    window.dispatchEvent(new Event('pagehide'));
+    await flush();
+
+    expect(offerCalls()).toHaveLength(1);
+  });
+});
+
+describe('recoverPendingSave', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    mockSendMessage.mockReset();
+  });
+
+  it('re-shows the save bar when a pending save matches the current page', async () => {
+    // jsdom serves the page at https://example.com/login (see vitest config).
+    mockSendMessage.mockResolvedValue({
+      url: 'https://example.com/account',
+      username: 'alice',
+      candidates: [{ id: '1', username: 'alice' }],
+      suggestUpdateId: '1',
+    });
+
+    await recoverPendingSave();
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MessageType.GET_PENDING_SAVE }),
+    );
+    expect(barShown()).toBe(true);
+  });
+
+  it('does NOT show the bar for a pending save from a different domain', async () => {
+    mockSendMessage.mockResolvedValue({ url: 'https://other.test/login', username: 'alice' });
+
+    await recoverPendingSave();
+
+    expect(barShown()).toBe(false);
+  });
+
+  it('does nothing when there is no pending save', async () => {
+    mockSendMessage.mockResolvedValue(null);
+
+    await recoverPendingSave();
+
+    expect(barShown()).toBe(false);
   });
 });

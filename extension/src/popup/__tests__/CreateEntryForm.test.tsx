@@ -17,13 +17,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 const sendMessage = vi.hoisted(() => vi.fn());
-vi.mock('webextension-polyfill', () => ({ default: { runtime: { sendMessage } } }));
+const tabsQuery = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+vi.mock('webextension-polyfill', () => ({
+  default: { runtime: { sendMessage }, tabs: { query: tabsQuery } },
+}));
 
 import { CreateEntryForm } from '../components/CreateEntryForm.js';
 import { MessageType } from '../../shared/constants.js';
 
 describe('CreateEntryForm', () => {
-  beforeEach(() => sendMessage.mockReset());
+  beforeEach(() => {
+    sendMessage.mockReset();
+    tabsQuery.mockReset().mockResolvedValue([]);
+  });
 
   it('requires a name', async () => {
     const onCreated = vi.fn();
@@ -59,6 +65,27 @@ describe('CreateEntryForm', () => {
       }),
     );
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
+  });
+
+  it('pre-fills URL (origin) and name (title) from the active web tab', async () => {
+    tabsQuery.mockResolvedValue([{ url: 'https://www.example.com/login?x=1', title: 'Example Login' }]);
+    await act(async () => {
+      render(<CreateEntryForm onCreated={() => {}} onCancel={() => {}} />);
+    });
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText('URL') as HTMLInputElement).value).toBe('https://www.example.com'),
+    );
+    expect((screen.getByPlaceholderText('Name') as HTMLInputElement).value).toBe('Example Login');
+  });
+
+  it('does not pre-fill on non-web tabs (chrome://)', async () => {
+    tabsQuery.mockResolvedValue([{ url: 'chrome://extensions', title: 'Extensions' }]);
+    await act(async () => {
+      render(<CreateEntryForm onCreated={() => {}} onCancel={() => {}} />);
+    });
+    await waitFor(() => expect(tabsQuery).toHaveBeenCalled());
+    expect((screen.getByPlaceholderText('URL') as HTMLInputElement).value).toBe('');
+    expect((screen.getByPlaceholderText('Name') as HTMLInputElement).value).toBe('');
   });
 
   it('fills the password from the generator', async () => {

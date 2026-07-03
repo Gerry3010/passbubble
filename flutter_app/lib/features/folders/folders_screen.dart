@@ -52,7 +52,7 @@ class FoldersScreen extends ConsumerWidget {
           );
         },
       ),
-      bottomNavigationBar: const PbBottomNav(currentIndex: 1),
+      bottomNavigationBar: const PbBottomNav(currentIndex: 2),
     );
   }
 }

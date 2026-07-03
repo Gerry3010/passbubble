@@ -32,6 +32,7 @@ import '../../shared/widgets/prompt_title.dart';
 import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
 import 'entries_list_screen.dart' show entriesProvider;
+import 'widgets/history_sheet.dart';
 
 final _entryDetailProvider =
     FutureProvider.autoDispose.family<EntryResponse, String>((ref, id) async {
@@ -189,12 +190,27 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     return '${api.publicBaseUrl}/web/#/share/${link.token}?k=${Uri.encodeQueryComponent(secret)}';
   }
 
+  Future<void> _toggleFavorite(EntryResponse entry) async {
+    try {
+      await ref.read(apiClientProvider).setFavorite(entry.id, !entry.favorite);
+      ref.invalidate(_entryDetailProvider(widget.id));
+      ref.invalidate(entriesProvider);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
+    }
+  }
+
   Future<void> _delete(String id) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete entry?'),
-        content: const Text('This cannot be undone.'),
+        title: const Text('Move to trash?'),
+        content: const Text(
+            'The entry moves to the trash and can be restored for 30 days '
+            '(Settings → Trash).'),
         actions: [
           TextButton(
               onPressed: () => ctx.pop(false), child: const Text('Cancel')),
@@ -224,6 +240,30 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ),
         actions: [
           if (async.hasValue) ...[
+            IconButton(
+              icon: Icon(
+                async.value!.favorite ? Icons.star : Icons.star_border,
+                color: async.value!.favorite ? Colors.amber : null,
+              ),
+              tooltip: async.value!.favorite
+                  ? 'Remove from favorites'
+                  : 'Add to favorites',
+              onPressed: () => _toggleFavorite(async.value!),
+            ),
+            IconButton(
+              icon: const Icon(Icons.history),
+              tooltip: 'Version history',
+              onPressed: () => showHistorySheet(
+                context,
+                ref,
+                async.value!,
+                onRestored: () {
+                  ref.invalidate(_entryDetailProvider(widget.id));
+                  ref.invalidate(entriesProvider);
+                  setState(() => _decrypted = null);
+                },
+              ),
+            ),
             IconButton(
               icon: const Icon(Icons.ios_share),
               tooltip: 'Create share link',

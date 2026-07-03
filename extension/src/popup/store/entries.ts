@@ -21,6 +21,9 @@ import type { EntryResponse, FolderResponse } from '@passbubble/shared-ts';
 interface EntriesState {
   entries: EntryResponse[];
   folders: FolderResponse[];
+  /** Decrypted usernames keyed by entry id, so search can match usernames
+   * (which are E2E-encrypted and not part of the metadata entry list). */
+  usernames: Record<string, string>;
   /** Host of the active tab (sans leading "www."), used to pre-filter on open. */
   currentHost: string;
   isLoading: boolean;
@@ -33,6 +36,8 @@ interface EntriesState {
   toggleSite: (entryId: string) => Promise<void>;
   /** Remove a single match pattern from an entry. */
   removeMatch: (entryId: string, pattern: string) => Promise<void>;
+  /** Flip an entry's favorite flag (optimistic; favorites sort first on reload). */
+  toggleFavorite: (entryId: string) => Promise<void>;
 }
 
 /** The folders endpoint returns a tree (roots with nested `children`); the
@@ -64,7 +69,9 @@ async function activeTabHost(): Promise<string> {
   }
   try {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.url) return '';
+    // Only web pages have a meaningful host to pre-fill; skip chrome://, about:,
+    // moz-extension://, file://, etc. so the search field is not seeded with junk.
+    if (!tab?.url || !/^https?:\/\//.test(tab.url)) return '';
     return new URL(tab.url).hostname.replace(/^www\./, '');
   } catch {
     return '';
@@ -74,6 +81,7 @@ async function activeTabHost(): Promise<string> {
 export const useEntriesStore = create<EntriesState>((set, get) => ({
   entries: [],
   folders: [],
+  usernames: {},
   currentHost: '',
   isLoading: false,
   error: null,
@@ -81,15 +89,25 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
   load: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [entriesResp, foldersResp, host] = await Promise.all([
+      const [entriesResp, foldersResp, host, usernamesResp] = await Promise.all([
         browser.runtime.sendMessage({ type: MessageType.SEARCH_ENTRIES, payload: { query: '' } }),
         browser.runtime.sendMessage({ type: MessageType.LIST_FOLDERS, payload: {} }),
         activeTabHost(),
+        // Best-effort: search-by-username works once these resolve; a failure
+        // here must not block the entry list from rendering.
+        browser.runtime
+          .sendMessage({ type: MessageType.GET_USERNAMES, payload: {} })
+          .catch(() => ({ usernames: {} })),
       ]);
+      const usernames =
+        usernamesResp && typeof usernamesResp === 'object' && 'usernames' in usernamesResp
+          ? ((usernamesResp as { usernames?: Record<string, string> }).usernames ?? {})
+          : {};
       set({
         entries: Array.isArray(entriesResp) ? (entriesResp as EntryResponse[]) : [],
         folders: Array.isArray(foldersResp) ? flattenFolders(foldersResp as FolderResponse[]) : [],
         currentHost: host,
+        usernames,
         isLoading: false,
       });
     } catch (e) {
@@ -125,6 +143,24 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
     if (!entry) return;
     const next = (entry.match_patterns ?? []).filter((p) => p !== pattern);
     await persistMatchPatterns(set, get, entry, next);
+  },
+
+  toggleFavorite: async (entryId) => {
+    const { entries } = get();
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const favorite = !entry.favorite;
+    // Optimistic flip; the server-side ordering (favorites first) applies on
+    // the next load, so the row doesn't jump around under the cursor.
+    set({ entries: entries.map((e) => (e.id === entryId ? { ...e, favorite } : e)) });
+    try {
+      await browser.runtime.sendMessage({
+        type: MessageType.TOGGLE_FAVORITE,
+        payload: { entryId, favorite },
+      });
+    } catch {
+      set({ entries: get().entries.map((e) => (e.id === entryId ? { ...e, favorite: !favorite } : e)) });
+    }
   },
 }));
 

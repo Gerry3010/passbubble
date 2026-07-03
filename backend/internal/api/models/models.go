@@ -155,11 +155,32 @@ type EntryResponse struct {
 	Name          string    `json:"name"`
 	URL           string    `json:"url,omitempty"`
 	MatchPatterns []string  `json:"match_patterns,omitempty"` // plaintext autofill URL patterns
+	Favorite      bool      `json:"favorite,omitempty"`
 	EncryptedData string    `json:"encrypted_data,omitempty"` // only on single GET
 	DataNonce     string    `json:"data_nonce,omitempty"`
 	EntryKey      *EntryKey `json:"entry_key,omitempty"` // caller's key on single GET
 	CreatedAt     string    `json:"created_at"`
 	UpdatedAt     string    `json:"updated_at"`
+	DeletedAt     *string   `json:"deleted_at,omitempty"` // set only in trash listings
+}
+
+type SetFavoriteRequest struct {
+	Favorite bool `json:"favorite"`
+}
+
+// EntryVersionResponse is one history snapshot of an entry. The full variant
+// (single GET) carries the blob plus the caller's contemporaneous wrapped key
+// in the same shape as EntryResponse, so clients can reuse their decrypt path.
+type EntryVersionResponse struct {
+	ID            string    `json:"id"`
+	EntryID       string    `json:"entry_id"`
+	Name          string    `json:"name"`
+	URL           string    `json:"url,omitempty"`
+	EditedBy      *string   `json:"edited_by,omitempty"`
+	EncryptedData string    `json:"encrypted_data,omitempty"` // only on single GET
+	DataNonce     string    `json:"data_nonce,omitempty"`
+	EntryKey      *EntryKey `json:"entry_key,omitempty"` // caller's key on single GET
+	CreatedAt     string    `json:"created_at"`
 }
 
 type ShareEntryRequest struct {
