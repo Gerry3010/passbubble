@@ -39,6 +39,52 @@ export function base32Decode(input: string): Uint8Array {
   return new Uint8Array(out);
 }
 
+export interface OtpauthParams {
+  secret: string;
+  label?: string;
+  issuer?: string;
+  period?: number;
+  digits?: number;
+  algorithm?: string;
+}
+
+/**
+ * Parses an otpauth://totp/… URI (the QR-code payload) into its parameters.
+ * Returns null for anything that is not a valid TOTP URI with a base32 secret
+ * (hotp is not supported).
+ */
+export function parseOtpauthUri(uri: string): OtpauthParams | null {
+  const trimmed = uri.trim();
+  if (!/^otpauth:\/\//i.test(trimmed)) return null;
+  let u: URL;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (u.host.toLowerCase() !== 'totp') return null;
+  const secret = u.searchParams.get('secret')?.trim() ?? '';
+  if (!secret) return null;
+  try {
+    base32Decode(secret);
+  } catch {
+    return null;
+  }
+  let label: string | undefined;
+  try {
+    label = decodeURIComponent(u.pathname.replace(/^\/+/, '')) || undefined;
+  } catch {
+    label = u.pathname.replace(/^\/+/, '') || undefined;
+  }
+  // Issuer: explicit param wins; otherwise the "Issuer:account" label prefix.
+  const issuer =
+    u.searchParams.get('issuer') ?? (label?.includes(':') ? label.split(':')[0] : undefined) ?? undefined;
+  const digits = Number(u.searchParams.get('digits')) || undefined;
+  const period = Number(u.searchParams.get('period')) || undefined;
+  const algorithm = u.searchParams.get('algorithm')?.toUpperCase() || undefined;
+  return { secret, label, issuer, digits, period, algorithm };
+}
+
 export interface TotpOptions {
   period?: number; // seconds, default 30
   digits?: number; // default 6

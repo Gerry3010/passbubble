@@ -34,11 +34,19 @@ export function isFillIframeShown(anchor?: HTMLInputElement): boolean {
   return anchor ? activeAnchor === anchor : true;
 }
 
+export interface TotpSuggestion {
+  code: string;
+  remainingSeconds: number;
+  entryName?: string;
+}
+
 export interface FillPayload {
   // Match mode: existing entries to offer for a login form.
   matches?: EntryResponse[];
   // Generate mode: a fresh password to offer on a signup/register form.
   generatePassword?: string;
+  // TOTP mode: the current one-time code to offer on a 2FA field.
+  totp?: TotpSuggestion;
   // Locked mode: the vault is locked / logged out, so offer an "unlock" button
   // (which opens the toolbar popup) instead of suggestions.
   locked?: boolean;
@@ -51,6 +59,8 @@ export interface FillHandlers {
   onFillMatch: (username: string, password: string) => void;
   // The generated password was accepted on a signup form.
   onUseGenerated: (password: string) => void;
+  // The offered TOTP code was accepted on a 2FA field.
+  onFillTotp?: (code: string) => void;
   onDismiss: () => void;
 }
 
@@ -92,6 +102,7 @@ export function injectFillIframe(
         type: 'FILL_INIT',
         matches: payload.matches ?? [],
         generatePassword: payload.generatePassword,
+        totp: payload.totp,
         locked: payload.locked ?? false,
         loggedIn: payload.loggedIn ?? false,
       },
@@ -104,7 +115,7 @@ export function injectFillIframe(
   window.addEventListener('message', function handler(event) {
     // Only accept messages from our extension
     if (event.origin !== new URL(browser.runtime.getURL('')).origin) return;
-    const msg = event.data as { type: string; entryId?: string; height?: number; password?: string };
+    const msg = event.data as { type: string; entryId?: string; height?: number; password?: string; code?: string };
     if (msg.type === 'FILL_READY') {
       postInit();
       return;
@@ -117,14 +128,44 @@ export function injectFillIframe(
       positionIframe(iframe, anchorField);
       return;
     }
+    if (msg.type === 'FILL_TOTP_REFRESH') {
+      // The countdown in the iframe ran out — fetch the next code and re-init.
+      browser.runtime
+        .sendMessage({ type: MessageType.GET_TOTP_FOR_URL, payload: { url: location.href } })
+        .then((r: unknown) => {
+          const resp = r as { code?: string; remainingSeconds?: number; entryName?: string } | null;
+          if (!resp?.code) return;
+          iframe.contentWindow?.postMessage(
+            { type: 'FILL_TOTP_UPDATE', totp: resp },
+            browser.runtime.getURL(''),
+          );
+        })
+        .catch(() => {});
+      return;
+    }
     if (msg.type === 'FILL_SELECTED' && msg.entryId) {
       browser.runtime
         .sendMessage({ type: 'FILL_ENTRY', payload: { entryId: msg.entryId } })
-        .then((resp: { username?: string; password?: string; locked?: boolean }) => {
+        .then((r: unknown) => {
+          const resp = (r ?? {}) as { username?: string; password?: string; locked?: boolean; totpCode?: string };
           if (resp.locked) return;
           handlers.onFillMatch(resp.username ?? '', resp.password ?? '');
+          if (resp.totpCode) {
+            // The entry has a 2FA secret: let the iframe copy the current code
+            // to the clipboard (extension-origin document, real user gesture)
+            // and show a short "code copied" flash; it dismisses itself after.
+            iframe.contentWindow?.postMessage(
+              { type: 'FILL_TOTP_COPY', code: resp.totpCode },
+              browser.runtime.getURL(''),
+            );
+            return; // keep the handler alive for the iframe's FILL_DISMISS
+          }
           removeFillIframe();
+          window.removeEventListener('message', handler);
         });
+    } else if (msg.type === 'FILL_TOTP_SELECTED' && typeof msg.code === 'string') {
+      handlers.onFillTotp?.(msg.code);
+      removeFillIframe();
       window.removeEventListener('message', handler);
     } else if (msg.type === 'FILL_USE_GENERATED' && typeof msg.password === 'string') {
       handlers.onUseGenerated(msg.password);

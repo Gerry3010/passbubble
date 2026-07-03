@@ -31,9 +31,18 @@ function LockGlyph() {
   );
 }
 
+interface TotpInfo {
+  code: string;
+  remainingSeconds: number;
+  entryName?: string;
+}
+
 export function FillSuggestion() {
   const [matches, setMatches] = useState<EntryResponse[]>([]);
   const [generatePassword, setGeneratePassword] = useState<string | undefined>(undefined);
+  const [totp, setTotp] = useState<TotpInfo | undefined>(undefined);
+  const [remaining, setRemaining] = useState(0);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -43,7 +52,20 @@ export function FillSuggestion() {
   useLayoutEffect(() => {
     const h = rootRef.current?.getBoundingClientRect().height ?? 0;
     if (h > 0) window.parent.postMessage({ type: 'FILL_RESIZE', height: h }, '*');
-  }, [matches, generatePassword, locked]);
+  }, [matches, generatePassword, totp, copiedCode, locked]);
+
+  // TOTP countdown. When it runs out, ask the embedder once for the next code
+  // (FILL_TOTP_UPDATE arrives if the vault can still produce one).
+  useEffect(() => {
+    if (!totp) return;
+    const iv = setInterval(() => {
+      setRemaining((r) => {
+        if (r === 1) window.parent.postMessage({ type: 'FILL_TOTP_REFRESH' }, '*');
+        return Math.max(0, r - 1);
+      });
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [totp]);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
@@ -57,14 +79,28 @@ export function FillSuggestion() {
         type: string;
         matches?: EntryResponse[];
         generatePassword?: string;
+        totp?: TotpInfo;
+        code?: string;
         locked?: boolean;
         loggedIn?: boolean;
       };
       if (msg.type === 'FILL_INIT') {
         setMatches(Array.isArray(msg.matches) ? msg.matches : []);
         setGeneratePassword(msg.generatePassword);
+        setTotp(msg.totp);
+        setRemaining(msg.totp?.remainingSeconds ?? 0);
         setLocked(!!msg.locked);
         setLoggedIn(!!msg.loggedIn);
+      } else if (msg.type === 'FILL_TOTP_UPDATE' && msg.totp?.code) {
+        setTotp(msg.totp);
+        setRemaining(msg.totp.remainingSeconds ?? 0);
+      } else if (msg.type === 'FILL_TOTP_COPY' && typeof msg.code === 'string') {
+        // A login fill resolved an entry that also has a 2FA secret: copy the
+        // current code (extension-origin document + fresh user gesture) and show
+        // a short confirmation before dismissing ourselves.
+        navigator.clipboard?.writeText(msg.code).catch(() => {});
+        setCopiedCode(msg.code);
+        setTimeout(() => window.parent.postMessage({ type: 'FILL_DISMISS' }, '*'), 1800);
       }
     }
     window.addEventListener('message', handleMessage);
@@ -91,8 +127,14 @@ export function FillSuggestion() {
     window.parent.postMessage({ type: 'FILL_DISMISS' }, '*');
   }
 
+  function useTotp() {
+    if (!totp) return;
+    navigator.clipboard?.writeText(totp.code).catch(() => {});
+    window.parent.postMessage({ type: 'FILL_TOTP_SELECTED', code: totp.code }, '*');
+  }
+
   const isGenerate = typeof generatePassword === 'string';
-  const title = locked ? 'locked' : isGenerate ? 'generate' : 'fill';
+  const title = copiedCode ? '2fa' : locked ? 'locked' : isGenerate ? 'generate' : totp ? '2fa' : 'fill';
 
   return (
     <div
@@ -124,7 +166,14 @@ export function FillSuggestion() {
           ×
         </button>
       </div>
-      {locked ? (
+      {copiedCode ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <span style={{ color: term.green, fontSize: '13px', fontWeight: 700 }}>✓ 2FA code copied</span>
+          <span style={{ color: term.muted, fontSize: '12px' }}>
+            {copiedCode.replace(/^(\d{3})(\d+)$/, '$1 $2')} — paste it into the verification field.
+          </span>
+        </div>
+      ) : locked ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <span style={{ color: term.muted, fontSize: '12px' }}>
             {loggedIn ? 'Vault locked' : 'Not signed in'} — unlock to fill your logins.
@@ -188,6 +237,48 @@ export function FillSuggestion() {
             Use &amp; save
           </button>
           <span style={{ color: term.muted, fontSize: '11px' }}>Fills the password and saves a new entry.</span>
+        </div>
+      ) : totp ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {totp.entryName && (
+            <span style={{ color: term.muted, fontSize: '11px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+              {totp.entryName}
+            </span>
+          )}
+          <button
+            onClick={useTotp}
+            title="Fill this code"
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '6px 8px',
+              border: `1px solid ${term.border}`,
+              borderRadius: '4px',
+              background: term.surface,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              fontFamily: term.font,
+            }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = term.green)}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = term.border)}
+          >
+            <span style={{ color: term.green, fontSize: '18px', fontWeight: 700, letterSpacing: '2px' }}>
+              {totp.code.replace(/^(\d{3})(\d+)$/, '$1 $2')}
+            </span>
+            <span
+              style={{
+                color: remaining <= 5 ? term.amber : term.muted,
+                fontSize: '11px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {remaining}s
+            </span>
+          </button>
+          <span style={{ color: term.muted, fontSize: '11px' }}>Click to fill &amp; copy the 2FA code.</span>
         </div>
       ) : matches.length === 0 ? (
         <p style={{ color: term.muted, fontSize: '12px', margin: 0 }}>No matching entries</p>

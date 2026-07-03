@@ -60,3 +60,21 @@ export function getLoginFrameHost(tabId: number): string {
 export function clearLoginFrameHost(tabId: number): void {
   loginFrameHostByTab.delete(tabId);
 }
+
+// The entry most recently filled into each tab. Used to pick the right TOTP
+// code right after a login fill — the 2FA page often no longer matches the
+// entry's URL patterns (different path/subdomain), but it is almost always the
+// entry that was just filled. Cleared on tab navigation/close.
+const lastFilledEntryByTab = new Map<number, string>();
+
+export function setLastFilledEntry(tabId: number, entryId: string): void {
+  if (entryId) lastFilledEntryByTab.set(tabId, entryId);
+}
+
+export function getLastFilledEntry(tabId: number): string {
+  return lastFilledEntryByTab.get(tabId) ?? '';
+}
+
+export function clearLastFilledEntry(tabId: number): void {
+  lastFilledEntryByTab.delete(tabId);
+}

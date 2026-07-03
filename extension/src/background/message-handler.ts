@@ -23,6 +23,7 @@ import {
   decryptEntry,
   encryptEntry,
   createEntry,
+  generateTotp,
   deriveKey,
   aesGcmDecrypt,
   wrapMasterKeyWithPin,
@@ -45,9 +46,11 @@ import {
 import {
   clearSession,
   getEntriesCache,
+  getLastFilledEntry,
   getLoginFrameHost,
   getSession,
   setEntriesCache,
+  setLastFilledEntry,
   setLoginFrameHost,
   setSession,
 } from './session-store.js';
@@ -653,14 +656,56 @@ export function buildHandlers(): Record<string, Handler> {
       return { usernames };
     },
 
-    [MessageType.FILL_ENTRY]: async (payload) => {
+    [MessageType.FILL_ENTRY]: async (payload, sender) => {
       const session = getSession();
       if (!session) return { locked: true };
       const { entryId } = payload as { entryId: string };
       const client = makeClient(session.serverUrl, session.accessToken);
       const apiEntry = await client.getEntry(entryId);
       const data = await decryptEntry(apiEntry, session);
-      return { username: data.username ?? '', password: data.password ?? '' };
+      // Remember the fill per tab so the 2FA step that usually follows can find
+      // this entry's TOTP code even when the 2FA page's URL no longer matches.
+      const tabId = sender?.tab?.id;
+      if (typeof tabId === 'number') setLastFilledEntry(tabId, entryId);
+      // When the entry has a TOTP secret, hand the current code along — the fill
+      // UI copies it to the clipboard so it's ready for the 2FA prompt. Only the
+      // short-lived code leaves the background, never the secret.
+      let totpCode = '';
+      if (data.totp_secret) {
+        try {
+          totpCode = (await generateTotp(data.totp_secret, { period: data.period, digits: data.digits })).code;
+        } catch {
+          // malformed secret — fill username/password anyway
+        }
+      }
+      return { username: data.username ?? '', password: data.password ?? '', totpCode };
+    },
+
+    // The current TOTP code for the entry relevant to `url`: preferably the
+    // entry just filled in this tab (the 2FA page often matches no URL pattern),
+    // otherwise the first URL match that has a TOTP secret.
+    [MessageType.GET_TOTP_FOR_URL]: async (payload, sender) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { url } = payload as { url: string };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const tabId = sender?.tab?.id;
+      const lastFilled = typeof tabId === 'number' ? getLastFilledEntry(tabId) : '';
+      const cache = getEntriesCache();
+      const matchIds = cache ? matchEntriesForUrl(url, cache).map((m) => m.id) : [];
+      const tryIds = [...new Set([...(lastFilled ? [lastFilled] : []), ...matchIds])];
+      for (const id of tryIds) {
+        try {
+          const apiEntry = await client.getEntry(id);
+          const data = await decryptEntry(apiEntry, session);
+          if (!data.totp_secret) continue;
+          const r = await generateTotp(data.totp_secret, { period: data.period, digits: data.digits });
+          return { code: r.code, remainingSeconds: r.secondsRemaining, entryName: apiEntry.name };
+        } catch {
+          // skip entries we cannot read or with malformed secrets
+        }
+      }
+      return { code: '' };
     },
 
     // The content script (running in the frame that has a login form) reports

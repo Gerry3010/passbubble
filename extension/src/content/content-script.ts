@@ -19,6 +19,7 @@
 import browser from 'webextension-polyfill';
 import { MessageType } from '../shared/constants.js';
 import { detectLoginForms, type DetectedForm } from './form-detector.js';
+import { classifyOtpField } from './field-classifier.js';
 import { injectFillIframe, removeFillIframe, isFillIframeShown } from './fill-ui.js';
 import { initSaveDetector, recoverPendingSave } from './save-detector.js';
 
@@ -212,6 +213,34 @@ async function showFillFor(form: DetectedForm): Promise<void> {
   );
 }
 
+// Offer the current TOTP code on a focused one-time-code field. The background
+// picks the entry (the one just filled in this tab, or a URL match with a 2FA
+// secret) and returns only the short-lived code — never the secret.
+async function showTotpFor(field: HTMLInputElement): Promise<void> {
+  if (isFillIframeShown(field)) return;
+  const resp = await safeSend<{
+    code?: string;
+    remainingSeconds?: number;
+    entryName?: string;
+    locked?: boolean;
+  }>({ type: MessageType.GET_TOTP_FOR_URL, payload: { url: location.href } });
+  if (!resp?.code) return;
+  // Still focused? (activeElement is checked on the field's own root so fields
+  // inside open shadow roots compare correctly.)
+  const root = field.getRootNode() as Document | ShadowRoot;
+  if (root.activeElement !== field) return;
+  injectFillIframe(
+    field,
+    { totp: { code: resp.code, remainingSeconds: resp.remainingSeconds ?? 0, entryName: resp.entryName } },
+    {
+      onFillMatch: () => {},
+      onUseGenerated: () => {},
+      onFillTotp: (code) => fillField(field, code),
+      onDismiss: () => {},
+    },
+  );
+}
+
 // Show on focus of a login field (like a real password manager) rather than on
 // mere presence — otherwise the box re-appears after every fill/dismiss.
 function onFocusIn(e: FocusEvent): void {
@@ -220,7 +249,13 @@ function onFocusIn(e: FocusEvent): void {
     return;
   }
   const form = loginFormFor(e.target);
-  if (form) void showFillFor(form);
+  if (form) {
+    void showFillFor(form);
+    return;
+  }
+  const path = e.composedPath?.();
+  const target = (path && path[0]) ?? e.target;
+  if (target instanceof HTMLInputElement && classifyOtpField(target)) void showTotpFor(target);
 }
 
 // Dismiss when pressing outside the suggestion AND outside a login field (so

@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect } from 'vitest';
-import { base32Decode, generateTotp } from '../totp.js';
+import { base32Decode, generateTotp, parseOtpauthUri } from '../totp.js';
 
 describe('TOTP', () => {
   it('decodes base32 (RFC 4648 "Hello!")', () => {
@@ -40,5 +40,48 @@ describe('TOTP', () => {
     const { secondsRemaining } = await generateTotp('JBSWY3DPEHPK3PXP', {}, 0);
     expect(secondsRemaining).toBeGreaterThan(0);
     expect(secondsRemaining).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('parseOtpauthUri', () => {
+  it('parses a full otpauth URI', () => {
+    const p = parseOtpauthUri(
+      'otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=GitHub&digits=6&period=30&algorithm=SHA1',
+    );
+    expect(p).toEqual({
+      secret: 'JBSWY3DPEHPK3PXP',
+      label: 'GitHub:alice',
+      issuer: 'GitHub',
+      digits: 6,
+      period: 30,
+      algorithm: 'SHA1',
+    });
+  });
+
+  it('derives the issuer from the label when the param is missing', () => {
+    const p = parseOtpauthUri('otpauth://totp/Example:bob%40example.com?secret=JBSWY3DPEHPK3PXP');
+    expect(p?.issuer).toBe('Example');
+    expect(p?.label).toBe('Example:bob@example.com');
+  });
+
+  it('leaves optional params undefined when absent', () => {
+    const p = parseOtpauthUri('otpauth://totp/plain?secret=JBSWY3DPEHPK3PXP');
+    expect(p).toMatchObject({ secret: 'JBSWY3DPEHPK3PXP', label: 'plain' });
+    expect(p?.digits).toBeUndefined();
+    expect(p?.period).toBeUndefined();
+  });
+
+  it('rejects hotp URIs', () => {
+    expect(parseOtpauthUri('otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP&counter=1')).toBeNull();
+  });
+
+  it('rejects a missing or invalid base32 secret', () => {
+    expect(parseOtpauthUri('otpauth://totp/x')).toBeNull();
+    expect(parseOtpauthUri('otpauth://totp/x?secret=notbase32!!')).toBeNull();
+  });
+
+  it('rejects non-otpauth strings', () => {
+    expect(parseOtpauthUri('https://example.com')).toBeNull();
+    expect(parseOtpauthUri('JBSWY3DPEHPK3PXP')).toBeNull();
   });
 });

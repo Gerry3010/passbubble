@@ -17,7 +17,7 @@
 // All E2E crypto operations run here; never in content scripts or popup.
 
 import browser from 'webextension-polyfill';
-import { getSession, setSession, clearLoginFrameHost } from './session-store.js';
+import { getSession, setSession, clearLoginFrameHost, clearLastFilledEntry } from './session-store.js';
 import { buildHandlers, touchActivity, maybeAutoLock } from './message-handler.js';
 import { registerBasicAuthHandler } from './basic-auth.js';
 import { savePinRefreshToken } from './pin-store.js';
@@ -69,11 +69,16 @@ browser.runtime.onMessage.addListener((message, sender) => {
 });
 
 // Forget a tab's recorded login-frame host when it navigates away or closes, so
-// the popup never pre-fills a stale host.
+// the popup never pre-fills a stale host. The last-filled entry deliberately
+// survives same-tab navigations (login → 2FA page needs it) and is only dropped
+// when the tab closes.
 browser.tabs.onUpdated.addListener((tabId, info) => {
   if (info.status === 'loading') clearLoginFrameHost(tabId);
 });
-browser.tabs.onRemoved.addListener((tabId) => clearLoginFrameHost(tabId));
+browser.tabs.onRemoved.addListener((tabId) => {
+  clearLoginFrameHost(tabId);
+  clearLastFilledEntry(tabId);
+});
 
 // Idle auto-lock: a recurring 1-minute alarm checks how long ago the vault was
 // last used and drops the in-memory session once the configured timeout elapses.

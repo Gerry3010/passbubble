@@ -39,6 +39,10 @@ export const MessageType = {
   // Autofill
   GET_MATCHES_FOR_URL: 'GET_MATCHES_FOR_URL',
   FILL_ENTRY: 'FILL_ENTRY',
+  // Current TOTP code for the entry relevant to a URL (prefers the entry that
+  // was just filled in the sender's tab). The secret never leaves the background
+  // — only the short-lived code and its remaining lifetime are returned.
+  GET_TOTP_FOR_URL: 'GET_TOTP_FOR_URL',
   // Content script reports the host of the frame that has the login form (e.g. an
   // SSO iframe); the popup queries it to pre-fill search + the "+ Site" toggle.
   REPORT_LOGIN_FRAME: 'REPORT_LOGIN_FRAME',

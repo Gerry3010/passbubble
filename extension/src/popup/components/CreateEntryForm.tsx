@@ -15,14 +15,42 @@
 
 import { useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
+import { base32Decode, parseOtpauthUri } from '@passbubble/shared-ts';
+import type { EntryData } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
 import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled } from '../../shared/theme.js';
+
+// Accepts a 2FA setup value as pasted by the user — either an otpauth:// URI
+// (the QR-code payload) or a bare base32 secret — and returns the EntryData
+// TOTP fields, or null when the value is not usable.
+function parseTotpInput(raw: string): Partial<EntryData> | null {
+  const value = raw.trim();
+  if (!value) return {};
+  const parsed = parseOtpauthUri(value);
+  if (parsed) {
+    return {
+      totp_secret: parsed.secret,
+      issuer: parsed.issuer,
+      period: parsed.period,
+      digits: parsed.digits,
+      algorithm: parsed.algorithm,
+    };
+  }
+  const secret = value.replace(/[\s-]/g, '').toUpperCase();
+  try {
+    base32Decode(secret);
+  } catch {
+    return null;
+  }
+  return { totp_secret: secret };
+}
 
 export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [totp, setTotp] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,12 +91,17 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
       setError('Name is required');
       return;
     }
+    const totpFields = parseTotpInput(totp);
+    if (totpFields === null) {
+      setError('2FA secret is not a valid base32 string or otpauth:// URI');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const resp = (await browser.runtime.sendMessage({
         type: MessageType.CREATE_ENTRY,
-        payload: { name: name.trim(), type: 'password', url, data: { username, password } },
+        payload: { name: name.trim(), type: 'password', url, data: { username, password, ...totpFields } },
       })) as { locked?: boolean };
       if (resp?.locked) {
         setError('Vault is locked');
@@ -103,6 +136,15 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
           Generate
         </button>
       </div>
+      <input
+        style={input}
+        placeholder="2FA secret (base32 or otpauth:// URI, optional)"
+        value={totp}
+        onChange={(e) => setTotp(e.target.value)}
+      />
+      {totp.trim() && parseTotpInput(totp) !== null && (
+        <span style={{ color: term.muted, fontSize: '11px' }}>2FA codes will be offered on this site's login.</span>
+      )}
       <button
         type="submit"
         disabled={busy}
