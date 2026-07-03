@@ -14,10 +14,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Per-site "you sign in here with <provider>" memory. Device-local
-// (storage.local, never synced to the backend): this is browsing-pattern
-// metadata, not a vault secret. Records are written when an OAuth
-// authorization navigation is observed — a content-script click candidate
-// alone is only a hint, confirmed by the navigation that follows it.
+// (storage.local): records are written when an OAuth authorization navigation
+// is observed — a content-script click candidate alone is only a hint,
+// confirmed by the navigation that follows it. Cross-device persistence
+// happens via the recorded-hook (sso-entry.ts writes the provider into the
+// matching entry's encrypted data); this local store remains the fallback for
+// sites without a vault entry.
 
 import browser from 'webextension-polyfill';
 import { STORAGE_KEYS } from '../shared/constants.js';
@@ -74,6 +76,15 @@ export async function getSsoRecord(host: string): Promise<SsoRecord | null> {
   return memory[host] ?? null;
 }
 
+// Invoked after a confirmed SSO use so the provider can also be persisted
+// into matching vault entries. Registered by the service worker; absent in
+// unit tests, so recording stays side-effect free there.
+let onSsoRecorded: ((host: string, provider: SsoProvider) => void) | null = null;
+
+export function setSsoRecordedHook(hook: (host: string, provider: SsoProvider) => void): void {
+  onSsoRecorded = hook;
+}
+
 export async function recordSsoUse(host: string, provider: SsoProvider): Promise<void> {
   if (!host) return;
   const memory = await readMemory();
@@ -84,6 +95,7 @@ export async function recordSsoUse(host: string, provider: SsoProvider): Promise
     hits: prev?.provider === provider ? prev.hits + 1 : 1,
   };
   await writeMemory(memory);
+  onSsoRecorded?.(host, provider);
 }
 
 export async function deleteSsoRecord(host: string): Promise<void> {

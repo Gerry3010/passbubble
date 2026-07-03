@@ -18,6 +18,7 @@ import browser from 'webextension-polyfill';
 import { generateTotp } from '@passbubble/shared-ts';
 import type { EntryData, EntryResponse } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
+import { isSsoProvider, SSO_PROVIDER_LABELS } from '../../shared/sso.js';
 import { term, link, muted, errorText } from '../../shared/theme.js';
 
 export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: () => void }) {
@@ -77,6 +78,11 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
       {data && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {data.username && <Field label="Username" value={data.username} onCopy={() => copy(data.username!)} />}
+          {isSsoProvider(data.sign_in_with) && (
+            <div style={{ color: term.muted, fontSize: '12px' }}>
+              → Signs in with <b style={{ color: term.text }}>{SSO_PROVIDER_LABELS[data.sign_in_with]}</b>
+            </div>
+          )}
           {data.password && (
             <Field
               label="Password"

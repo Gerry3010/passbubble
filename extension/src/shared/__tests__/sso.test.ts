@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect } from 'vitest';
-import { providerFromText, providerForUrl } from '../sso.js';
+import { providerFromText, providerForUrl, isSsoProvider } from '../sso.js';
 
 describe('providerFromText', () => {
   it('recognises English "sign in with" buttons', () => {
@@ -64,5 +64,16 @@ describe('providerForUrl', () => {
     expect(providerForUrl('https://github.com/Gerry3010/passbubble')).toBeNull();
     expect(providerForUrl('https://mail.google.com/')).toBeNull();
     expect(providerForUrl('https://example.com/login/oauth/authorize')).toBeNull();
+  });
+});
+
+describe('isSsoProvider', () => {
+  it('accepts known providers from untyped entry data and rejects the rest', () => {
+    expect(isSsoProvider('google')).toBe(true);
+    expect(isSsoProvider('facebook')).toBe(true);
+    expect(isSsoProvider('okta')).toBe(false);
+    expect(isSsoProvider('')).toBe(false);
+    expect(isSsoProvider(undefined)).toBe(false);
+    expect(isSsoProvider(42)).toBe(false);
   });
 });

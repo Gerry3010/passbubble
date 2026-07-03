@@ -40,6 +40,9 @@ type EntryData struct {
 	Password   string `json:"password,omitempty"`
 	TOTPSecret string `json:"totp_secret,omitempty"`
 	Notes      string `json:"notes,omitempty"`
+	// "Sign in with <provider>" for SSO logins (google/apple/microsoft/…) —
+	// synced cross-device inside the encrypted data.
+	SignInWith string `json:"sign_in_with,omitempty"`
 
 	// TOTP metadata
 	Issuer    string `json:"issuer,omitempty"`

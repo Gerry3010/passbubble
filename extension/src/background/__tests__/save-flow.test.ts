@@ -222,8 +222,13 @@ describe('credential save flow', () => {
     expect(res.suggestUpdateId).toBeUndefined();
   });
 
-  it('UPDATE_SAVE re-encrypts the pending credentials and updates the entry', async () => {
+  it('UPDATE_SAVE merges the pending credentials into the existing data and updates the entry', async () => {
     const handlers = buildHandlers();
+    // The entry already carries fields beyond username/password — the update
+    // must preserve them, not overwrite the whole data blob.
+    decryptEntryMock.mockResolvedValue({
+      username: 'alice', password: 'oldpw', totp_secret: 'JBSWY3DP', sign_in_with: 'google',
+    });
     sessionStore[STORAGE_KEYS.PENDING_SAVE] = {
       name: 'Example', url: 'https://example.com/login', username: 'alice', password: 'newpw',
     };
@@ -232,6 +237,9 @@ describe('credential save flow', () => {
 
     expect(res.ok).toBe(true);
     expect(encryptEntryMock).toHaveBeenCalledTimes(1);
+    expect(encryptEntryMock.mock.calls[0][0]).toEqual({
+      username: 'alice', password: 'newpw', totp_secret: 'JBSWY3DP', sign_in_with: 'google',
+    });
     expect(updateEntryMock).toHaveBeenCalledWith('e1', {
       encrypted_data: 'ed',
       data_nonce: 'dn',

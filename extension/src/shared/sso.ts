@@ -26,6 +26,11 @@ export const SSO_PROVIDER_LABELS: Record<SsoProvider, string> = {
   facebook: 'Facebook',
 };
 
+/** Type guard for provider values read from entry data (untyped JSON). */
+export function isSsoProvider(value: unknown): value is SsoProvider {
+  return typeof value === 'string' && value in SSO_PROVIDER_LABELS;
+}
+
 const PROVIDER_NAME_RES: Array<[SsoProvider, RegExp]> = [
   ['google', /google/i],
   ['apple', /\bapple\b/i],

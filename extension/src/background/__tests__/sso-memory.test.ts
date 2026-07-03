@@ -37,6 +37,7 @@ import {
   deleteSsoRecord,
   noteSsoCandidate,
   handleNavigation,
+  setSsoRecordedHook,
 } from '../sso-memory.js';
 
 beforeEach(() => {
@@ -61,6 +62,17 @@ describe('sso record store', () => {
 
     await deleteSsoRecord('example.com');
     expect(await getSsoRecord('example.com')).toBeNull();
+  });
+
+  it('invokes the recorded hook so uses can be persisted into entries', async () => {
+    const hook = vi.fn();
+    setSsoRecordedHook(hook);
+    try {
+      await recordSsoUse('example.com', 'microsoft');
+      expect(hook).toHaveBeenCalledWith('example.com', 'microsoft');
+    } finally {
+      setSsoRecordedHook(() => {});
+    }
   });
 });
 

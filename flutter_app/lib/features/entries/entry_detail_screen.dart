@@ -338,6 +338,15 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
 
   // ── Type-specific field renderers ─────────────────────────────────────────
 
+  static String _ssoLabel(String provider) => switch (provider) {
+        'google' => 'Google',
+        'apple' => 'Apple',
+        'microsoft' => 'Microsoft',
+        'github' => 'GitHub',
+        'facebook' => 'Facebook',
+        _ => provider,
+      };
+
   List<Widget> _buildDecryptedFields(String type, Map<String, dynamic> d) {
     String? str(String key) {
       final v = d[key];
@@ -387,6 +396,8 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
           if (str('username') != null) _copyRow('Username', str('username')!),
           if (str('password') != null) _secretRow('Password', str('password')!),
           if (str('totp_secret') != null) _secretRow('TOTP Secret', str('totp_secret')!),
+          if (str('sign_in_with') != null)
+            _infoRow('Sign in with', _ssoLabel(str('sign_in_with')!)),
           ...common,
         ],
       'totp' => [

@@ -18,6 +18,7 @@ import browser from 'webextension-polyfill';
 import { base32Decode, parseOtpauthUri } from '@passbubble/shared-ts';
 import type { EntryData } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
+import { SSO_PROVIDER_LABELS } from '../../shared/sso.js';
 import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled } from '../../shared/theme.js';
 
 // Accepts a 2FA setup value as pasted by the user — either an otpauth:// URI
@@ -111,7 +112,7 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
       case 'password': {
         const totpFields = parseTotpInput(totp);
         if (totpFields === null) return null;
-        return { ...pick('username', 'password', 'notes'), ...totpFields };
+        return { ...pick('username', 'password', 'notes', 'sign_in_with'), ...totpFields };
       }
       case 'credit-card':
         return pick('card_number', 'holder_name', 'expiry_month', 'expiry_year', 'cvv', 'notes');
@@ -216,6 +217,18 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
           {totp.trim() && parseTotpInput(totp) !== null && (
             <span style={{ color: term.muted, fontSize: '11px' }}>2FA codes will be offered on this site's login.</span>
           )}
+          <select
+            style={input}
+            value={f('sign_in_with')}
+            onChange={(e) => setFields((prev) => ({ ...prev, sign_in_with: e.target.value }))}
+          >
+            <option value="">Sign in with… (optional, for SSO logins)</option>
+            {Object.entries(SSO_PROVIDER_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                Sign in with {label}
+              </option>
+            ))}
+          </select>
         </>
       )}
 

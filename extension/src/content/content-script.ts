@@ -200,7 +200,7 @@ async function showFillFor(form: DetectedForm): Promise<void> {
     }),
     safeSend<{ record?: { provider: SsoProvider } | null }>({
       type: MessageType.SSO_GET,
-      payload: { host: pageHost() },
+      payload: { host: pageHost(), url: location.href },
     }),
   ]);
   const matches = Array.isArray(matchResp) ? matchResp : [];

@@ -27,6 +27,10 @@ export interface EntryData {
   password?: string;
   totp_secret?: string;
   notes?: string;
+  // "Sign in with <provider>" for sites where the login is an SSO redirect
+  // (google | apple | microsoft | github | facebook). Lives in the encrypted
+  // data so it syncs across devices like any other entry field.
+  sign_in_with?: string;
   // TOTP metadata
   issuer?: string;
   period?: number;

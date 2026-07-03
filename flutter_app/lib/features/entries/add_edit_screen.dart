@@ -116,6 +116,12 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
 
   String _accountType = 'checking';
   String _titleValue = '';
+  String _signInWith = '';
+
+  /// Decrypted keys this form does not manage (e.g. TOTP metadata written by
+  /// other clients). Carried over verbatim on save so an edit here never
+  /// silently drops them.
+  Map<String, dynamic> _extraData = {};
 
   /// The folder the entry lives in. On create this seeds from the folder the
   /// user is currently browsing; on edit it is loaded from the entry and can be
@@ -189,6 +195,15 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         if (data.containsKey('title')) {
           setState(() => _titleValue = (data['title'] as String?) ?? '');
         }
+        if (data.containsKey('sign_in_with')) {
+          setState(() => _signInWith = (data['sign_in_with'] as String?) ?? '');
+        }
+        // Keep everything this form doesn't manage (see _extraData).
+        const managed = {..._allFields, 'account_type', 'sign_in_with', 'custom_fields'};
+        _extraData = {
+          for (final e in data.entries)
+            if (!managed.contains(e.key)) e.key: e.value,
+        };
         // Custom fields
         final raw = data['custom_fields'];
         if (raw is List) {
@@ -216,13 +231,16 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   // ── Collect all field values into encrypted data map ─────────────────────
 
   Map<String, dynamic> _collectData() {
-    final Map<String, dynamic> data = {};
+    final Map<String, dynamic> data = Map.of(_extraData);
     for (final key in _allFields) {
       final val = _ctrl[key]!.text.trim();
       if (val.isNotEmpty) data[key] = val;
     }
     if (_type == 'bank-account' && _accountType.isNotEmpty) {
       data['account_type'] = _accountType;
+    }
+    if (_type == 'password' && _signInWith.isNotEmpty) {
+      data['sign_in_with'] = _signInWith;
     }
     final cfList = <Map<String, dynamic>>[];
     for (final cf in _customFields) {
@@ -388,10 +406,36 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     };
   }
 
+  static const _ssoProviders = [
+    ('google', 'Google'),
+    ('apple', 'Apple'),
+    ('microsoft', 'Microsoft'),
+    ('github', 'GitHub'),
+    ('facebook', 'Facebook'),
+  ];
+
   List<Widget> _passwordFields() => [
     _field('username', 'Username', Icons.person_outline),
     _passwordField(),
     _field('totp_secret', 'TOTP Secret (optional, base32)', Icons.schedule),
+    Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: DropdownButtonFormField<String>(
+        key: ValueKey(_signInWith),
+        initialValue: _signInWith,
+        decoration: const InputDecoration(
+          labelText: 'Sign in with (SSO)',
+          prefixIcon: Icon(Icons.login_outlined),
+          border: OutlineInputBorder(),
+        ),
+        items: [
+          const DropdownMenuItem(value: '', child: Text('—')),
+          for (final (value, label) in _ssoProviders)
+            DropdownMenuItem(value: value, child: Text(label)),
+        ],
+        onChanged: (v) => setState(() => _signInWith = v ?? ''),
+      ),
+    ),
     _field('notes', 'Notes', Icons.notes, maxLines: 3),
   ];
 

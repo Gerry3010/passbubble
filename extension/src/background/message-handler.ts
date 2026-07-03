@@ -66,6 +66,7 @@ import {
 } from './pin-store.js';
 import { matchEntriesForUrl } from './autofill-service.js';
 import { deleteSsoRecord, getSsoRecord, noteSsoCandidate } from './sso-memory.js';
+import { persistSsoToEntries, ssoFromEntries } from './sso-entry.js';
 import type { SsoProvider } from '../shared/sso.js';
 import type { EntryData, LoginResponse, SessionInfo, UnlockedSession } from '@passbubble/shared-ts';
 
@@ -840,7 +841,10 @@ export function buildHandlers(): Record<string, Handler> {
 
     // "Sign in with …" memory. Candidates come from content-script clicks and
     // are confirmed by the OAuth navigation (sso-memory.ts); GET feeds the
-    // in-page badge; DELETE is the badge's "forget" affordance.
+    // in-page badge; DELETE is the badge's "forget" affordance. The canonical,
+    // cross-device store is the entry's encrypted sign_in_with field
+    // (sso-entry.ts) — the device-local record is the fallback, and is synced
+    // into matching entries opportunistically when the vault is unlocked.
     [MessageType.SSO_CANDIDATE]: async (payload) => {
       const { host, provider } = payload as { host: string; provider: SsoProvider };
       noteSsoCandidate(host, provider);
@@ -848,13 +852,20 @@ export function buildHandlers(): Record<string, Handler> {
     },
 
     [MessageType.SSO_GET]: async (payload) => {
-      const { host } = payload as { host: string };
-      return { record: await getSsoRecord(host) };
+      const { host, url } = payload as { host: string; url?: string };
+      const fromEntry = await ssoFromEntries(url || `https://${host}/`);
+      if (fromEntry) return { record: { provider: fromEntry.provider, source: 'entry' } };
+      const record = await getSsoRecord(host);
+      // A local-only record with an unlocked vault: promote it into matching
+      // entries so other devices pick it up (fire-and-forget; no-op if none).
+      if (record) void persistSsoToEntries(host, record.provider);
+      return { record };
     },
 
     [MessageType.SSO_DELETE]: async (payload) => {
       const { host } = payload as { host: string };
       await deleteSsoRecord(host);
+      await persistSsoToEntries(host, null);
       return { ok: true };
     },
 
@@ -1020,7 +1031,16 @@ export function buildHandlers(): Record<string, Handler> {
       if (!pending) return { ok: false };
 
       const client = makeClient(session.serverUrl, session.accessToken);
-      const data = { username: pending.username, password: pending.password } as EntryData;
+      // Merge into the entry's existing data — overwriting with just
+      // username+password would silently drop totp_secret, notes, sign_in_with….
+      let data: EntryData;
+      try {
+        data = (await decryptEntry(await client.getEntry(entryId), session)) ?? {};
+      } catch {
+        data = {};
+      }
+      data.username = pending.username;
+      data.password = pending.password;
       const encrypted = await encryptEntry(data, session);
       await client.updateEntry(entryId, { ...encrypted });
       setEntriesCache(await client.listEntries());

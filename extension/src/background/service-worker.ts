@@ -20,7 +20,8 @@ import browser from 'webextension-polyfill';
 import { getSession, setSession, clearLoginFrameHost, clearLastFilledEntry } from './session-store.js';
 import { buildHandlers, touchActivity, maybeAutoLock } from './message-handler.js';
 import { registerBasicAuthHandler } from './basic-auth.js';
-import { initSsoMemory } from './sso-memory.js';
+import { initSsoMemory, setSsoRecordedHook } from './sso-memory.js';
+import { persistSsoToEntries } from './sso-entry.js';
 import { savePinRefreshToken } from './pin-store.js';
 import { PassbubbleClient } from '@passbubble/shared-ts';
 import { MessageType, STORAGE_KEYS, AUTO_LOCK_ALARM } from '../shared/constants.js';
@@ -32,8 +33,11 @@ const handlers = buildHandlers();
 registerBasicAuthHandler();
 
 // "Sign in with …" memory: watch OAuth authorization navigations to remember
-// which SSO provider each site is signed into with.
+// which SSO provider each site is signed into with. Confirmed uses also land
+// in the matching entry's encrypted sign_in_with field so the memory syncs
+// cross-device (no-op while the vault is locked).
 initSsoMemory();
+setSsoRecordedHook((host, provider) => void persistSsoToEntries(host, provider));
 
 // Messages that count as "the user is actively using the vault" — receiving one
 // restarts the idle auto-lock countdown. Passive background traffic (autofill

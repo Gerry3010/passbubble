@@ -387,9 +387,6 @@ func collectEntryData(entryType, username, notes, name string, v *vault.Vault) (
 		purchaseEmail, _ := promptInput("Purchase Email: ")
 		purchaseDate, _ := promptInput("Purchase Date (YYYY-MM-DD): ")
 		expiresAt, _ := promptInput("Expires At (YYYY-MM-DD, leave empty if perpetual): ")
-		if err := (error)(nil); err != nil {
-			return nil, err
-		}
 		data.ProductName = product
 		data.LicenseKey = key
 		data.PurchaseEmail = purchaseEmail
@@ -430,6 +427,7 @@ func printEntry(e *vault.Entry) {
 	// Common
 	printField("Username", d.Username)
 	printField("Password", d.Password)
+	printField("Sign in with", d.SignInWith)
 
 	// TOTP
 	printField("TOTP Secret", d.TOTPSecret)
