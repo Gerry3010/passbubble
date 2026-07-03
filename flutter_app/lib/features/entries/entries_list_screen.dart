@@ -37,13 +37,12 @@ final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
   return ref.watch(apiClientProvider).listEntries();
 });
 
-/// Decrypted usernames keyed by entry id, so the list can be searched by
-/// username (usernames are E2E-encrypted and absent from the metadata list).
-/// Only usernames are decrypted — never passwords. Best-effort: an entry that
-/// fails to decrypt is simply omitted from the index.
-final usernameIndexProvider = FutureProvider<Map<String, String>>((ref) async {
-  // Recompute whenever the entry list is invalidated (create/edit/delete/refresh),
-  // so the username search index never goes stale.
+/// Decrypted, searchable text per entry id — username plus the non-secret
+/// typed fields (email, names, company, phone, notes, custom-field labels/
+/// values, cardholder, IBAN last-4), lowercased and joined. Passwords, CVVs,
+/// full card/IBAN numbers and TOTP secrets are deliberately NOT indexed.
+/// In-memory only; recomputed whenever the entry list is invalidated.
+final searchIndexProvider = FutureProvider<Map<String, String>>((ref) async {
   ref.watch(entriesProvider);
   final api = ref.watch(apiClientProvider);
   final authSvc = ref.watch(authServiceProvider);
@@ -58,8 +57,37 @@ final usernameIndexProvider = FutureProvider<Map<String, String>>((ref) async {
       final dataKey = await VaultCrypto.decryptDataKey(encKey.encryptedKey, privX, privM);
       final data = await VaultCrypto.decryptEntryData(
           e.encryptedData, Uint8List.fromList(dataKey));
-      final username = data['username'];
-      if (username is String && username.isNotEmpty) index[e.id] = username;
+      final parts = <String>[];
+      for (final key in const [
+        'username', 'account', 'email', 'title', 'first_name', 'last_name',
+        'company', 'phone', 'street', 'city', 'postal_code', 'country',
+        'holder_name', 'bank_name', 'issuer', 'product_name',
+        'purchase_email', 'notes',
+      ]) {
+        final v = data[key];
+        if (v is String && v.isNotEmpty) parts.add(v);
+      }
+      // Last 4 digits are enough to find a card/account without indexing
+      // the full number.
+      for (final key in const ['card_number', 'iban', 'account_number']) {
+        final v = data[key];
+        if (v is String && v.length >= 4) {
+          parts.add(v.replaceAll(RegExp(r'\s'), '').substring(
+              v.replaceAll(RegExp(r'\s'), '').length - 4));
+        }
+      }
+      final custom = data['custom_fields'];
+      if (custom is List) {
+        for (final cf in custom) {
+          if (cf is Map) {
+            final label = cf['label'];
+            final value = cf['value'];
+            if (label is String && label.isNotEmpty) parts.add(label);
+            if (value is String && value.isNotEmpty) parts.add(value);
+          }
+        }
+      }
+      if (parts.isNotEmpty) index[e.id] = parts.join(' ').toLowerCase();
     } catch (_) {
       // skip entries we cannot read
     }
@@ -801,12 +829,13 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
 
   List<EntryResponse> _searchEntries(List<EntryResponse> all) {
     final q = _searchQuery.toLowerCase();
-    final usernames = ref.read(usernameIndexProvider).valueOrNull ?? const <String, String>{};
+    final searchIndex =
+        ref.read(searchIndexProvider).valueOrNull ?? const <String, String>{};
     return all
         .where((e) =>
             e.name.toLowerCase().contains(q) ||
             e.url.toLowerCase().contains(q) ||
-            (usernames[e.id]?.toLowerCase().contains(q) ?? false))
+            (searchIndex[e.id]?.contains(q) ?? false))
         .toList();
   }
 
@@ -816,7 +845,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     final entriesAsync = ref.watch(entriesProvider);
     // Load the username index so search can match usernames and the list
     // rebuilds once decryption completes.
-    ref.watch(usernameIndexProvider);
+    ref.watch(searchIndexProvider);
     final allEntries =
         entriesAsync.valueOrNull ?? const <EntryResponse>[];
 
