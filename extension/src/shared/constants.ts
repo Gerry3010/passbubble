@@ -43,6 +43,11 @@ export const MessageType = {
   // was just filled in the sender's tab). The secret never leaves the background
   // — only the short-lived code and its remaining lifetime are returned.
   GET_TOTP_FOR_URL: 'GET_TOTP_FOR_URL',
+  // Typed autofill (credit cards / identities): list entries of a type with a
+  // non-secret display hint, and fetch one entry's decrypted field map to fill
+  // a checkout/address form.
+  GET_ENTRIES_BY_TYPE: 'GET_ENTRIES_BY_TYPE',
+  FILL_TYPED_ENTRY: 'FILL_TYPED_ENTRY',
   // Content script reports the host of the frame that has the login form (e.g. an
   // SSO iframe); the popup queries it to pre-fill search + the "+ Site" toggle.
   REPORT_LOGIN_FRAME: 'REPORT_LOGIN_FRAME',

@@ -30,6 +30,7 @@ import '../../features/entries/add_edit_screen.dart';
 import '../../features/generate/generate_screen.dart';
 import '../../features/manage/manage_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/wallet/wallet_screen.dart';
 import '../../features/settings/update_screen.dart';
 
 /// The route the app was launched with, captured once at process start.
@@ -126,6 +127,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: 'new',
             builder: (_, state) => AddEditScreen(
               folderId: state.uri.queryParameters['folderId'],
+              initialType: state.uri.queryParameters['type'],
             ),
           ),
           GoRoute(
@@ -140,6 +142,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
+      GoRoute(path: '/wallet', builder: (_, _) => const WalletScreen()),
       GoRoute(path: '/generate', builder: (_, _) => const GenerateScreen()),
       GoRoute(
         path: '/manage',

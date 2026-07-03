@@ -176,7 +176,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      bottomNavigationBar: const PbBottomNav(currentIndex: 3),
+      bottomNavigationBar: const PbBottomNav(currentIndex: 4),
     );
   }
 

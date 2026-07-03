@@ -37,10 +37,16 @@ interface TotpInfo {
   entryName?: string;
 }
 
+interface TypedInfo {
+  entryType: string;
+  items: { id: string; name: string; hint: string }[];
+}
+
 export function FillSuggestion() {
   const [matches, setMatches] = useState<EntryResponse[]>([]);
   const [generatePassword, setGeneratePassword] = useState<string | undefined>(undefined);
   const [totp, setTotp] = useState<TotpInfo | undefined>(undefined);
+  const [typed, setTyped] = useState<TypedInfo | undefined>(undefined);
   const [remaining, setRemaining] = useState(0);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -52,7 +58,7 @@ export function FillSuggestion() {
   useLayoutEffect(() => {
     const h = rootRef.current?.getBoundingClientRect().height ?? 0;
     if (h > 0) window.parent.postMessage({ type: 'FILL_RESIZE', height: h }, '*');
-  }, [matches, generatePassword, totp, copiedCode, locked]);
+  }, [matches, generatePassword, totp, typed, copiedCode, locked]);
 
   // TOTP countdown. When it runs out, ask the embedder once for the next code
   // (FILL_TOTP_UPDATE arrives if the vault can still produce one).
@@ -80,6 +86,7 @@ export function FillSuggestion() {
         matches?: EntryResponse[];
         generatePassword?: string;
         totp?: TotpInfo;
+        typed?: TypedInfo;
         code?: string;
         locked?: boolean;
         loggedIn?: boolean;
@@ -88,6 +95,7 @@ export function FillSuggestion() {
         setMatches(Array.isArray(msg.matches) ? msg.matches : []);
         setGeneratePassword(msg.generatePassword);
         setTotp(msg.totp);
+        setTyped(msg.typed);
         setRemaining(msg.totp?.remainingSeconds ?? 0);
         setLocked(!!msg.locked);
         setLoggedIn(!!msg.loggedIn);
@@ -133,8 +141,24 @@ export function FillSuggestion() {
     window.parent.postMessage({ type: 'FILL_TOTP_SELECTED', code: totp.code }, '*');
   }
 
+  function selectTyped(entryId: string) {
+    window.parent.postMessage({ type: 'FILL_TYPED_SELECTED', entryId }, '*');
+  }
+
   const isGenerate = typeof generatePassword === 'string';
-  const title = copiedCode ? '2fa' : locked ? 'locked' : isGenerate ? 'generate' : totp ? '2fa' : 'fill';
+  const title = copiedCode
+    ? '2fa'
+    : locked
+      ? 'locked'
+      : isGenerate
+        ? 'generate'
+        : totp
+          ? '2fa'
+          : typed
+            ? typed.entryType === 'credit-card'
+              ? 'card'
+              : 'identity'
+            : 'fill';
 
   return (
     <div
@@ -280,6 +304,41 @@ export function FillSuggestion() {
           </button>
           <span style={{ color: term.muted, fontSize: '11px' }}>Click to fill &amp; copy the 2FA code.</span>
         </div>
+      ) : typed ? (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {typed.items.map((it) => (
+            <li key={it.id}>
+              <button
+                onClick={() => selectTyped(it.id)}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '6px 8px',
+                  border: `1px solid ${term.border}`,
+                  borderRadius: '4px',
+                  background: term.surface,
+                  color: term.green,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                  fontFamily: term.font,
+                }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = term.green)}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = term.border)}
+              >
+                <span style={{ fontWeight: 700, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                  {typed.entryType === 'credit-card' ? '💳 ' : '👤 '}
+                  {it.name}
+                </span>
+                {it.hint && (
+                  <span style={{ color: term.muted, fontSize: '11px', whiteSpace: 'nowrap' }}>{it.hint}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : matches.length === 0 ? (
         <p style={{ color: term.muted, fontSize: '12px', margin: 0 }}>No matching entries</p>
       ) : (

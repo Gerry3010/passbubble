@@ -71,7 +71,7 @@ class ManageScreen extends ConsumerWidget {
             JobsTab(),
           ],
         ),
-        bottomNavigationBar: const PbBottomNav(currentIndex: 2),
+        bottomNavigationBar: const PbBottomNav(currentIndex: 3),
       ),
     );
   }

@@ -45,14 +45,28 @@ function parseTotpInput(raw: string): Partial<EntryData> | null {
   return { totp_secret: secret };
 }
 
+const ENTRY_TYPES = [
+  { value: 'password', label: 'Login' },
+  { value: 'credit-card', label: 'Card' },
+  { value: 'identity', label: 'Identity' },
+  { value: 'note', label: 'Note' },
+] as const;
+
+type EntryType = (typeof ENTRY_TYPES)[number]['value'];
+
 export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
+  const [type, setType] = useState<EntryType>('password');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [totp, setTotp] = useState('');
+  // All other per-type values, keyed by their EntryData field name.
+  const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const f = (key: string) => fields[key] ?? '';
+  const setF = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setFields((prev) => ({ ...prev, [key]: e.target.value }));
 
   // Pre-fill URL (origin) and Name (page title) from the active tab, so adding
   // a login for the site you are on needs no typing. Only web pages (http/https)
@@ -79,9 +93,44 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
         payload: { length: 20, type: 'strong', count: 1 },
       })) as { passwords?: { password: string }[] };
       const pw = resp.passwords?.[0]?.password;
-      if (pw) setPassword(pw);
+      if (pw) setFields((prev) => ({ ...prev, password: pw }));
     } catch {
       // ignore — user can type one manually
+    }
+  }
+
+  // The EntryData payload for the selected type. Only that type's fields are
+  // sent, so switching the selector never leaks half-typed other-type values.
+  function buildData(): EntryData | null {
+    const pick = (...keys: string[]): EntryData => {
+      const out: Record<string, string> = {};
+      for (const k of keys) if (f(k).trim()) out[k] = f(k).trim();
+      return out as EntryData;
+    };
+    switch (type) {
+      case 'password': {
+        const totpFields = parseTotpInput(totp);
+        if (totpFields === null) return null;
+        return { ...pick('username', 'password', 'notes'), ...totpFields };
+      }
+      case 'credit-card':
+        return pick('card_number', 'holder_name', 'expiry_month', 'expiry_year', 'cvv', 'notes');
+      case 'identity':
+        return pick(
+          'title',
+          'first_name',
+          'last_name',
+          'company',
+          'email',
+          'phone',
+          'street',
+          'postal_code',
+          'city',
+          'state',
+          'country',
+        );
+      case 'note':
+        return pick('notes');
     }
   }
 
@@ -91,8 +140,8 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
       setError('Name is required');
       return;
     }
-    const totpFields = parseTotpInput(totp);
-    if (totpFields === null) {
+    const data = buildData();
+    if (data === null) {
       setError('2FA secret is not a valid base32 string or otpauth:// URI');
       return;
     }
@@ -101,7 +150,7 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
     try {
       const resp = (await browser.runtime.sendMessage({
         type: MessageType.CREATE_ENTRY,
-        payload: { name: name.trim(), type: 'password', url, data: { username, password, ...totpFields } },
+        payload: { name: name.trim(), type, url: type === 'password' ? url : '', data },
       })) as { locked?: boolean };
       if (resp?.locked) {
         setError('Vault is locked');
@@ -115,41 +164,101 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
     }
   }
 
+  const half = { ...input, flex: 1, minWidth: 0 };
+
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       <button type="button" onClick={onCancel} style={{ ...link, alignSelf: 'flex-start' }}>
         ‹ Back
       </button>
       <h3 style={{ margin: 0, fontSize: '15px', color: term.green }}># new entry</h3>
+
+      <div style={{ display: 'flex', gap: '4px' }}>
+        {ENTRY_TYPES.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => setType(t.value)}
+            style={
+              type === t.value
+                ? { ...buttonPrimary, padding: '4px 8px', fontSize: '11px', flex: 1 }
+                : { ...buttonGhost, padding: '4px 8px', fontSize: '11px', flex: 1 }
+            }
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {error && <p style={errorText}>{error}</p>}
       <input style={input} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-      <input style={input} placeholder="URL" value={url} onChange={(e) => setUrl(e.target.value)} />
-      <input style={input} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-      <div style={{ display: 'flex', gap: '6px' }}>
-        <input
-          style={input}
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <button type="button" onClick={() => void generate()} style={{ ...buttonGhost, padding: '0 10px', fontSize: '12px', whiteSpace: 'nowrap' }}>
-          Generate
-        </button>
-      </div>
-      <input
-        style={input}
-        placeholder="2FA secret (base32 or otpauth:// URI, optional)"
-        value={totp}
-        onChange={(e) => setTotp(e.target.value)}
-      />
-      {totp.trim() && parseTotpInput(totp) !== null && (
-        <span style={{ color: term.muted, fontSize: '11px' }}>2FA codes will be offered on this site's login.</span>
+
+      {type === 'password' && (
+        <>
+          <input style={input} placeholder="URL" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <input style={input} placeholder="Username" value={f('username')} onChange={setF('username')} />
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <input style={input} placeholder="Password" value={f('password')} onChange={setF('password')} />
+            <button
+              type="button"
+              onClick={() => void generate()}
+              style={{ ...buttonGhost, padding: '0 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+            >
+              Generate
+            </button>
+          </div>
+          <input
+            style={input}
+            placeholder="2FA secret (base32 or otpauth:// URI, optional)"
+            value={totp}
+            onChange={(e) => setTotp(e.target.value)}
+          />
+          {totp.trim() && parseTotpInput(totp) !== null && (
+            <span style={{ color: term.muted, fontSize: '11px' }}>2FA codes will be offered on this site's login.</span>
+          )}
+        </>
       )}
-      <button
-        type="submit"
-        disabled={busy}
-        style={withDisabled(buttonPrimary, busy)}
-      >
+
+      {type === 'credit-card' && (
+        <>
+          <input style={input} placeholder="Card number" value={f('card_number')} onChange={setF('card_number')} />
+          <input style={input} placeholder="Cardholder name" value={f('holder_name')} onChange={setF('holder_name')} />
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <input style={half} placeholder="MM" maxLength={2} value={f('expiry_month')} onChange={setF('expiry_month')} />
+            <input style={half} placeholder="YYYY" maxLength={4} value={f('expiry_year')} onChange={setF('expiry_year')} />
+            <input style={half} placeholder="CVV" maxLength={4} value={f('cvv')} onChange={setF('cvv')} />
+          </div>
+        </>
+      )}
+
+      {type === 'identity' && (
+        <>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <input style={half} placeholder="First name" value={f('first_name')} onChange={setF('first_name')} />
+            <input style={half} placeholder="Last name" value={f('last_name')} onChange={setF('last_name')} />
+          </div>
+          <input style={input} placeholder="Email" value={f('email')} onChange={setF('email')} />
+          <input style={input} placeholder="Phone" value={f('phone')} onChange={setF('phone')} />
+          <input style={input} placeholder="Street" value={f('street')} onChange={setF('street')} />
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <input style={half} placeholder="Postal code" value={f('postal_code')} onChange={setF('postal_code')} />
+            <input style={half} placeholder="City" value={f('city')} onChange={setF('city')} />
+          </div>
+          <input style={input} placeholder="Country" value={f('country')} onChange={setF('country')} />
+          <input style={input} placeholder="Company (optional)" value={f('company')} onChange={setF('company')} />
+        </>
+      )}
+
+      {(type === 'note' || type === 'credit-card') && (
+        <textarea
+          style={{ ...input, minHeight: type === 'note' ? '80px' : '40px', resize: 'vertical' }}
+          placeholder="Notes"
+          value={f('notes')}
+          onChange={setF('notes')}
+        />
+      )}
+
+      <button type="submit" disabled={busy} style={withDisabled(buttonPrimary, busy)}>
         {busy ? 'Saving…' : 'Save entry'}
       </button>
     </form>

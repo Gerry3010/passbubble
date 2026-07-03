@@ -232,17 +232,18 @@ function offer(creds: DetectedCredentials, render: boolean): void {
 // Only re-show when the pending save belongs to the page we are actually on, so
 // the bar never appears on an unrelated domain after a cross-site redirect.
 export async function recoverPendingSave(): Promise<void> {
-  let pending: {
+  interface PendingSave {
     url?: string;
     username?: string;
     candidates?: { id: string; username: string }[];
     suggestUpdateId?: string;
-  } | null = null;
+  }
+  let pending: PendingSave | null = null;
   try {
     pending = (await browser.runtime.sendMessage({
       type: MessageType.GET_PENDING_SAVE,
       payload: {},
-    })) as typeof pending;
+    })) as PendingSave | null;
   } catch {
     return; // background unreachable — nothing to restore
   }

@@ -40,6 +40,14 @@ export interface TotpSuggestion {
   entryName?: string;
 }
 
+export interface TypedSuggestion {
+  // 'credit-card' | 'identity'
+  entryType: string;
+  items: { id: string; name: string; hint: string }[];
+}
+
+export type TypedFillData = Record<string, string>;
+
 export interface FillPayload {
   // Match mode: existing entries to offer for a login form.
   matches?: EntryResponse[];
@@ -47,6 +55,8 @@ export interface FillPayload {
   generatePassword?: string;
   // TOTP mode: the current one-time code to offer on a 2FA field.
   totp?: TotpSuggestion;
+  // Typed mode: credit cards / identities to offer on a checkout/address form.
+  typed?: TypedSuggestion;
   // Locked mode: the vault is locked / logged out, so offer an "unlock" button
   // (which opens the toolbar popup) instead of suggestions.
   locked?: boolean;
@@ -61,6 +71,8 @@ export interface FillHandlers {
   onUseGenerated: (password: string) => void;
   // The offered TOTP code was accepted on a 2FA field.
   onFillTotp?: (code: string) => void;
+  // A card/identity entry was chosen (resolved to its field map via the background).
+  onFillTyped?: (entryType: string, data: TypedFillData) => void;
   onDismiss: () => void;
 }
 
@@ -103,6 +115,7 @@ export function injectFillIframe(
         matches: payload.matches ?? [],
         generatePassword: payload.generatePassword,
         totp: payload.totp,
+        typed: payload.typed,
         locked: payload.locked ?? false,
         loggedIn: payload.loggedIn ?? false,
       },
@@ -160,6 +173,16 @@ export function injectFillIframe(
             );
             return; // keep the handler alive for the iframe's FILL_DISMISS
           }
+          removeFillIframe();
+          window.removeEventListener('message', handler);
+        });
+    } else if (msg.type === 'FILL_TYPED_SELECTED' && msg.entryId) {
+      browser.runtime
+        .sendMessage({ type: MessageType.FILL_TYPED_ENTRY, payload: { entryId: msg.entryId } })
+        .then((r: unknown) => {
+          const resp = (r ?? {}) as { type?: string; data?: TypedFillData; locked?: boolean };
+          if (resp.locked || !resp.data) return;
+          handlers.onFillTyped?.(resp.type ?? '', resp.data);
           removeFillIframe();
           window.removeEventListener('message', handler);
         });

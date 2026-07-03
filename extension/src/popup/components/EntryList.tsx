@@ -238,6 +238,7 @@ function EntryItem({
           textOverflow: 'ellipsis',
         }}
       >
+        {typeIcon(entry.type)}
         {entry.name}
       </span>
       {entry.url && (
@@ -256,16 +257,22 @@ function EntryItem({
         </span>
       )}
       <div style={{ display: 'flex', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
-        <CopyButton
-          label={isCopiedUser ? 'Copied!' : 'Username'}
-          copied={isCopiedUser}
-          onClick={() => onCopy(entry.id, 'username')}
-        />
-        <CopyButton
-          label={isCopiedPw ? 'Copied!' : 'Password'}
-          copied={isCopiedPw}
-          onClick={() => onCopy(entry.id, 'password')}
-        />
+        {/* Username/password shortcuts only for login-ish types — cards,
+            identities and notes have neither. */}
+        {['password', 'api-key', 'ssh-key', 'totp'].includes(entry.type) && (
+          <>
+            <CopyButton
+              label={isCopiedUser ? 'Copied!' : 'Username'}
+              copied={isCopiedUser}
+              onClick={() => onCopy(entry.id, 'username')}
+            />
+            <CopyButton
+              label={isCopiedPw ? 'Copied!' : 'Password'}
+              copied={isCopiedPw}
+              onClick={() => onCopy(entry.id, 'password')}
+            />
+          </>
+        )}
         {onSelect && (
           <CopyButton label="Details" copied={false} onClick={() => onSelect(entry)} />
         )}
@@ -317,6 +324,28 @@ function EntryItem({
       )}
     </li>
   );
+}
+
+// Small type marker in front of the entry name; logins stay unmarked (they are
+// the default and the list would otherwise be a wall of keys).
+function typeIcon(type: string): string {
+  switch (type) {
+    case 'credit-card':
+      return '💳 ';
+    case 'bank-account':
+      return '🏦 ';
+    case 'identity':
+      return '👤 ';
+    case 'note':
+      return '📝 ';
+    case 'license':
+      return '📜 ';
+    case 'api-key':
+    case 'ssh-key':
+      return '⚙ ';
+    default:
+      return '';
+  }
 }
 
 function CopyButton({

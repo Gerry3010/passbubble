@@ -90,7 +90,11 @@ const _allTypes = [
 class AddEditScreen extends ConsumerStatefulWidget {
   final String? editId;
   final String? folderId;
-  const AddEditScreen({super.key, this.editId, this.folderId});
+
+  /// Pre-selects the entry type on create (e.g. the wallet's "new card"
+  /// shortcut passes 'credit-card'). Ignored on edit and for unknown types.
+  final String? initialType;
+  const AddEditScreen({super.key, this.editId, this.folderId, this.initialType});
 
   @override
   ConsumerState<AddEditScreen> createState() => _AddEditScreenState();
@@ -127,6 +131,9 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       for (final key in _allFields) key: TextEditingController(),
     };
     _selectedFolderId = widget.folderId;
+    if (!isEdit && _allTypes.any((t) => t.$1 == widget.initialType)) {
+      _type = widget.initialType!;
+    }
     if (isEdit) _loadEntry();
   }
 

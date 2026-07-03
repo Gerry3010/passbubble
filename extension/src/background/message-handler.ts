@@ -708,6 +708,70 @@ export function buildHandlers(): Record<string, Handler> {
       return { code: '' };
     },
 
+    // Entries of a given type (credit-card / identity) with a short non-secret
+    // display hint for the picker: cards show their last 4 digits, identities
+    // the email or name. Full data only via FILL_TYPED_ENTRY after selection.
+    [MessageType.GET_ENTRIES_BY_TYPE]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { type } = payload as { type: string };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      let cache = getEntriesCache();
+      if (!cache) {
+        cache = await client.listEntries();
+        setEntriesCache(cache);
+      }
+      const items: { id: string; name: string; hint: string }[] = [];
+      for (const meta of cache.filter((e) => e.type === type)) {
+        let hint = '';
+        try {
+          const data = await decryptEntry(await client.getEntry(meta.id), session);
+          if (type === 'credit-card') {
+            const digits = (data.card_number ?? '').replace(/\D/g, '');
+            hint = digits ? `•••• ${digits.slice(-4)}` : (data.holder_name ?? '');
+          } else {
+            hint = data.email || [data.first_name, data.last_name].filter(Boolean).join(' ');
+          }
+        } catch {
+          // undecryptable entry — still list it by name
+        }
+        items.push({ id: meta.id, name: meta.name, hint });
+      }
+      return { items };
+    },
+
+    // Decrypted field map of a card/identity entry for the content script to
+    // fill into classified form fields. Same trust path as FILL_ENTRY.
+    [MessageType.FILL_TYPED_ENTRY]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { entryId } = payload as { entryId: string };
+      const client = makeClient(session.serverUrl, session.accessToken);
+      const apiEntry = await client.getEntry(entryId);
+      const data = await decryptEntry(apiEntry, session);
+      return {
+        type: apiEntry.type,
+        data: {
+          card_number: data.card_number ?? '',
+          holder_name: data.holder_name ?? '',
+          expiry_month: data.expiry_month ?? '',
+          expiry_year: data.expiry_year ?? '',
+          cvv: data.cvv ?? '',
+          title: data.title ?? '',
+          first_name: data.first_name ?? '',
+          last_name: data.last_name ?? '',
+          company: data.company ?? '',
+          email: data.email ?? '',
+          phone: data.phone ?? '',
+          street: data.street ?? '',
+          city: data.city ?? '',
+          state: data.state ?? '',
+          postal_code: data.postal_code ?? '',
+          country: data.country ?? '',
+        },
+      };
+    },
+
     // The content script (running in the frame that has a login form) reports
     // its host so the popup can pre-fill search + the "+ Site" toggle with the
     // *form's* host, which for SSO logins is an iframe, not the top page.

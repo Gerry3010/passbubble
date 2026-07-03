@@ -171,7 +171,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: const PbBottomNav(currentIndex: 1),
+      bottomNavigationBar: const PbBottomNav(currentIndex: 2),
     );
   }
 }

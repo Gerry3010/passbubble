@@ -19,8 +19,8 @@
 import browser from 'webextension-polyfill';
 import { MessageType } from '../shared/constants.js';
 import { detectLoginForms, type DetectedForm } from './form-detector.js';
-import { classifyOtpField } from './field-classifier.js';
-import { injectFillIframe, removeFillIframe, isFillIframeShown } from './fill-ui.js';
+import { CC_KINDS, classifyField, classifyOtpField, type FieldKind } from './field-classifier.js';
+import { injectFillIframe, removeFillIframe, isFillIframeShown, type TypedFillData } from './fill-ui.js';
 import { initSaveDetector, recoverPendingSave } from './save-detector.js';
 
 // Fill a form field in a way that works with React / Vue SPAs.
@@ -241,6 +241,103 @@ async function showTotpFor(field: HTMLInputElement): Promise<void> {
   );
 }
 
+// The value a typed entry provides for a classified field kind.
+function valueForKind(kind: FieldKind, data: TypedFillData): string {
+  const mm = (data.expiry_month ?? '').padStart(2, '0');
+  const yy = data.expiry_year ?? '';
+  switch (kind) {
+    case 'cc-number':
+      return data.card_number ?? '';
+    case 'cc-name':
+      return data.holder_name || [data.first_name, data.last_name].filter(Boolean).join(' ');
+    case 'cc-exp':
+      return data.expiry_month && yy ? `${mm}/${yy.slice(-2)}` : '';
+    case 'cc-exp-month':
+      return data.expiry_month ?? '';
+    case 'cc-exp-year':
+      return yy;
+    case 'cc-csc':
+      return data.cvv ?? '';
+    case 'name':
+      return [data.first_name, data.last_name].filter(Boolean).join(' ') || (data.holder_name ?? '');
+    case 'given-name':
+      return data.first_name ?? '';
+    case 'family-name':
+      return data.last_name ?? '';
+    case 'organization':
+      return data.company ?? '';
+    case 'email':
+      return data.email ?? '';
+    case 'tel':
+      return data.phone ?? '';
+    case 'street-address':
+      return data.street ?? '';
+    case 'postal-code':
+      return data.postal_code ?? '';
+    case 'city':
+      return data.city ?? '';
+    case 'state':
+      return data.state ?? '';
+    case 'country':
+      return data.country ?? '';
+  }
+}
+
+// Select a <select> option by value or visible text (case-insensitive); also
+// tolerates "03" vs "3" for expiry-month selects.
+function fillSelect(sel: HTMLSelectElement, value: string): void {
+  const v = value.trim().toLowerCase();
+  const vNum = v.replace(/^0+/, '');
+  const opt = Array.from(sel.options).find((o) => {
+    const ov = o.value.trim().toLowerCase();
+    const ot = o.text.trim().toLowerCase();
+    return ov === v || ot === v || ov.replace(/^0+/, '') === vNum || ot.replace(/^0+/, '') === vNum;
+  });
+  if (!opt) return;
+  sel.value = opt.value;
+  sel.dispatchEvent(new Event('input', { bubbles: true }));
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// Fill every classified field around `anchor` (its <form>, or its root when
+// formless) with the matching values of the chosen card/identity entry.
+function fillTypedFields(anchor: HTMLInputElement | HTMLSelectElement, data: TypedFillData): void {
+  const scope = anchor.closest('form') ?? (anchor.getRootNode() as ParentNode);
+  for (const el of Array.from(scope.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select'))) {
+    const kind = classifyField(el);
+    if (!kind) continue;
+    const value = valueForKind(kind, data);
+    if (!value) continue;
+    if (el instanceof HTMLSelectElement) fillSelect(el, value);
+    else fillField(el, value);
+  }
+}
+
+// Offer stored credit cards / identities on a focused checkout/address field.
+// The picker shows only names + a non-secret hint; the field map is fetched
+// (and decrypted) only after the user chooses an entry.
+async function showTypedFor(field: HTMLInputElement | HTMLSelectElement, kind: FieldKind): Promise<void> {
+  if (field instanceof HTMLInputElement && isFillIframeShown(field)) return;
+  const entryType = CC_KINDS.has(kind) ? 'credit-card' : 'identity';
+  const resp = await safeSend<{ items?: { id: string; name: string; hint: string }[]; locked?: boolean }>({
+    type: MessageType.GET_ENTRIES_BY_TYPE,
+    payload: { type: entryType },
+  });
+  if (!resp?.items?.length) return;
+  const root = field.getRootNode() as Document | ShadowRoot;
+  if (root.activeElement !== field) return;
+  injectFillIframe(
+    field as HTMLInputElement,
+    { typed: { entryType, items: resp.items } },
+    {
+      onFillMatch: () => {},
+      onUseGenerated: () => {},
+      onFillTyped: (_type, data) => fillTypedFields(field, data),
+      onDismiss: () => {},
+    },
+  );
+}
+
 // Show on focus of a login field (like a real password manager) rather than on
 // mere presence — otherwise the box re-appears after every fill/dismiss.
 function onFocusIn(e: FocusEvent): void {
@@ -255,7 +352,16 @@ function onFocusIn(e: FocusEvent): void {
   }
   const path = e.composedPath?.();
   const target = (path && path[0]) ?? e.target;
-  if (target instanceof HTMLInputElement && classifyOtpField(target)) void showTotpFor(target);
+  if (target instanceof HTMLInputElement && classifyOtpField(target)) {
+    void showTotpFor(target);
+    return;
+  }
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) {
+    const kind = classifyField(target);
+    // Only offer typed fill on fields specific enough to signal a card/address
+    // form — a lone email/name/tel field is usually a login or contact form.
+    if (kind && kind !== 'email' && kind !== 'name' && kind !== 'tel') void showTypedFor(target, kind);
+  }
 }
 
 // Dismiss when pressing outside the suggestion AND outside a login field (so
