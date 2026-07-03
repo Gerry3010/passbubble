@@ -23,6 +23,7 @@ import { MessageType } from '../shared/constants.js';
 
 let activeIframe: HTMLIFrameElement | null = null;
 let activeAnchor: HTMLInputElement | null = null;
+let activeCleanup: (() => void) | null = null;
 
 // True while a fill suggestion is currently shown for `anchor` (or for any
 // field, if no anchor is given). Used to avoid re-injecting on every DOM
@@ -75,6 +76,16 @@ export function injectFillIframe(
   activeIframe = iframe;
   activeAnchor = anchorField;
 
+  // Keep the fixed-position iframe glued to its anchor while the page scrolls
+  // or resizes (capture-phase scroll also catches scrolling sub-containers).
+  const reposition = () => positionIframe(iframe, anchorField);
+  window.addEventListener('scroll', reposition, { capture: true, passive: true });
+  window.addEventListener('resize', reposition, { passive: true });
+  activeCleanup = () => {
+    window.removeEventListener('scroll', reposition, { capture: true });
+    window.removeEventListener('resize', reposition);
+  };
+
   const postInit = () =>
     iframe.contentWindow?.postMessage(
       {
@@ -99,8 +110,11 @@ export function injectFillIframe(
       return;
     }
     if (msg.type === 'FILL_RESIZE' && typeof msg.height === 'number') {
-      // Fit the iframe to its content so there's no empty (white) area below it.
+      // Fit the iframe to its content so there's no empty (white) area below it,
+      // then re-check the position — only now is the real height known, so the
+      // collision check (covering a login button → flip above) is accurate.
       iframe.style.height = `${Math.max(1, Math.ceil(msg.height))}px`;
+      positionIframe(iframe, anchorField);
       return;
     }
     if (msg.type === 'FILL_SELECTED' && msg.entryId) {
@@ -131,6 +145,8 @@ export function injectFillIframe(
 }
 
 export function removeFillIframe(): void {
+  activeCleanup?.();
+  activeCleanup = null;
   if (activeIframe) {
     activeIframe.remove();
     activeIframe = null;
@@ -138,8 +154,51 @@ export function removeFillIframe(): void {
   activeAnchor = null;
 }
 
+// Place the iframe below its anchor field — unless it would cover an
+// interactive element there (typically the login button right under the
+// password field, which made the user's first click land on the overlay
+// instead of the button); then flip it above the anchor.
 function positionIframe(iframe: HTMLIFrameElement, anchor: HTMLInputElement): void {
   const rect = anchor.getBoundingClientRect();
-  iframe.style.top = `${rect.bottom + 4}px`;
-  iframe.style.left = `${Math.max(4, rect.left)}px`;
+  const own = iframe.getBoundingClientRect();
+  const width = own.width || parseFloat(iframe.style.width) || 320;
+  const height = own.height || parseFloat(iframe.style.height) || 56;
+  const left = Math.max(4, rect.left);
+  let top = rect.bottom + 4;
+  if (coversInteractiveElement(left, top, width, height, iframe, anchor)) {
+    const above = rect.top - height - 4;
+    if (above >= 4) top = above;
+  }
+  iframe.style.top = `${top}px`;
+  iframe.style.left = `${left}px`;
+}
+
+const INTERACTIVE_SELECTOR = 'button, a[href], input, select, textarea, [role="button"], [type="submit"]';
+
+// Probe a few points of the intended iframe rect for interactive page elements
+// underneath. elementsFromPoint returns the whole hit-test stack, so our own
+// iframe (topmost once mounted) and wrapper divs don't hide a button below.
+function coversInteractiveElement(
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  self: HTMLIFrameElement,
+  anchor: HTMLInputElement,
+): boolean {
+  if (typeof document.elementsFromPoint !== 'function') return false;
+  const points: [number, number][] = [
+    [left + width / 2, top + height / 2],
+    [left + 12, top + height - 8],
+    [left + width - 12, top + height - 8],
+    [left + width / 2, top + 6],
+  ];
+  for (const [x, y] of points) {
+    if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
+    for (const el of document.elementsFromPoint(x, y)) {
+      if (el === self || el === anchor) continue;
+      if (el.matches(INTERACTIVE_SELECTOR)) return true;
+    }
+  }
+  return false;
 }

@@ -223,11 +223,16 @@ function onFocusIn(e: FocusEvent): void {
   if (form) void showFillFor(form);
 }
 
-// Dismiss when clicking outside the suggestion AND outside a login field (so
-// clicking the field to focus it doesn't immediately close the box).
-function onDocumentClick(e: MouseEvent): void {
-  const target = e.target as HTMLElement;
-  if (target.tagName === 'IFRAME' || loginFormFor(target)) return;
+// Dismiss when pressing outside the suggestion AND outside a login field (so
+// clicking the field to focus it doesn't immediately close the box). mousedown
+// instead of click so the overlay is gone BEFORE the page processes the press —
+// otherwise a press on a button right under the field hits the overlay first
+// and the user has to click twice. composedPath resolves targets inside open
+// shadow roots (Flutter web) that `e.target` would retarget to the host.
+function onDocumentPointerDown(e: MouseEvent): void {
+  const path = e.composedPath?.();
+  const target = ((path && path[0]) ?? e.target) as HTMLElement | null;
+  if (!target || target.tagName === 'IFRAME' || loginFormFor(target)) return;
   removeFillIframe();
 }
 
@@ -260,14 +265,14 @@ const observer = new MutationObserver(() => {
 function teardown(): void {
   observer.disconnect();
   document.removeEventListener('focusin', onFocusIn);
-  document.removeEventListener('click', onDocumentClick);
+  document.removeEventListener('mousedown', onDocumentPointerDown, true);
   document.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('focus', onWindowFocus);
   removeFillIframe();
 }
 
 document.addEventListener('focusin', onFocusIn);
-document.addEventListener('click', onDocumentClick);
+document.addEventListener('mousedown', onDocumentPointerDown, true);
 document.addEventListener('keydown', onKeyDown);
 window.addEventListener('focus', onWindowFocus);
 observer.observe(document.documentElement, { childList: true, subtree: true });

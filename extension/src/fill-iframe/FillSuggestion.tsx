@@ -97,6 +97,12 @@ export function FillSuggestion() {
   return (
     <div
       ref={rootRef}
+      onMouseDown={(e) => {
+        // A press on the card's dead space (not a button/list item) dismisses.
+        // Clicks inside the iframe never reach the host page, so without this a
+        // press that was meant for a covered page element would be swallowed.
+        if (e.target === e.currentTarget) dismiss();
+      }}
       style={{
         padding: '8px',
         background: term.bg,
