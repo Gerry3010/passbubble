@@ -211,11 +211,14 @@ State at hand-off: iOS app shipped to TestFlight (v2.5.0 build 3); PRs open: mac
   while reproducing; `libimobiledevice` can't see the device here.
 
 ### macOS app
-- **Link the native hybrid-KEM lib** (same fix as iOS): build the macOS c-archive
-  (`./native/build.sh` → a macOS target) and link it into the macOS Runner via
-  `OTHER_LDFLAGS = -force_load … -Wl,-export_dynamic`, so `DynamicLibrary.process()` resolves the
-  `pb_*` symbols. Without it the macOS app **can't decrypt entries**. (`network.client`
-  entitlement already added in its PR.)
+- **Native hybrid-KEM linking is on `main`** (commit `7301743`, restored 2026-07-07). The
+  `native/build.sh macos` target (universal arm64+x86_64 c-archive → `macos/native/`, gitignored)
+  and the Runner `OTHER_LDFLAGS = -force_load … -Wl,-export_dynamic` on all three configs are in
+  place, so `DynamicLibrary.process()` can resolve the `pb_*` symbols. (Originally reviewed in the
+  now-closed PR #7 against the retired `staging` branch — never merged, hence re-applied.)
+  **Remaining on a Mac:** run `./native/build.sh macos` before `flutter build macos`, then do the
+  **functional decrypt test** (vault login → open an entry → confirm it decrypts). `network.client`
+  entitlement already present.
 - Configure macOS signing / distribution (team + App Store record) if shipping to the Mac App Store.
 
 ### Safari Web Extension (`safari/Passbubble/`, generated via `safari-web-extension-converter`)
