@@ -126,6 +126,23 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
           _error = 'Biometric unlock failed — use your master password';
         });
       }
+    } on LocalAuthException catch (e) {
+      if (!mounted) return;
+      // User-initiated cancellation (Cancel button, "use password instead", or
+      // a system interruption like backgrounding) is not a failure — return to
+      // the unlock screen silently so the user can type their master password
+      // or retry, instead of showing a raw "userCanceled" exception.
+      const benign = {
+        LocalAuthExceptionCode.userCanceled,
+        LocalAuthExceptionCode.systemCanceled,
+        LocalAuthExceptionCode.userRequestedFallback,
+      };
+      setState(() {
+        _loading = false;
+        _error = benign.contains(e.code)
+            ? null
+            : 'Biometric unlock failed — use your master password';
+      });
     } catch (e) {
       if (mounted) setState(() { _loading = false; _error = e.toString(); });
     }

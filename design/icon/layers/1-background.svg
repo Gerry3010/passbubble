@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Passbubble Liquid Glass icon — LAYER 1 (background, OPAQUE).
+     Dark base + scanlines. In Icon Composer this is the bottom/background
+     layer; the OS applies the rounded-rect mask. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <pattern id="scanlines" x="0" y="0" width="1" height="4" patternUnits="userSpaceOnUse">
+      <rect y="0" width="256" height="1" fill="#00ff41" opacity="0.03"/>
+    </pattern>
+  </defs>
+  <rect width="256" height="256" fill="#0a0a0a"/>
+  <rect width="256" height="256" fill="url(#scanlines)"/>
+</svg>
