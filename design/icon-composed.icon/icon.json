@@ -2,7 +2,8 @@
   "fill" : "system-dark",
   "groups" : [
     {
-      "blur-material" : null,
+      "blur-material" : 1,
+      "hidden" : false,
       "layers" : [
         {
           "image-name" : "4-padlock 2.svg",
@@ -39,13 +40,14 @@
           }
         }
       ],
+      "lighting" : "individual",
       "shadow" : {
-        "kind" : "neutral",
+        "kind" : "layer-color",
         "opacity" : 0.5
       },
       "translucency" : {
         "enabled" : true,
-        "value" : 0.5
+        "value" : 1
       }
     }
   ],
