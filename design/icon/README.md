@@ -50,3 +50,28 @@ for f in 1-background 2-bubble 3-circuits 4-padlock; do rsvg-convert -w 1024 -h 
      squircle, so pull them inward or hide `3-circuits` if the mask crops them
      awkwardly.
 5. Export the `.icon` and add it to both the iOS and macOS Runner targets.
+
+## Assembled icon — `design/icon-composed.icon` (source of truth for the app)
+
+The finished Icon Composer document lives at `design/icon-composed.icon`
+(padlock group inset to 88 % so the Liquid Glass parallax never clips the
+shackle). It is **deployed** as `AppIcon.icon` into both Runner targets:
+
+- `flutter_app/ios/Runner/AppIcon.icon`
+- `flutter_app/macos/Runner/AppIcon.icon`
+
+Each Runner target references its copy as a resource and sets
+`ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`; the old `AppIcon.appiconset`
+was removed (Icon Composer bakes the legacy/flattened renderings into the
+`.icon`, which `actool` expands for pre-26 OSes). **Note:** a `.icon` must sit
+at the target root, *not* inside `Assets.xcassets` — `actool` silently ignores
+a nested `.icon` and the app ends up with no icon.
+
+After editing `icon-composed.icon` in Icon Composer, re-deploy:
+
+```bash
+for d in ios macos; do
+  rm -rf "flutter_app/$d/Runner/AppIcon.icon"
+  cp -R design/icon-composed.icon "flutter_app/$d/Runner/AppIcon.icon"
+done
+```

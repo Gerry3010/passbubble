@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Passbubble Liquid Glass icon — LAYER 2 (bubble membrane, TRANSPARENT).
+     Organic blob: translucent radial fill + neon stroke + specular arc.
+     The glow filter is intrinsic to the brand look; disable it in Icon
+     Composer if you want the system's own specular to dominate. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <filter id="glow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="bubble-fill" cx="36%" cy="30%" r="65%" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#00ff41" stop-opacity="0.18"/>
+      <stop offset="55%"  stop-color="#00ff41" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#00ff41" stop-opacity="0.01"/>
+    </radialGradient>
+  </defs>
+
+  <path d="M 128,44
+           C 181,42 220,83 215,131
+           C 210,178 172,216 128,213
+           C 84,216 42,178 42,131
+           C 42,82 75,46 128,44 Z"
+        fill="url(#bubble-fill)"
+        stroke="#00ff41"
+        stroke-width="2"
+        filter="url(#glow)"/>
+
+  <path d="M 68,108 C 74,82 96,70 118,80"
+        fill="none"
+        stroke="#00ff41"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        opacity="0.62"
+        filter="url(#glow)"/>
+</svg>

@@ -19,6 +19,7 @@
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		B47B305D7290A3CCE1F8FC42 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 18D552988729863AF123ACE7 /* Pods_RunnerTests.framework */; };
 		D4366DE4A78E7000E55E0C0E /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D2C909C7BE2731E3AC136EA /* Pods_Runner.framework */; };
+		E75F9CCAD8A8F6363D09885F /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 50FEFDB8D6BBF498DEEBE1B0 /* AppIcon.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,6 +72,7 @@
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		33F2D18752F76FEBC398DC48 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
+		50FEFDB8D6BBF498DEEBE1B0 /* AppIcon.icon */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		6EC34221B3236B24D2056CCF /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -209,6 +211,7 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
+				50FEFDB8D6BBF498DEEBE1B0 /* AppIcon.icon */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -365,6 +368,7 @@
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
+				E75F9CCAD8A8F6363D09885F /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -584,12 +588,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-force_load",
-					"$(SRCROOT)/native/libpassbubble_crypto.a",
-					"-Wl,-export_dynamic",
-				);
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = ND9MT2PP6B;
@@ -598,6 +596,12 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/native/libpassbubble_crypto.a",
+					"-Wl,-export_dynamic",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -898,12 +902,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-force_load",
-					"$(SRCROOT)/native/libpassbubble_crypto.a",
-					"-Wl,-export_dynamic",
-				);
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = ND9MT2PP6B;
@@ -912,6 +910,12 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/native/libpassbubble_crypto.a",
+					"-Wl,-export_dynamic",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -929,12 +933,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-force_load",
-					"$(SRCROOT)/native/libpassbubble_crypto.a",
-					"-Wl,-export_dynamic",
-				);
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = ND9MT2PP6B;
@@ -943,6 +941,12 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/native/libpassbubble_crypto.a",
+					"-Wl,-export_dynamic",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble;
 				PRODUCT_NAME = "$(TARGET_NAME)";
