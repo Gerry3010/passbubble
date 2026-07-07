@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -57,6 +57,49 @@ String _initialLocation() {
   // register link) so they open without bouncing to /login on first load.
   if (frag.startsWith('/share') || frag.startsWith('/register')) return frag;
   return '/entries';
+}
+
+/// Index of the tab shown last, so the next tab switch knows its direction.
+/// Seeded to 0 (`/entries`, the launch tab).
+///
+/// The bottom-nav tab order is: 0 `/entries` (vault), 1 `/wallet`,
+/// 2 `/generate`, 3 `/manage`, 4 `/settings` — see [_tabPage] call sites.
+int _lastTabIndex = 0;
+
+/// Wraps a tab screen in a horizontal slide keyed to its position relative to
+/// the previously shown tab: switching to a higher [index] slides in from the
+/// right, a lower index from the left — so the motion matches the tab bar's
+/// left-to-right layout instead of every tab animating in from the same side.
+///
+/// Used only for the five bottom-nav roots; nested routes (entry detail,
+/// add/edit, settings sub-pages) keep the default push transition.
+CustomTransitionPage<void> _tabPage(
+  GoRouterState state,
+  int index,
+  Widget child,
+) {
+  final fromRight = index >= _lastTabIndex;
+  _lastTabIndex = index;
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    transitionDuration: const Duration(milliseconds: 260),
+    reverseTransitionDuration: const Duration(milliseconds: 260),
+    child: child,
+    transitionsBuilder: (context, animation, _, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: Offset(fromRight ? 1 : -1, 0),
+          end: Offset.zero,
+        ).animate(curved),
+        child: FadeTransition(opacity: curved, child: child),
+      );
+    },
+  );
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -123,7 +166,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/entries',
-        builder: (_, _) => const EntriesListScreen(),
+        pageBuilder: (_, state) => _tabPage(state, 0, const EntriesListScreen()),
         routes: [
           GoRoute(
             path: 'new',
@@ -144,19 +187,29 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
-      GoRoute(path: '/wallet', builder: (_, _) => const WalletScreen()),
+      GoRoute(
+        path: '/wallet',
+        pageBuilder: (_, state) => _tabPage(state, 1, const WalletScreen()),
+      ),
       GoRoute(path: '/trash', builder: (_, _) => const TrashScreen()),
       GoRoute(path: '/health', builder: (_, _) => const HealthScreen()),
-      GoRoute(path: '/generate', builder: (_, _) => const GenerateScreen()),
+      GoRoute(
+        path: '/generate',
+        pageBuilder: (_, state) => _tabPage(state, 2, const GenerateScreen()),
+      ),
       GoRoute(
         path: '/manage',
-        builder: (_, state) => ManageScreen(
-          initialTab: int.tryParse(state.uri.queryParameters['tab'] ?? ''),
+        pageBuilder: (_, state) => _tabPage(
+          state,
+          3,
+          ManageScreen(
+            initialTab: int.tryParse(state.uri.queryParameters['tab'] ?? ''),
+          ),
         ),
       ),
       GoRoute(
         path: '/settings',
-        builder: (_, _) => const SettingsScreen(),
+        pageBuilder: (_, state) => _tabPage(state, 4, const SettingsScreen()),
         routes: [
           GoRoute(
             path: 'update',
