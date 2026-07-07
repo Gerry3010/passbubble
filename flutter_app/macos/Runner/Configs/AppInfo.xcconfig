@@ -10,5 +10,13 @@ PRODUCT_NAME = passbubble
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble
 
+// Apple Developer team — required once the app carries entitlements that need a
+// real signing identity (keychain-access-groups for flutter_secure_storage).
+// The Flutter macOS template signs ad-hoc ("-") at project level, which cannot
+// carry restricted entitlements; override with a real development identity so
+// automatic signing provisions the keychain-access-group.
+DEVELOPMENT_TEAM = ND9MT2PP6B
+CODE_SIGN_IDENTITY = Apple Development
+
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 net.geraldhofbauer. All rights reserved.
