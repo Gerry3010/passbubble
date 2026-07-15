@@ -237,3 +237,24 @@ State at hand-off: iOS app shipped to TestFlight (v2.5.0 build 3); PRs open: mac
 - **`UIScene` lifecycle migration** (Flutter warns it'll become required).
 - `NSLocationWhenInUseUsageDescription` warning comes from `file_picker` → `DKImagePickerController`
   (`DKAsset.location: CLLocation?`); left unset deliberately (unused) to avoid App Review questions.
+
+### Export compliance (encryption) — SETTLED, do not re-answer wrong
+- `ITSAppUsesNonExemptEncryption` = **`true`** is now committed in both
+  `ios/Runner/Info.plist` and `macos/Runner/Info.plist` → the per-build Xcode
+  export-compliance dialog no longer appears. **Correct value: `true`, NOT `false`.**
+  Passbubble implements its own E2E crypto (AES-256, X25519, HKDF, ML-KEM/Kyber
+  FIPS 203) beyond OS APIs/HTTPS/Keychain, so it does *not* qualify for the simple
+  "exempt" cases. Standard algorithms → **not** proprietary (Xcode dialog: pick
+  option 2 "standard algorithms in addition to Apple's OS encryption", never 1/3/4).
+- **On the FIRST TestFlight/App Store upload**, App Store Connect asks a one-time
+  follow-up: *"Does your app qualify for any of the exemptions in Category 5, Part 2
+  of the EAR?"* → answer **YES** (mass-market, ECCN **5D992.c**). ASC then remembers
+  it per app; no CCATS upload needed.
+- **Obligation that remains (paperwork, not code):** an **annual self-classification
+  report** (CSV) to **crypt-supp8@bis.doc.gov** (BIS) *and* **enc@nsa.gov** (NSA),
+  due **Feb 1** for the prior calendar year — but only once the app was actually
+  distributed via App Store/TestFlight in that year. If nothing changed vs. last
+  year, a one-line "no changes" email suffices.
+- France question in the questionnaire was answered **No** (separate French import
+  declaration). Fine to proceed; revisit only if a French-market ANSSI declaration
+  is ever required (standard mass-market crypto is normally simplified/exempt there).
