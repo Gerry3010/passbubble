@@ -6,6 +6,14 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Passbubble</string>
+	<!-- Export compliance: Passbubble uses standard, non-exempt encryption
+	     (AES-256, X25519, HKDF, ML-KEM/Kyber per FIPS 203) as its core function,
+	     in addition to Apple's OS crypto. This suppresses the per-build Xcode
+	     dialog. The app qualifies for the mass-market exemption (ECCN 5D992.c);
+	     an annual self-classification report to BIS + email to NSA is still
+	     required. Not exempt -> declared true. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Passbubble uses Face ID to unlock your vault and authorize access to your stored passwords.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
