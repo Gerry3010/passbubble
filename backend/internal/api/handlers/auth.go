@@ -366,19 +366,31 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
+// signToken mints one JWT for a user.
+//
+// Every token gets a unique jti. Without it the claims are a pure function of
+// (user, role, type, now) — and since iat/exp are second-resolution, two tokens minted
+// for the same user within the same second came out byte-identical. For refresh tokens
+// that collided with the UNIQUE sessions.token_hash, so the INSERT below failed and the
+// renewal answered 500 "failed to issue tokens" instead of a fresh session.
+func signToken(secret []byte, userID, role, ttype string, now time.Time, ttl time.Duration) (string, error) {
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, &mw.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        uuid.NewString(),
+			Subject:   userID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		},
+		UserID:    userID,
+		Role:      role,
+		TokenType: ttype,
+	}).SignedString(secret)
+}
+
 func (h *Handler) issueTokens(ctx context.Context, userID, role string) (*models.LoginResponse, error) {
 	now := time.Now()
 	sign := func(ttype string, ttl time.Duration) (string, error) {
-		return jwt.NewWithClaims(jwt.SigningMethodHS256, &mw.Claims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				Subject:   userID,
-				IssuedAt:  jwt.NewNumericDate(now),
-				ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
-			},
-			UserID:    userID,
-			Role:      role,
-			TokenType: ttype,
-		}).SignedString(h.jwtSecret)
+		return signToken(h.jwtSecret, userID, role, ttype, now, ttl)
 	}
 
 	access, err := sign("access", accessTokenTTL)
@@ -396,6 +408,9 @@ func (h *Handler) issueTokens(ctx context.Context, userID, role string) (*models
 		uuid.New().String(), userID, tokenSHA256(refresh), now.Add(refreshTokenTTL),
 	)
 	if err != nil {
+		// Callers turn this into a bare 500; log the cause so a broken login/refresh is
+		// diagnosable from the server log instead of guesswork.
+		slog.Error("issue tokens: session insert failed", "user_id", userID, "err", err)
 		return nil, err
 	}
 
