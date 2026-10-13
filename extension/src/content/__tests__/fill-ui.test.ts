@@ -120,3 +120,31 @@ describe('fill-iframe positioning', () => {
     expect(document.querySelector('iframe')).toBeNull();
   });
 });
+
+describe('fill-iframe focus handling', () => {
+  beforeEach(() => {
+    removeFillIframe();
+    document.body.innerHTML = '';
+    mockElementsFromPoint(() => []);
+  });
+
+  function initMessageFor(anchor: HTMLInputElement): Record<string, unknown> {
+    injectFillIframe(anchor, { matches: [] }, noHandlers);
+    const post = vi.spyOn(iframeEl().contentWindow!, 'postMessage');
+    iframeEl().dispatchEvent(new Event('load'));
+    return post.mock.calls[0][0] as Record<string, unknown>;
+  }
+
+  it('asks the iframe to keep the focus on a Flutter web field', () => {
+    const view = document.createElement('flutter-view');
+    document.body.appendChild(view);
+    const anchor = document.createElement('input');
+    view.appendChild(anchor);
+
+    expect(initMessageFor(anchor)).toMatchObject({ type: 'FILL_INIT', keepFocus: true });
+  });
+
+  it('lets ordinary page fields lose the focus as before', () => {
+    expect(initMessageFor(anchorAt(100, 130, 50))).toMatchObject({ type: 'FILL_INIT', keepFocus: false });
+  });
+});

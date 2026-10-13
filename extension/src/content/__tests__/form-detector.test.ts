@@ -174,3 +174,89 @@ describe('detectLoginForms', () => {
     expect(detectLoginForms()).toHaveLength(1);
   });
 });
+
+// Flutter web backs only the focused text field with a real <input> (see
+// flutter.ts); these mirror the DOM shapes its engine produces.
+describe('detectLoginForms on Flutter web', () => {
+  function flutterHost(): HTMLElement {
+    const view = document.createElement('flutter-view');
+    const host = document.createElement('flt-text-editing-host');
+    view.appendChild(host);
+    document.body.appendChild(view);
+    return host;
+  }
+
+  function flutterInput(type: string, attrs: Record<string, string> = {}): HTMLInputElement {
+    const el = document.createElement('input');
+    el.type = type;
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('pairs the focused username with its AutofillGroup password sibling', () => {
+    const form = document.createElement('form');
+    const user = flutterInput('text', { autocomplete: 'username' });
+    const pw = flutterInput('password', { autocomplete: 'current-password' });
+    form.append(user, pw);
+    flutterHost().appendChild(form);
+    user.focus();
+
+    const [detected] = detectLoginForms();
+    expect(detected.usernameField).toBe(user);
+    expect(detected.passwordField).toBe(pw);
+  });
+
+  it('ignores a dormant password input left behind in another form', () => {
+    const host = flutterHost();
+    const dormantForm = document.createElement('form');
+    dormantForm.appendChild(flutterInput('password', { autocomplete: 'current-password' }));
+    const userForm = document.createElement('form');
+    const user = flutterInput('text', { autocomplete: 'username' });
+    userForm.appendChild(user);
+    host.append(dormantForm, userForm);
+    user.focus();
+
+    const forms = detectLoginForms();
+    expect(forms).toHaveLength(1);
+    expect(forms[0].usernameField).toBe(user);
+    expect(forms[0].passwordField).toBeNull();
+  });
+
+  it('treats a focused Flutter field with an e-mail keyboard as a username step', () => {
+    const user = flutterInput('text', { autocomplete: 'on', inputmode: 'email' });
+    flutterHost().appendChild(user);
+    user.focus();
+
+    const [detected] = detectLoginForms();
+    expect(detected.usernameField).toBe(user);
+    expect(detected.passwordField).toBeNull();
+  });
+
+  it('does not offer logins on a focused Flutter field without any login hint', () => {
+    const chat = flutterInput('text', { autocomplete: 'on' });
+    flutterHost().appendChild(chat);
+    chat.focus();
+    expect(detectLoginForms()).toHaveLength(0);
+  });
+
+  it('finds fields inside a shadow root when given that root', () => {
+    const pane = document.createElement('flt-glass-pane');
+    document.body.appendChild(pane);
+    const shadow = pane.attachShadow({ mode: 'open' });
+    const user = flutterInput('text', { autocomplete: 'username' });
+    const pw = flutterInput('password');
+    const form = document.createElement('form');
+    form.append(user, pw);
+    shadow.appendChild(form);
+    pw.focus();
+
+    expect(detectLoginForms()).toHaveLength(0); // document scan can't see into it
+    const [detected] = detectLoginForms(shadow);
+    expect(detected.passwordField).toBe(pw);
+    expect(detected.usernameField).toBe(user);
+  });
+});

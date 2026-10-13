@@ -20,6 +20,7 @@
 import browser from 'webextension-polyfill';
 import type { EntryResponse } from '@passbubble/shared-ts';
 import { MessageType } from '../shared/constants.js';
+import { isFlutterField } from './flutter.js';
 
 let activeIframe: HTMLIFrameElement | null = null;
 let activeAnchor: HTMLInputElement | null = null;
@@ -112,10 +113,15 @@ export function injectFillIframe(
     window.removeEventListener('resize', reposition);
   };
 
+  // A press inside the iframe would take the focus from the field. Flutter web
+  // then ends its text input and ignores the fill, so for Flutter fields the
+  // iframe keeps the page's focus where it is (see flutter.ts).
+  const keepFocus = isFlutterField(anchorField);
   const postInit = () =>
     iframe.contentWindow?.postMessage(
       {
         type: 'FILL_INIT',
+        keepFocus,
         matches: payload.matches ?? [],
         generatePassword: payload.generatePassword,
         totp: payload.totp,

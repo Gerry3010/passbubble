@@ -19,6 +19,15 @@
 import browser from 'webextension-polyfill';
 import { MessageType } from '../shared/constants.js';
 import { detectLoginForms, type DetectedForm } from './form-detector.js';
+import {
+  clearPendingFill,
+  deepActiveElement,
+  flutterTextEntered,
+  hasPendingFill,
+  isFlutterField,
+  rememberPendingFill,
+  takePendingFill,
+} from './flutter.js';
 import { CC_KINDS, classifyField, classifyOtpField, type FieldKind } from './field-classifier.js';
 import { providerFromText, SSO_PROVIDER_LABELS, type SsoProvider } from '../shared/sso.js';
 import { injectFillIframe, removeFillIframe, isFillIframeShown, type TypedFillData } from './fill-ui.js';
@@ -70,13 +79,34 @@ async function safeSend<T>(message: { type: string; payload: Record<string, unkn
 }
 
 // Returns the detected login/signup form whose username/password field is `el`,
-// or null. Cheap-guards on the element type before scanning the DOM.
+// or null. Cheap-guards on the element type before scanning the DOM. `el` must be
+// the real target (composedPath), so fields inside open shadow roots resolve.
 function loginFormFor(el: EventTarget | null): DetectedForm | null {
   if (!(el instanceof HTMLInputElement)) return null;
   const t = el.type;
   if (t && t !== 'text' && t !== 'email' && t !== 'password') return null;
-  const forms = detectLoginForms();
+  const root = el.getRootNode();
+  if (!(root instanceof Document || root instanceof ShadowRoot)) return null;
+  const forms = detectLoginForms(root);
   return forms.find((f) => f.usernameField === el || f.passwordField === el) ?? null;
+}
+
+// The real target of an event, through open shadow roots.
+function eventTarget(e: Event): EventTarget | null {
+  const path = e.composedPath?.();
+  return (path && path[0]) ?? e.target;
+}
+
+// The field to show the suggestion box at. Normally the username field — unless
+// it has no box to sit next to (Flutter keeps the AutofillGroup sibling of the
+// focused field as a 0×0 input), then the focused field.
+function anchorFor(form: DetectedForm): HTMLInputElement | null {
+  const preferred = form.usernameField ?? form.passwordField;
+  if (!preferred) return null;
+  const rect = preferred.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) return preferred;
+  const active = deepActiveElement();
+  return active === form.usernameField || active === form.passwordField ? (active as HTMLInputElement) : preferred;
 }
 
 // Report (once per frame) the host of the frame that has a login/signup form, so
@@ -133,13 +163,15 @@ let cachedGenerated: { origin: string; password: string } | null = null;
 // match list; signup forms get a generated password that is auto-saved on use.
 async function showFillFor(form: DetectedForm): Promise<void> {
   const { usernameField, passwordField } = form;
-  const anchor = usernameField ?? passwordField;
+  const anchor = anchorFor(form);
   if (!anchor) return;
   // Already shown for this field (e.g. duplicate focus event)? Do nothing.
   if (isFillIframeShown(anchor)) return;
 
-  const stillFocused = () =>
-    document.activeElement === usernameField || document.activeElement === passwordField;
+  const stillFocused = () => {
+    const active = deepActiveElement();
+    return active === usernameField || active === passwordField;
+  };
 
   const sessionResp = await safeSend<{ isUnlocked?: boolean; isLoggedIn?: boolean }>({
     type: MessageType.GET_SESSION,
@@ -218,6 +250,14 @@ async function showFillFor(form: DetectedForm): Promise<void> {
       onFillMatch: (username, password) => {
         if (usernameField) fillField(usernameField, username);
         if (passwordField) fillField(passwordField, password);
+        // Flutter without an AutofillGroup: the other field is not in the DOM
+        // yet — fill it when the user focuses it (see flutter.ts).
+        if (isFlutterField(anchor)) {
+          rememberPendingFill({
+            username: usernameField || flutterTextEntered() ? undefined : username,
+            password: passwordField ? undefined : password,
+          });
+        }
       },
       onUseGenerated: () => {},
       onSsoSelect: () => {
@@ -387,6 +427,11 @@ async function showTypedFor(field: HTMLInputElement | HTMLSelectElement, kind: F
   );
 }
 
+// How long to wait after a Flutter field gains focus before writing to it:
+// Flutter focuses its new input first and attaches its listeners (and applies
+// the field's current text) right after, in the same task.
+const FLUTTER_SETTLE_MS = 50;
+
 // Show on focus of a login field (like a real password manager) rather than on
 // mere presence — otherwise the box re-appears after every fill/dismiss.
 function onFocusIn(e: FocusEvent): void {
@@ -394,13 +439,28 @@ function onFocusIn(e: FocusEvent): void {
     teardown();
     return;
   }
-  const form = loginFormFor(e.target);
+  const target = eventTarget(e);
+  if (target instanceof HTMLInputElement && hasPendingFill() && isFlutterField(target)) {
+    // The rest of a login entry chosen on another Flutter field: fill instead
+    // of offering the box again.
+    setTimeout(() => {
+      if (deepActiveElement() !== target) return;
+      const value = takePendingFill(target);
+      if (value !== null) fillField(target, value);
+      else offerFor(target);
+    }, FLUTTER_SETTLE_MS);
+    return;
+  }
+  offerFor(target);
+}
+
+// Offer whatever fits the focused field: logins, a 2FA code, or a card/identity.
+function offerFor(target: EventTarget | null): void {
+  const form = loginFormFor(target);
   if (form) {
     void showFillFor(form);
     return;
   }
-  const path = e.composedPath?.();
-  const target = (path && path[0]) ?? e.target;
   if (target instanceof HTMLInputElement && classifyOtpField(target)) {
     void showTotpFor(target);
     return;
@@ -421,14 +481,18 @@ function onFocusIn(e: FocusEvent): void {
 // shadow roots (Flutter web) that `e.target` would retarget to the host.
 function onDocumentPointerDown(e: MouseEvent): void {
   if (extensionAlive()) maybeReportSsoClick(e);
-  const path = e.composedPath?.();
-  const target = ((path && path[0]) ?? e.target) as HTMLElement | null;
+  const target = eventTarget(e) as HTMLElement | null;
   if (!target || target.tagName === 'IFRAME' || loginFormFor(target)) return;
   removeFillIframe();
 }
 
 function onKeyDown(e: KeyboardEvent): void {
   if (e.key === 'Escape') removeFillIframe();
+  // Enter in a password field submits the login: nothing left to fill.
+  if (e.key === 'Enter') {
+    const target = eventTarget(e);
+    if (target instanceof HTMLInputElement && target.type === 'password') clearPendingFill();
+  }
 }
 
 // When the tab regains focus (e.g. after unlocking in the popup), show the
@@ -438,7 +502,7 @@ function onWindowFocus(): void {
     teardown();
     return;
   }
-  const form = loginFormFor(document.activeElement);
+  const form = loginFormFor(deepActiveElement());
   if (form) void showFillFor(form);
 }
 
@@ -472,7 +536,7 @@ observer.observe(document.documentElement, { childList: true, subtree: true });
 // (many login pages autofocus their first field).
 maybeReportLoginFrame();
 {
-  const focused = loginFormFor(document.activeElement);
+  const focused = loginFormFor(deepActiveElement());
   if (focused) void showFillFor(focused);
 }
 

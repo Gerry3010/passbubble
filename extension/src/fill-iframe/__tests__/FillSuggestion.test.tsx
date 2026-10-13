@@ -59,3 +59,27 @@ describe('FillSuggestion locked mode', () => {
     expect(screen.queryByRole('button', { name: /unlock passbubble/i })).toBeNull();
   });
 });
+
+describe('FillSuggestion keepFocus', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  function pressDefaultPrevented(): boolean {
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  }
+
+  it('cancels the focus change of a press when asked to keep the focus (Flutter web)', async () => {
+    render(<FillSuggestion />);
+    await act(async () => postInit({ matches: [], keepFocus: true }));
+    expect(pressDefaultPrevented()).toBe(true);
+  });
+
+  it('leaves presses alone otherwise', async () => {
+    render(<FillSuggestion />);
+    await act(async () => postInit({ matches: [] }));
+    expect(pressDefaultPrevented()).toBe(false);
+  });
+});

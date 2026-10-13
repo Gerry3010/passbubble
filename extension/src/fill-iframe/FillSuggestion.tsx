@@ -52,7 +52,18 @@ export function FillSuggestion() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [keepFocus, setKeepFocus] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // Flutter web fields only accept a fill while they keep the focus. Pressing a
+  // button here would move the focus into this iframe first, so cancel the
+  // press's default action (the focus change); the click itself still fires.
+  useEffect(() => {
+    if (!keepFocus) return;
+    const hold = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener('mousedown', hold, true);
+    return () => document.removeEventListener('mousedown', hold, true);
+  }, [keepFocus]);
 
   // Tell the embedding content script our real content height so it can size the
   // iframe exactly — otherwise the fixed-height iframe shows an empty area below.
@@ -92,6 +103,7 @@ export function FillSuggestion() {
         code?: string;
         locked?: boolean;
         loggedIn?: boolean;
+        keepFocus?: boolean;
       };
       if (msg.type === 'FILL_INIT') {
         setMatches(Array.isArray(msg.matches) ? msg.matches : []);
@@ -102,13 +114,17 @@ export function FillSuggestion() {
         setRemaining(msg.totp?.remainingSeconds ?? 0);
         setLocked(!!msg.locked);
         setLoggedIn(!!msg.loggedIn);
+        setKeepFocus(!!msg.keepFocus);
       } else if (msg.type === 'FILL_TOTP_UPDATE' && msg.totp?.code) {
         setTotp(msg.totp);
         setRemaining(msg.totp.remainingSeconds ?? 0);
       } else if (msg.type === 'FILL_TOTP_COPY' && typeof msg.code === 'string') {
         // A login fill resolved an entry that also has a 2FA secret: copy the
         // current code (extension-origin document + fresh user gesture) and show
-        // a short confirmation before dismissing ourselves.
+        // a short confirmation before dismissing ourselves. The clipboard only
+        // accepts writes from a focused document; with keepFocus we never took
+        // the focus, so take it now — the login fill has already happened.
+        window.focus();
         navigator.clipboard?.writeText(msg.code).catch(() => {});
         setCopiedCode(msg.code);
         setTimeout(() => window.parent.postMessage({ type: 'FILL_DISMISS' }, '*'), 1800);
