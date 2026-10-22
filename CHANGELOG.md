@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Passwort-Update via Save-Bar warf andere Eintragsfelder weg** — „Update existing" überschrieb den Datenblob mit nur Benutzername+Passwort; jetzt wird in die entschlüsselten Bestandsdaten gemergt, sodass TOTP-Secret, Notizen und `sign_in_with` erhalten bleiben
 - **App-Edit verlor unbekannte Datenfelder** — der Bearbeiten-Screen der App trägt jetzt alle Felder, die das Formular nicht verwaltet (z.B. TOTP-Metadaten anderer Clients), beim Speichern unverändert weiter
 
+### Security
+- **Server-Image vertraut „emSign ECC Root CA - G3" nicht mehr** — eMudhra hat im Oktober 2026 acht Zwischen-CAs gemeldet, deren private Schlüssel sich aus dem öffentlichen Zertifikat berechnen ließen; Mozilla hat die Root mit NSS 3.131.1 entfernt. Betroffen waren die ausgehenden TLS-Verbindungen des Servers (SMTP, S3). Das neu gebaute Image enthält ca-certificates 20261020-r0 und ein mit Go 1.26.10 kompiliertes Backend. Der Build führt außerdem `apk upgrade` aus, weil `apk add` die im Alpine-Basis-Image vorinstallierten Pakete wie `ca-certificates-bundle` nicht anhebt. Ein veraltetes Basis-Image kann den CA-Speicher damit nicht mehr zurückhalten
+
 ## [2.5.0] - 2026-06-21
 
 ### Added

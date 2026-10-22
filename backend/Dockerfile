@@ -17,6 +17,8 @@ RUN flutter build web --release --base-href "/web/"
 # --platform=$BUILDPLATFORM: compile on the native host using Go's built-in
 # cross-compilation (GOARCH=$TARGETARCH) instead of QEMU emulation, cutting
 # arm64 build time from ~10 min down to ~1 min.
+# The tag floats on the minor version on purpose, so every rebuild picks up the
+# latest Go patch release (needs >= 1.26.10 since October 2026).
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 ARG VERSION=dev
@@ -53,7 +55,11 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 # ─── Runtime image ───────────────────────────────────────────────────────────
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata
+# `apk upgrade` first: the base image ships packages (ca-certificates-bundle,
+# among others) that `apk add` alone would leave at the base image's version.
+# Root-store changes such as the October 2026 removal of "emSign ECC Root CA -
+# G3" (ca-certificates 20261020-r0) must reach the image on every rebuild.
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /passbubble-server /usr/local/bin/passbubble-server
 
