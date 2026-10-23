@@ -41,6 +41,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          # Without check-latest, setup-go reuses whatever 1.26.x the runner image
+          # has cached, which can lag several security patches behind.
+          check-latest: true
           cache-dependency-path: backend/go.sum
 
       # The mailer's brand icon is a //go:embed asset generated from the SVG
@@ -76,6 +79,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          # Without check-latest, setup-go reuses whatever 1.26.x the runner image
+          # has cached, which can lag several security patches behind.
+          check-latest: true
           cache-dependency-path: cli/go.sum
 
       - name: Run CLI tests
@@ -130,6 +136,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          # Without check-latest, setup-go reuses whatever 1.26.x the runner image
+          # has cached, which can lag several security patches behind.
+          check-latest: true
 
       - name: Build native hybrid-KEM lib (host)
         run: make native-crypto
