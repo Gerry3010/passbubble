@@ -53,7 +53,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o /passbubble-server ./cmd/server
 
 # ─── Runtime image ───────────────────────────────────────────────────────────
-FROM alpine:3.21
+FROM alpine:3.24
 
 # `apk upgrade` first: the base image ships packages (ca-certificates-bundle,
 # among others) that `apk add` alone would leave at the base image's version.
