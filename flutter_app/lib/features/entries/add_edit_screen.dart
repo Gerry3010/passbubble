@@ -43,15 +43,22 @@ class _CustomFieldState {
   Uint8List? fileBytes;
   bool obscured;
 
+  /// Keys of the stored field map this form does not manage (written by other
+  /// clients). Carried over verbatim on save, like the entry-level extra data.
+  final Map<String, dynamic> extra;
+
   _CustomFieldState({
     String labelText = '',
     String valueText = '',
     this.type = CustomFieldType.text,
     this.filename,
     this.mimeType,
+    this.extra = const {},
   })  : label = TextEditingController(text: labelText),
         value = TextEditingController(text: valueText),
         obscured = type == CustomFieldType.password || type == CustomFieldType.ssh;
+
+  static const managedKeys = {'label', 'value', 'type', 'filename', 'mime_type'};
 
   void dispose() {
     label.dispose();
@@ -216,6 +223,10 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
                 type: cfType,
                 filename: cf['filename'] as String?,
                 mimeType: cf['mime_type'] as String?,
+                extra: {
+                  for (final e in cf.entries)
+                    if (!_CustomFieldState.managedKeys.contains(e.key)) e.key: e.value,
+                },
               ));
             }
           }
@@ -242,6 +253,8 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     if (_type == 'password' && _signInWith.isNotEmpty) {
       data['sign_in_with'] = _signInWith;
     }
+    // The list order is the user's (drag & drop) order; other clients render
+    // custom fields in stored order, so it syncs as-is.
     final cfList = <Map<String, dynamic>>[];
     for (final cf in _customFields) {
       final lbl = cf.label.text.trim();
@@ -249,6 +262,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       if (cf.type == CustomFieldType.file) {
         if (cf.fileBytes != null) {
           cfList.add({
+            ...cf.extra,
             'label': lbl,
             'value': base64Encode(cf.fileBytes!),
             'type': cf.type.apiValue,
@@ -258,6 +272,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         } else if (cf.value.text.isNotEmpty) {
           // Existing file (loaded from vault, no new file picked)
           cfList.add({
+            ...cf.extra,
             'label': lbl,
             'value': cf.value.text,
             'type': cf.type.apiValue,
@@ -268,6 +283,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         continue;
       }
       cfList.add({
+        ...cf.extra,
         'label': lbl,
         'value': cf.value.text.trim(),
         'type': cf.type.apiValue,
@@ -674,10 +690,24 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         child: Text('CUSTOM FIELDS',
             style: TextStyle(color: AppTheme.green, fontSize: 11, letterSpacing: 2)),
       ),
-      for (int i = 0; i < _customFields.length; i++) ...[
-        const SizedBox(height: 8),
-        _buildCustomField(i),
-      ],
+      // Reordered by drag & drop on each field's handle only (no default
+      // handles / long-press on the whole row), so the text fields stay fully
+      // usable. Embedded in the form's scroll view, hence no own scrolling.
+      ReorderableListView(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        buildDefaultDragHandles: false,
+        onReorderItem: _moveCustomField,
+        children: [
+          for (int i = 0; i < _customFields.length; i++)
+            Padding(
+              key: ObjectKey(_customFields[i]),
+              padding: const EdgeInsets.only(top: 8),
+              child: _buildCustomField(i),
+            ),
+        ],
+      ),
       const SizedBox(height: 8),
       TextButton.icon(
         icon: const Icon(Icons.add, size: 16),
@@ -688,17 +718,40 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     ],
   );
 
+  /// Moves a custom field to a new position. The list order is what gets
+  /// saved, so the new order syncs to every client.
+  void _moveCustomField(int oldIndex, int newIndex) {
+    setState(() => _customFields.insert(newIndex, _customFields.removeAt(oldIndex)));
+  }
+
+  void _removeCustomField(_CustomFieldState cf) {
+    setState(() => _customFields.remove(cf));
+    // Dispose once the field's widgets are gone, not while they still listen.
+    WidgetsBinding.instance.addPostFrameCallback((_) => cf.dispose());
+  }
+
   Widget _buildCustomField(int i) {
     final cf = _customFields[i];
     final removeBtn = IconButton(
       icon: const Icon(Icons.remove_circle_outline, color: AppTheme.error, size: 20),
-      onPressed: () { cf.dispose(); setState(() => _customFields.removeAt(i)); },
+      onPressed: () => _removeCustomField(cf),
+    );
+    final dragHandle = ReorderableDragStartListener(
+      index: i,
+      child: const MouseRegion(
+        cursor: SystemMouseCursors.grab,
+        child: Padding(
+          padding: EdgeInsets.only(right: 4),
+          child: Icon(Icons.drag_indicator,
+              color: AppTheme.onBgDim, semanticLabel: 'Reorder field'),
+        ),
+      ),
     );
 
     // Type badge chip
     final typeMeta = _cfTypes.firstWhere((t) => t.$1 == cf.type);
     final typeBadge = GestureDetector(
-      onTap: () => _changeFieldType(i),
+      onTap: () => _changeFieldType(cf),
       child: Chip(
         avatar: Icon(typeMeta.$3, size: 14, color: AppTheme.green),
         label: Text(typeMeta.$2, style: const TextStyle(fontSize: 11, color: AppTheme.green)),
@@ -714,6 +767,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
+            dragHandle,
             Expanded(
               child: PbTextField(
                 label: 'Label',
@@ -747,7 +801,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
               icon: const Icon(Icons.attach_file, size: 16),
               label: const Text('Pick file'),
               style: TextButton.styleFrom(foregroundColor: AppTheme.green),
-              onPressed: () => _pickFile(i),
+              onPressed: () => _pickFile(cf),
             ),
           ]),
         ],
@@ -761,6 +815,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: [
+          dragHandle,
           Expanded(
             child: PbTextField(
               label: 'Label',
@@ -834,7 +889,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     });
   }
 
-  void _changeFieldType(int i) {
+  void _changeFieldType(_CustomFieldState cf) {
     showModalBottomSheet<CustomFieldType>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -864,19 +919,19 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         ),
       ),
     ).then((type) {
-      if (type == null) return;
+      if (type == null || !_customFields.contains(cf)) return;
       setState(() {
-        _customFields[i].type = type;
-        _customFields[i].obscured = type == CustomFieldType.password || type == CustomFieldType.ssh;
+        cf.type = type;
+        cf.obscured = type == CustomFieldType.password || type == CustomFieldType.ssh;
         if (type != CustomFieldType.file) {
-          _customFields[i].fileBytes = null;
-          _customFields[i].filename = null;
+          cf.fileBytes = null;
+          cf.filename = null;
         }
       });
     });
   }
 
-  Future<void> _pickFile(int i) async {
+  Future<void> _pickFile(_CustomFieldState cf) async {
     final result = await FilePicker.platform.pickFiles(withData: true);
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
@@ -892,14 +947,15 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       }
       return;
     }
+    if (!mounted || !_customFields.contains(cf)) return;
     setState(() {
-      _customFields[i].fileBytes = Uint8List.fromList(bytes);
-      _customFields[i].filename = file.name;
-      _customFields[i].mimeType = file.extension != null
+      cf.fileBytes = Uint8List.fromList(bytes);
+      cf.filename = file.name;
+      cf.mimeType = file.extension != null
           ? 'application/${file.extension}'
           : 'application/octet-stream';
-      if (_customFields[i].label.text.trim().isEmpty) {
-        _customFields[i].label.text = file.name;
+      if (cf.label.text.trim().isEmpty) {
+        cf.label.text = file.name;
       }
     });
   }

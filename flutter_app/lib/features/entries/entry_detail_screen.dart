@@ -480,10 +480,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(label, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
-      subtitle: Text(
-        _showPassword ? number : masked,
-        style: const TextStyle(fontSize: 14, letterSpacing: 2),
-      ),
+      subtitle: _secretText(number, masked: masked),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -558,7 +555,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.insert_drive_file_outlined, color: AppTheme.onBgDim),
       title: Text(label, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
-      subtitle: Text(filename, style: const TextStyle(fontSize: 14)),
+      subtitle: _selectableValue(filename),
       trailing: IconButton(
         icon: const Icon(Icons.download_outlined, color: AppTheme.onBgDim),
         tooltip: 'Save file',
@@ -586,6 +583,22 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     );
   }
 
+  /// A plaintext value the user can select (mouse drag / long-press) and copy.
+  /// SelectableText is backed by a real text-editing surface, so selection and
+  /// Ctrl/Cmd+C also work on web, where plain canvas text is not selectable.
+  Widget _selectableValue(String value) =>
+      SelectableText(value, style: const TextStyle(fontSize: 14));
+
+  /// A secret value: plain (non-selectable) bullets while masked, so only the
+  /// mask could ever be picked up; selectable like any other value once the
+  /// user has revealed it.
+  Widget _secretText(String value, {required String masked}) {
+    const style = TextStyle(fontSize: 14, letterSpacing: 2);
+    return _showPassword
+        ? SelectableText(value, style: style)
+        : Text(masked, style: style);
+  }
+
   Widget _infoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -594,7 +607,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         children: [
           Text(label, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 11)),
           const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontSize: 14)),
+          _selectableValue(value),
         ],
       ),
     );
@@ -604,7 +617,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(label, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
-      subtitle: Text(value, style: const TextStyle(fontSize: 14)),
+      subtitle: _selectableValue(value),
       trailing: IconButton(
         icon: const Icon(Icons.copy, size: 18, color: AppTheme.onBgDim),
         onPressed: () => _copy(value, label),
@@ -616,10 +629,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(label, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
-      subtitle: Text(
-        _showPassword ? value : '•' * value.length.clamp(0, 20),
-        style: const TextStyle(fontSize: 14, letterSpacing: 2),
-      ),
+      subtitle: _secretText(value, masked: '•' * value.length.clamp(0, 20)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
