@@ -33,7 +33,12 @@ import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/prompt_title.dart';
 import 'widgets/autofill_prompt.dart';
 
+/// Entry list of the current session. Rebuilt on login, logout and unlock
+/// (via [vaultSessionProvider]); empty while logged out, so no previous
+/// account's list or stale "Session expired" error survives a re-login.
 final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
+  ref.watch(vaultSessionProvider);
+  if (!ref.read(authStateProvider).isLoggedIn) return const [];
   return ref.watch(apiClientProvider).listEntries();
 });
 
@@ -44,6 +49,8 @@ final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
 /// In-memory only; recomputed whenever the entry list is invalidated.
 final searchIndexProvider = FutureProvider<Map<String, String>>((ref) async {
   ref.watch(entriesProvider);
+  // Rebuild on lock too (empty without keys), not only on a session change.
+  ref.watch(authStateProvider.select((s) => s.isUnlocked));
   final api = ref.watch(apiClientProvider);
   final authSvc = ref.watch(authServiceProvider);
   final privX = authSvc.privX25519;
@@ -95,7 +102,10 @@ final searchIndexProvider = FutureProvider<Map<String, String>>((ref) async {
   return index;
 });
 
-final foldersProvider = FutureProvider<List<FolderResponse>>((ref) {
+/// Folder tree of the current session; same lifecycle as [entriesProvider].
+final foldersProvider = FutureProvider<List<FolderResponse>>((ref) async {
+  ref.watch(vaultSessionProvider);
+  if (!ref.read(authStateProvider).isLoggedIn) return const [];
   return ref.watch(apiClientProvider).listFolders();
 });
 
@@ -150,6 +160,11 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
       // Reflect a just-made change in the system autofill picker.
       ref.invalidate(autofillEnabledProvider);
     }
+  }
+
+  void _reload() {
+    ref.invalidate(foldersProvider);
+    ref.invalidate(entriesProvider);
   }
 
   void _exitEditMode() {
@@ -944,10 +959,10 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
             Expanded(
               child: foldersAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => _ErrorState(error: e.toString()),
+          error: (e, _) => _ErrorState(error: e, onRetry: _reload),
           data: (rootFolders) => entriesAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => _ErrorState(error: e.toString()),
+            error: (e, _) => _ErrorState(error: e, onRetry: _reload),
             data: (allEntries) {
               if (isSearching) {
                 final results = _searchEntries(allEntries);
@@ -1247,24 +1262,47 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+/// Load failure of the list, with a Retry button and pull-to-refresh so a
+/// transient error (offline, server restart) never needs an app restart.
 class _ErrorState extends StatelessWidget {
-  final String error;
-  const _ErrorState({required this.error});
+  final Object error;
+  final VoidCallback onRetry;
+  const _ErrorState({required this.error, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: AppTheme.error, size: 48),
-            const SizedBox(height: 12),
-            Text(error,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppTheme.error)),
-          ],
+    final message = error.toString().replaceFirst('Exception: ', '');
+    return LayoutBuilder(
+      builder: (context, constraints) => RefreshIndicator(
+        color: AppTheme.green,
+        onRefresh: () async => onRetry(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error_outline,
+                        color: AppTheme.error, size: 48),
+                    const SizedBox(height: 12),
+                    Text(message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppTheme.error)),
+                    const SizedBox(height: 16),
+                    PbButton(
+                      label: 'Retry',
+                      onPressed: onRetry,
+                      icon: Icons.refresh,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

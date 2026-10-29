@@ -20,13 +20,27 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'models.dart';
 
-/// Secure-storage key for the configured server URL. Public so the auth layer
-/// can preserve it across a full session wipe (deleteAll) — the server URL is
-/// app configuration, not session data, and must survive logout / session
-/// expiry. See AuthService.clearLocalSession / logout.
+/// Secure-storage key for the configured server URL. It is app configuration,
+/// not session data, so the session wipe on logout / session expiry leaves it
+/// alone (see AuthService.clearLocalSession / logout).
 const kServerUrlKey = 'server_url';
 const _kAccessTokenKey = 'access_token';
 const _kRefreshTokenKey = 'refresh_token';
+
+// Request `extra` flags read by the auth interceptor.
+
+/// The request's 401 is an answer (wrong password, invalid 2FA code, rejected
+/// refresh token, …), not an expired access token: never refresh + retry it.
+const _kSkipAuth = 'skipAuth';
+
+/// Set on the one retry after a successful refresh, so a second 401 is passed
+/// through instead of starting another refresh round.
+const _kAuthRetried = 'authRetried';
+
+/// The request body carries the refresh token (logout). On the retry after a
+/// refresh it is replaced with the current one — the original was just rotated
+/// away and revoking it would leave the new token alive server-side.
+const _kSendsRefreshToken = 'sendsRefreshToken';
 
 /// Riverpod provider for the ApiClient.
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
@@ -43,9 +57,18 @@ class ApiClient {
   /// same time (e.g. on resume after a server restart) they all await this one
   /// refresh instead of each spending the single-use refresh token — which would
   /// let the losers wipe the freshly-rotated session and force a spurious logout.
-  Future<bool>? _refreshInFlight;
+  /// Only covers this tab; see [_adoptRotatedToken] for the cross-tab case.
+  Future<RefreshResult>? _refreshInFlight;
 
-  ApiClient() {
+  /// How long a rejected refresh waits for another tab to finish storing the
+  /// token it just rotated, before the session counts as expired.
+  final Duration _rotationSettleDelay;
+
+  /// [httpClientAdapter] and [rotationSettleDelay] are overridable for tests.
+  ApiClient({
+    HttpClientAdapter? httpClientAdapter,
+    Duration rotationSettleDelay = const Duration(seconds: 1),
+  }) : _rotationSettleDelay = rotationSettleDelay {
     _storage = const FlutterSecureStorage(
       aOptions: AndroidOptions(encryptedSharedPreferences: true),
     );
@@ -54,6 +77,7 @@ class ApiClient {
         onRequest: _onRequest,
         onError: _onError,
       ));
+    if (httpClientAdapter != null) _dio.httpClientAdapter = httpClientAdapter;
   }
 
   Future<void> init() async {
@@ -133,11 +157,15 @@ class ApiClient {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
+  // The public auth endpoints answer bad credentials with 401, so they skip the
+  // refresh interceptor: their error message reaches the UI as-is, and a wrong
+  // password neither wipes the session nor loops through refresh + retry.
+
   Future<LoginResponse> login(String email, String password) async {
     final resp = await _post('/api/v1/auth/login', {
       'email': email,
       'password': password,
-    });
+    }, skipAuth: true);
     return LoginResponse.fromJson(resp.data as Map<String, dynamic>);
   }
 
@@ -145,7 +173,8 @@ class ApiClient {
   /// pending-verification message string on HTTP 202 (SMTP enabled).
   Future<({LoginResponse? session, String? pendingMessage})> register(
       RegisterRequest req) async {
-    final resp = await _post('/api/v1/auth/register', req.toJson());
+    final resp =
+        await _post('/api/v1/auth/register', req.toJson(), skipAuth: true);
     final body = resp.data as Map<String, dynamic>;
     if (resp.statusCode == 202) {
       final msg = body['message'] as String?;
@@ -167,8 +196,14 @@ class ApiClient {
     return RefreshResponse.fromJson(resp.data as Map<String, dynamic>);
   }
 
-  Future<void> logout(String refreshToken) async {
-    await _post('/api/v1/auth/logout', {'refresh_token': refreshToken});
+  /// Revokes the stored refresh token server-side. Reads the token itself; if
+  /// the expired access token forces a refresh first, the retry sends the
+  /// rotated token instead (see [_kSendsRefreshToken]). No-op without a token.
+  Future<void> logout() async {
+    final refreshToken = await getRefreshToken();
+    if (refreshToken == null) return;
+    await _post('/api/v1/auth/logout', {'refresh_token': refreshToken},
+        extra: const {_kSendsRefreshToken: true});
   }
 
   Future<UserResponse> me() async {
@@ -409,7 +444,7 @@ class ApiClient {
     final q = (password != null && password.isNotEmpty)
         ? '?password=${Uri.encodeQueryComponent(password)}'
         : '';
-    final resp = await _get('/api/v1/share/$token$q');
+    final resp = await _get('/api/v1/share/$token$q', skipAuth: true);
     return PublicShareLinkResponse.fromJson(resp.data as Map<String, dynamic>);
   }
 
@@ -464,14 +499,18 @@ class ApiClient {
     }
   }
 
-  Future<Response<dynamic>> _get(String path) =>
-      _apiCall(() => _dio.get(_url(path)));
+  Future<Response<dynamic>> _get(String path, {bool skipAuth = false}) =>
+      _apiCall(() => _dio.get(_url(path), options: _options(skipAuth, null)));
 
   Future<Response<dynamic>> _post(String path, Map<String, dynamic> data,
-          {bool skipAuth = false}) =>
+          {bool skipAuth = false, Map<String, dynamic>? extra}) =>
       _apiCall(() => _dio.post(_url(path),
-          data: data,
-          options: skipAuth ? Options(extra: {'skipAuth': true}) : null));
+          data: data, options: _options(skipAuth, extra)));
+
+  Options? _options(bool skipAuth, Map<String, dynamic>? extra) =>
+      skipAuth || extra != null
+          ? Options(extra: {...?extra, if (skipAuth) _kSkipAuth: true})
+          : null;
 
   Future<Response<dynamic>> _put(String path, Map<String, dynamic> data) =>
       _apiCall(() => _dio.put(_url(path), data: data));
@@ -495,9 +534,11 @@ class ApiClient {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
-    // Don't intercept requests that explicitly skip auth (e.g. the refresh
-    // call itself) — prevents an infinite retry loop.
-    if (err.requestOptions.extra['skipAuth'] == true) {
+    final opts = err.requestOptions;
+    // Pass through requests whose 401 is not about the access token (login,
+    // 2FA, the refresh call itself) and the retry after a refresh — refreshing
+    // again for those would loop or wipe a live session.
+    if (opts.extra[_kSkipAuth] == true || opts.extra[_kAuthRetried] == true) {
       handler.next(err);
       return;
     }
@@ -514,31 +555,36 @@ class ApiClient {
       // Transient failure (server restarting / offline): keep the session and
       // surface a retryable connectivity error instead of forcing a logout.
       handler.reject(DioException(
-        requestOptions: err.requestOptions,
+        requestOptions: opts,
         type: DioExceptionType.connectionError,
         error: err.error,
       ));
       return;
     }
 
-    if (result == RefreshResult.refreshed) {
-      try {
-        final opts = err.requestOptions;
-        opts.headers['Authorization'] = 'Bearer $_accessToken';
-        final retried = await _dio.fetch(opts);
-        handler.resolve(retried);
-        return;
-      } catch (_) {
-        handler.next(err);
-        return;
-      }
+    if (result == RefreshResult.rejected) {
+      // The refresh token itself was rejected (genuine expiry): clear the
+      // session and return to the login screen.
+      await clearTokens();
+      _onSessionExpired?.call();
+      handler.next(err);
+      return;
     }
 
-    // RefreshResult.rejected — the refresh token itself was rejected (genuine
-    // expiry): clear everything and return to the login screen.
-    await clearTokens();
-    _onSessionExpired?.call();
-    handler.next(err);
+    opts.extra[_kAuthRetried] = true;
+    opts.headers['Authorization'] = 'Bearer $_accessToken';
+    if (opts.extra[_kSendsRefreshToken] == true) {
+      opts.data = {'refresh_token': await getRefreshToken()};
+    }
+    try {
+      handler.resolve(await _dio.fetch(opts));
+    } on DioException catch (retryErr) {
+      // Forward the retry's own error. The original 401 is stale now that the
+      // session was refreshed, and would surface as a bogus "Session expired".
+      handler.next(retryErr);
+    } catch (e, st) {
+      handler.next(DioException(requestOptions: opts, error: e, stackTrace: st));
+    }
   }
 
   /// Single-flight token refresh: concurrent callers share one in-flight
@@ -546,36 +592,51 @@ class ApiClient {
   /// [RefreshResult.rejected] when the refresh token is no longer valid;
   /// rethrows on transient (network / 5xx) failures so the caller can keep the
   /// session and retry later.
-  Future<RefreshResult> _refreshTokens() {
-    return _refreshInFlight == null
-        ? (_refreshInFlight = _doRefresh())
-            .whenComplete(() => _refreshInFlight = null)
-            .then((ok) => ok ? RefreshResult.refreshed : RefreshResult.rejected)
-        : _refreshInFlight!.then(
-            (ok) => ok ? RefreshResult.refreshed : RefreshResult.rejected);
-  }
+  Future<RefreshResult> _refreshTokens() => _refreshInFlight ??=
+      _doRefresh().whenComplete(() => _refreshInFlight = null);
 
-  Future<bool> _doRefresh() async {
+  Future<RefreshResult> _doRefresh() async {
     final refreshToken = await getRefreshToken();
-    if (refreshToken == null) return false;
+    if (refreshToken == null) return RefreshResult.rejected;
     try {
       // Call the endpoint directly (not via _apiCall) so we can inspect the
       // raw status: only a 401 means the refresh token is genuinely rejected.
       final resp = await _dio.post(
         _url('/api/v1/auth/refresh'),
         data: {'refresh_token': refreshToken},
-        options: Options(extra: {'skipAuth': true}),
+        options: Options(extra: {_kSkipAuth: true}),
       );
       final body = resp.data as Map<String, dynamic>;
       await setTokens(
         body['access_token'] as String,
         body['refresh_token'] as String,
       );
-      return true;
+      return RefreshResult.refreshed;
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) return false; // genuinely rejected
-      rethrow; // transient — let the caller keep the session
+      if (e.response?.statusCode != 401) rethrow; // transient — keep session
+      return await _adoptRotatedToken(refreshToken)
+          ? RefreshResult.refreshed
+          : RefreshResult.rejected;
     }
+  }
+
+  /// Web tabs share one token store but refresh independently. When two tabs
+  /// spend the same single-use refresh token at once, the loser gets a 401
+  /// while the winner stores a freshly rotated pair — the session is alive.
+  /// So before a rejection counts, check whether the stored refresh token moved
+  /// on from [rejected] and, if so, adopt the stored pair. The winner may still
+  /// be writing, hence one more look after [_rotationSettleDelay].
+  Future<bool> _adoptRotatedToken(String rejected) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await Future<void>.delayed(_rotationSettleDelay);
+      final current = await getRefreshToken();
+      if (current != null && current != rejected) {
+        _accessToken = await _storage.read(key: _kAccessTokenKey);
+        onTokensChanged?.call();
+        return true;
+      }
+    }
+    return false;
   }
 }
 

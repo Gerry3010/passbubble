@@ -16,14 +16,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'auth_service.dart';
 import 'auto_lock_provider.dart';
 
 /// Wraps the app and locks the vault after a configurable period of user
-/// inactivity. Any pointer interaction re-arms the idle timer. The timer only
-/// runs while the vault is logged in and unlocked, and is disabled when the
+/// inactivity. Any pointer interaction (including mouse hover) and any
+/// hardware key event (typing) re-arms the idle timer. The timer only runs
+/// while the vault is logged in and unlocked, and is disabled when the
 /// configured interval is 0 ("off").
 class AutoLockScope extends ConsumerStatefulWidget {
   final Widget child;
@@ -39,13 +41,22 @@ class _AutoLockScopeState extends ConsumerState<AutoLockScope> {
   @override
   void initState() {
     super.initState();
+    // Key events go to the focused widget, not up through a Listener, so
+    // typing is observed globally. The handler never consumes the event.
+    HardwareKeyboard.instance.addHandler(_onKey);
     WidgetsBinding.instance.addPostFrameCallback((_) => _rearm());
   }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
     _timer?.cancel();
     super.dispose();
+  }
+
+  bool _onKey(KeyEvent _) {
+    _rearm();
+    return false;
   }
 
   void _rearm() {
@@ -70,6 +81,7 @@ class _AutoLockScopeState extends ConsumerState<AutoLockScope> {
       behavior: HitTestBehavior.translucent,
       onPointerDown: (_) => _rearm(),
       onPointerMove: (_) => _rearm(),
+      onPointerHover: (_) => _rearm(),
       onPointerSignal: (_) => _rearm(),
       child: widget.child,
     );

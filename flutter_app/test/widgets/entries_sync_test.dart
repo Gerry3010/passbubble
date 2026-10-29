@@ -18,16 +18,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:passbubble/core/api/api_client.dart';
 import 'package:passbubble/core/api/models.dart';
+import 'package:passbubble/core/auth/auth_service.dart';
 import 'package:passbubble/features/entries/entries_list_screen.dart';
 
 // Counts how often the entry list is fetched, so we can assert the screen
 // re-syncs on app resume.
 class _CountingApiClient extends ApiClient {
   int listEntriesCalls = 0;
+  Object? failWith;
 
   @override
   Future<List<EntryResponse>> listEntries() async {
     listEntriesCalls++;
+    if (failWith != null) throw failWith!;
     return const [];
   }
 
@@ -35,12 +38,23 @@ class _CountingApiClient extends ApiClient {
   Future<List<FolderResponse>> listFolders() async => const [];
 }
 
+// The list only loads for a logged-in session.
+class _LoggedInAuth extends AuthNotifier {
+  _LoggedInAuth(super.svc) {
+    state = const AuthState(isLoggedIn: true, isUnlocked: true, userId: 'u');
+  }
+}
+
 void main() {
   testWidgets('resuming the app re-syncs the entry list', (tester) async {
     final api = _CountingApiClient();
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [apiClientProvider.overrideWithValue(api)],
+        overrides: [
+          apiClientProvider.overrideWithValue(api),
+          authStateProvider
+              .overrideWith((ref) => _LoggedInAuth(AuthService(api))),
+        ],
         child: const MaterialApp(home: EntriesListScreen()),
       ),
     );
@@ -56,5 +70,30 @@ void main() {
 
     expect(api.listEntriesCalls, greaterThan(initialCalls),
         reason: 'entries should be re-fetched on resume');
+  });
+
+  testWidgets('a load error offers Retry, which reloads the list',
+      (tester) async {
+    final api = _CountingApiClient()
+      ..failWith = Exception('Cannot reach the server. Check your connection.');
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiClientProvider.overrideWithValue(api),
+          authStateProvider
+              .overrideWith((ref) => _LoggedInAuth(AuthService(api))),
+        ],
+        child: const MaterialApp(home: EntriesListScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Cannot reach the server. Check your connection.'),
+        findsOneWidget);
+
+    api.failWith = null;
+    await tester.tap(find.text('RETRY'));
+    await tester.pumpAndSettle();
+    expect(find.text('RETRY'), findsNothing);
+    expect(find.text('Your vault is empty'), findsOneWidget);
   });
 }

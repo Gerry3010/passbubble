@@ -119,11 +119,14 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
         return;
       }
 
-      final unlocked = await ref.read(authStateProvider.notifier).unlock(cached);
-      if (!unlocked && mounted) {
+      final status = await ref.read(authStateProvider.notifier).unlock(cached);
+      if (status != UnlockStatus.ok && mounted) {
         setState(() {
           _loading = false;
-          _error = 'Biometric unlock failed — use your master password';
+          // A stale cached password reads as "wrong password" here.
+          _error = status == UnlockStatus.wrongPassword
+              ? 'Biometric unlock failed — use your master password'
+              : _unlockErrorMessage(status);
         });
       }
     } on LocalAuthException catch (e) {
@@ -160,13 +163,14 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
         await _unlockWithPin();
       } else {
         final password = _passCtrl.text;
-        final ok = await ref.read(authStateProvider.notifier).unlock(password);
-        if (!ok && mounted) {
-          setState(() => _error = 'Wrong master password');
+        final status =
+            await ref.read(authStateProvider.notifier).unlock(password);
+        if (status != UnlockStatus.ok) {
+          if (mounted) setState(() => _error = _unlockErrorMessage(status));
           return;
         }
         // Cache password so biometrics can use it on future unlocks.
-        if (ok && _bioAvailable && mounted) {
+        if (_bioAvailable && mounted) {
           await ref
               .read(authStateProvider.notifier)
               .svc
@@ -174,11 +178,24 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
         }
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  /// User-facing reason for a failed master-password unlock. Only a wrong
+  /// password is fixable here; missing or unreadable local key material needs
+  /// a fresh sign-in, which re-downloads it.
+  String _unlockErrorMessage(UnlockStatus status) => switch (status) {
+        UnlockStatus.wrongPassword => 'Wrong master password',
+        UnlockStatus.missingKeys =>
+          'No vault keys on this device — log out and sign in again.',
+        UnlockStatus.unreadableKeys =>
+          'The vault keys on this device are unreadable — log out and sign in again.',
+        UnlockStatus.failed || UnlockStatus.ok =>
+          'Unlock failed — please try again.',
+      };
 
   Future<void> _unlockWithPin() async {
     final result =

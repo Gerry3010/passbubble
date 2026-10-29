@@ -51,6 +51,50 @@ const _kPinFailCountKey = 'pin_fail_count';
 const _kPinIntervalDaysKey = 'pin_pw_interval_days';
 const _kPinLastMasterUnlockKey = 'pin_last_master_unlock';
 
+/// Every session-scoped key the app writes (besides the tokens, which
+/// [ApiClient.clearTokens] owns). Logout / session expiry deletes exactly
+/// these. Never `deleteAll()`: on web it clears the whole origin's
+/// localStorage — the secure-storage AES key, settings such as
+/// `auto_lock_minutes`, and the data every other open tab relies on.
+const _kSessionKeys = [
+  _kUserIdKey,
+  _kEmailKey,
+  _kRoleKey,
+  _kNameKey,
+  _kKdfSaltKey,
+  _kKdfTimeKey,
+  _kKdfMemoryKey,
+  _kEncPrivX25519Key,
+  _kEncPrivMlkemKey,
+  _kPubX25519Key,
+  _kPubMlkemKey,
+  _kBioMasterKey,
+  _kPinEnabledKey,
+  _kPinSaltKey,
+  _kPinWrappedKey,
+  _kPinMaxTriesKey,
+  _kPinFailCountKey,
+  _kPinIntervalDaysKey,
+  _kPinLastMasterUnlockKey,
+];
+
+/// Outcome of a master-password unlock.
+enum UnlockStatus {
+  ok,
+
+  /// The key material is there but the password does not decrypt it.
+  wrongPassword,
+
+  /// No key material on this device (never stored, or wiped meanwhile).
+  missingKeys,
+
+  /// Key material exists but cannot be read or decoded (corrupt storage).
+  unreadableKeys,
+
+  /// Anything else, e.g. the key derivation itself failed.
+  failed,
+}
+
 final authServiceProvider = Provider<AuthService>(
   (ref) => AuthService(ref.watch(apiClientProvider)),
 );
@@ -58,6 +102,30 @@ final authServiceProvider = Provider<AuthService>(
 final authStateProvider = StateNotifierProvider<AuthNotifier, AuthState>(
   (ref) => AuthNotifier(ref.watch(authServiceProvider)),
 );
+
+/// Bumped whenever a vault session starts or ends: login (incl. an account
+/// switch), logout / session expiry, and every unlock — but not on lock.
+/// Providers caching server data per session watch it, so a stale error
+/// ("Session expired…") or the previous account's data never outlives a
+/// re-login, and an unlock always shows fresh data.
+final vaultSessionProvider =
+    NotifierProvider<VaultSessionNotifier, int>(VaultSessionNotifier.new);
+
+class VaultSessionNotifier extends Notifier<int> {
+  @override
+  int build() {
+    ref.listen<AuthState>(authStateProvider, (prev, next) {
+      final wasOpen = prev != null && prev.isLoggedIn && prev.isUnlocked;
+      final isOpen = next.isLoggedIn && next.isUnlocked;
+      if (prev?.userId != next.userId ||
+          prev?.isLoggedIn != next.isLoggedIn ||
+          (isOpen && !wasOpen)) {
+        state++;
+      }
+    });
+    return 0;
+  }
+}
 
 class AuthState {
   final bool isLoggedIn;
@@ -144,7 +212,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   void _applySession(AuthSession session) {
     state = AuthState(
       isLoggedIn: true,
-      isUnlocked: true,
+      // Without key material the server sent nothing to decrypt; the unlock
+      // screen then explains instead of showing an unusable "open" vault.
+      isUnlocked: _svc.hasVaultKeys,
       userId: session.userId,
       email: session.email,
       name: session.name,
@@ -164,7 +234,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final (_, userId, userEmail, userName, role) = await _svc.loadSession();
     state = AuthState(
       isLoggedIn: true,
-      isUnlocked: true,
+      isUnlocked: _svc.hasVaultKeys,
       userId: userId,
       email: userEmail,
       name: userName,
@@ -173,10 +243,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return null;
   }
 
-  Future<bool> unlock(String masterPassword) async {
-    final ok = await _svc.unlock(masterPassword);
-    if (ok) state = state.copyWith(isUnlocked: true);
-    return ok;
+  Future<UnlockStatus> unlock(String masterPassword) async {
+    final status = await _svc.unlockWithMasterPassword(masterPassword);
+    if (status == UnlockStatus.ok) state = state.copyWith(isUnlocked: true);
+    return status;
   }
 
   /// Unlocks via PIN. On success the vault is unlocked; otherwise the caller
@@ -229,6 +299,9 @@ class AuthService {
   // Exposed for vault operations
   Uint8List? get privX25519 => _privX25519;
   Uint8List? get privMLKEM => _privMLKEM;
+
+  /// Whether the private keys are in memory, i.e. the vault is usable.
+  bool get hasVaultKeys => _privX25519 != null;
 
   // Android system-autofill bridge (no-op on other platforms).
   final AutofillBridge _autofill = const AutofillBridge();
@@ -303,19 +376,21 @@ class AuthService {
     _privX25519 = null;
     _privMLKEM = null;
     await _api.clearTokens();
-    await _wipeStoragePreservingConfig();
+    await _wipeSessionStorage();
     await _autofill.clearVault();
   }
 
-  /// Wipes all secure-storage secrets (tokens, master key, PIN, biometric, …)
-  /// but restores the configured server URL afterwards. The server URL is app
-  /// configuration, not session data — losing it on session expiry left the
-  /// client with no host to talk to ("no host specified in URI /api…").
-  Future<void> _wipeStoragePreservingConfig() async {
-    final serverUrl = await _storage.read(key: kServerUrlKey);
-    await _storage.deleteAll();
-    if (serverUrl != null) {
-      await _storage.write(key: kServerUrlKey, value: serverUrl);
+  /// Deletes the session's secrets (user, key material, PIN, biometric; the
+  /// tokens go via [ApiClient.clearTokens]) key by key. App configuration —
+  /// the server URL, auto-lock interval, one-time hints — stays, and so does
+  /// anything else on the origin (see [_kSessionKeys]).
+  Future<void> _wipeSessionStorage() async {
+    for (final key in _kSessionKeys) {
+      try {
+        await _storage.delete(key: key);
+      } catch (_) {
+        // Keep deleting the rest; one failing key must not leave the others.
+      }
     }
   }
 
@@ -433,39 +508,85 @@ class AuthService {
     return null;
   }
 
-  Future<bool> unlock(String masterPassword) async {
+  /// Bool wrapper around [unlockWithMasterPassword] for callers that only
+  /// need to verify the master password.
+  Future<bool> unlock(String masterPassword) async =>
+      await unlockWithMasterPassword(masterPassword) == UnlockStatus.ok;
+
+  /// Decrypts the stored private keys with [masterPassword]. Tells a wrong
+  /// password apart from missing or unreadable local key material, which no
+  /// password can fix (the user has to sign in again).
+  Future<UnlockStatus> unlockWithMasterPassword(String masterPassword) async {
+    final String? saltB64, timeStr, memStr, encPrivX25519B64, encPrivMlkemB64;
     try {
-      final saltB64 = await _storage.read(key: _kKdfSaltKey);
-      final timeStr = await _storage.read(key: _kKdfTimeKey);
-      final memStr = await _storage.read(key: _kKdfMemoryKey);
-      final encPrivX25519B64 = await _storage.read(key: _kEncPrivX25519Key);
-      final encPrivMlkemB64 = await _storage.read(key: _kEncPrivMlkemKey);
-      if (saltB64 == null || encPrivX25519B64 == null) return false;
+      saltB64 = await _storage.read(key: _kKdfSaltKey);
+      timeStr = await _storage.read(key: _kKdfTimeKey);
+      memStr = await _storage.read(key: _kKdfMemoryKey);
+      encPrivX25519B64 = await _storage.read(key: _kEncPrivX25519Key);
+      encPrivMlkemB64 = await _storage.read(key: _kEncPrivMlkemKey);
+    } catch (_) {
+      // e.g. web: the values were encrypted under a storage key that is gone.
+      return UnlockStatus.unreadableKeys;
+    }
+    if (saltB64 == null ||
+        saltB64.isEmpty ||
+        encPrivX25519B64 == null ||
+        encPrivX25519B64.isEmpty) {
+      return UnlockStatus.missingKeys;
+    }
 
-      final salt = base64.decode(saltB64);
-      final time = int.tryParse(timeStr ?? '3') ?? 3;
-      final memory = int.tryParse(memStr ?? '65536') ?? 65536;
+    final Uint8List salt, encPrivX;
+    Uint8List? encPrivM;
+    try {
+      salt = base64.decode(saltB64);
+      encPrivX = base64.decode(encPrivX25519B64);
+      // X25519-only accounts store an empty ML-KEM key; treat it as absent.
+      if (encPrivMlkemB64 != null && encPrivMlkemB64.isNotEmpty) {
+        encPrivM = base64.decode(encPrivMlkemB64);
+      }
+    } on FormatException {
+      return UnlockStatus.unreadableKeys;
+    }
 
-      final masterKey = await VaultCrypto.deriveMasterKey(
+    final SecretKey masterKey;
+    try {
+      masterKey = await VaultCrypto.deriveMasterKey(
         masterPassword,
         salt,
-        memory: memory,
-        iterations: time,
+        memory: int.tryParse(memStr ?? '65536') ?? 65536,
+        iterations: int.tryParse(timeStr ?? '3') ?? 3,
       );
-      _privX25519 = await VaultCrypto.decrypt(
-        masterKey,
-        base64.decode(encPrivX25519B64),
-      );
-      if (encPrivMlkemB64 != null) {
-        _privMLKEM = await VaultCrypto.decrypt(masterKey, base64.decode(encPrivMlkemB64));
-      }
-      // A successful master-password unlock restarts the PIN re-auth interval.
-      await _onMasterUnlock();
-      unawaited(_syncAutofill());
-      return true;
     } catch (_) {
-      return false;
+      return UnlockStatus.failed;
     }
+
+    final Uint8List privX;
+    try {
+      privX = await VaultCrypto.decrypt(masterKey, encPrivX);
+    } on SecretBoxAuthenticationError {
+      return UnlockStatus.wrongPassword;
+    } catch (_) {
+      return UnlockStatus.unreadableKeys;
+    }
+    Uint8List? privM;
+    if (encPrivM != null) {
+      try {
+        privM = await VaultCrypto.decrypt(masterKey, encPrivM);
+      } catch (_) {
+        // The password is right (X25519 decrypted), so this blob is damaged.
+        return UnlockStatus.unreadableKeys;
+      }
+    }
+    _privX25519 = privX;
+    _privMLKEM = privM;
+
+    // A successful master-password unlock restarts the PIN re-auth interval.
+    // Bookkeeping only: a storage hiccup here must not fail the unlock.
+    try {
+      await _onMasterUnlock();
+    } catch (_) {}
+    unawaited(_syncAutofill());
+    return UnlockStatus.ok;
   }
 
   /// Clears the in-memory private keys without touching the persisted session
@@ -477,14 +598,12 @@ class AuthService {
   }
 
   Future<void> logout() async {
-    final refreshToken = await _api.getRefreshToken();
-    if (refreshToken != null) {
-      try {
-        await _api.logout(refreshToken);
-      } catch (_) {}
-    }
+    // Best-effort server-side revocation; the local wipe happens regardless.
+    try {
+      await _api.logout();
+    } catch (_) {}
     await _api.clearTokens();
-    await _wipeStoragePreservingConfig();
+    await _wipeSessionStorage();
     _privX25519 = null;
     _privMLKEM = null;
     await _autofill.clearVault();
@@ -767,13 +886,16 @@ class AuthService {
         base64.decode(saltB64),
       );
       final masterKey = SecretKey(masterKeyBytes);
-      _privX25519 = await VaultCrypto.decrypt(
+      // Decrypt into locals so a half-failed attempt leaves no key in memory.
+      final privX = await VaultCrypto.decrypt(
         masterKey,
         base64.decode(encPrivX25519B64),
       );
-      if (encPrivMlkemB64 != null) {
-        _privMLKEM = await VaultCrypto.decrypt(masterKey, base64.decode(encPrivMlkemB64));
-      }
+      final privM = encPrivMlkemB64 != null && encPrivMlkemB64.isNotEmpty
+          ? await VaultCrypto.decrypt(masterKey, base64.decode(encPrivMlkemB64))
+          : null;
+      _privX25519 = privX;
+      _privMLKEM = privM;
     } catch (_) {
       if (newCount >= maxTries) {
         await disablePin();
@@ -793,6 +915,9 @@ class AuthService {
   }
 
   Future<void> _deriveAndUnlock(String password, LoginResponse resp) async {
+    // Never carry keys over from an earlier session into this one.
+    _privX25519 = null;
+    _privMLKEM = null;
     if (resp.kdfSalt.isEmpty || resp.encPrivX25519.isEmpty) return;
     final salt = base64.decode(resp.kdfSalt);
     final masterKey = await VaultCrypto.deriveMasterKey(
