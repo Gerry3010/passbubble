@@ -48,14 +48,18 @@ vi.mock('webextension-polyfill', () => ({
   },
 }));
 
-// A togglable fake session so we can simulate locked vs unlocked.
+// A togglable fake session so we can simulate locked vs unlocked. `storedPresent`
+// models the copy in storage.session that survives a service-worker restart.
 let sessionPresent = true;
+let storedPresent = false;
 const clearSessionMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../session-store.js', () => ({
   getSession: vi.fn(() => (sessionPresent ? { serverUrl: 'https://srv' } : null)),
   setSession: vi.fn(),
   clearSession: clearSessionMock,
+  readStoredSession: vi.fn(async () => (storedPresent ? { serverUrl: 'https://srv' } : null)),
+  adoptSession: vi.fn(),
   getEntriesCache: vi.fn(),
   setEntriesCache: vi.fn(),
   getLoginFrameHost: vi.fn(() => ''),
@@ -73,10 +77,12 @@ beforeEach(() => {
   for (const k of Object.keys(sessionStore)) delete sessionStore[k];
   for (const k of Object.keys(syncStore)) delete syncStore[k];
   sessionPresent = true;
+  storedPresent = false;
   clearSessionMock.mockClear();
   alarmsClear.mockClear();
-  clearSessionMock.mockImplementation(() => {
+  clearSessionMock.mockImplementation(async () => {
     sessionPresent = false;
+    storedPresent = false;
   });
 });
 
@@ -113,7 +119,7 @@ describe('maybeAutoLock', () => {
     expect(alarmsClear).toHaveBeenCalled();
   });
 
-  it('retires the alarm when there is no live session', async () => {
+  it('retires the alarm when there is neither a live nor a stored session', async () => {
     sessionPresent = false;
     syncStore[STORAGE_KEYS.AUTO_LOCK_MINUTES] = 5;
 
@@ -122,5 +128,30 @@ describe('maybeAutoLock', () => {
     expect(locked).toBe(true);
     expect(clearSessionMock).not.toHaveBeenCalled();
     expect(alarmsClear).toHaveBeenCalled();
+  });
+
+  it('keeps the alarm for a session that only survives in storage.session (SW restarted)', async () => {
+    sessionPresent = false;
+    storedPresent = true;
+    syncStore[STORAGE_KEYS.AUTO_LOCK_MINUTES] = 5;
+    sessionStore[STORAGE_KEYS.LAST_ACTIVITY] = Date.now() - 60_000;
+
+    const locked = await maybeAutoLock();
+
+    expect(locked).toBe(false);
+    expect(alarmsClear).not.toHaveBeenCalled();
+  });
+
+  it('locks a stored session once it is idle past the timeout', async () => {
+    sessionPresent = false;
+    storedPresent = true;
+    syncStore[STORAGE_KEYS.AUTO_LOCK_MINUTES] = 5;
+    sessionStore[STORAGE_KEYS.LAST_ACTIVITY] = Date.now() - 6 * 60_000;
+
+    const locked = await maybeAutoLock();
+
+    expect(locked).toBe(true);
+    expect(clearSessionMock).toHaveBeenCalledOnce();
+    expect(sessionStore[STORAGE_KEYS.LAST_ACTIVITY]).toBeUndefined();
   });
 });

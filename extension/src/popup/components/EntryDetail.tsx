@@ -18,6 +18,7 @@ import browser from 'webextension-polyfill';
 import { generateTotp } from '@passbubble/shared-ts';
 import type { EntryData, EntryResponse } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
+import { handleLockedResponse } from '../store/session.js';
 import { isSsoProvider, SSO_PROVIDER_LABELS } from '../../shared/sso.js';
 import { term, link, muted, errorText } from '../../shared/theme.js';
 
@@ -32,7 +33,7 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
       .sendMessage({ type: MessageType.GET_ENTRY, payload: { id: entry.id } })
       .then((resp) => {
         const r = resp as { data?: EntryData; locked?: boolean };
-        if (r.locked || !r.data) {
+        if (handleLockedResponse(r) || !r.data) {
           setError('Vault is locked');
           return;
         }

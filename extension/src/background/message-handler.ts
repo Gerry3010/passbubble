@@ -45,54 +45,34 @@ import {
   AUTO_LOCK_ALARM,
 } from '../shared/constants.js';
 import {
-  clearSession,
-  getEntriesCache,
+  adoptSession,
   getLastFilledEntry,
   getLoginFrameHost,
   getSession,
+  readStoredSession,
   setEntriesCache,
   setLastFilledEntry,
   setLoginFrameHost,
   setSession,
 } from './session-store.js';
+import { clearPin, loadPin, resetPinAfterUnlock, savePin, savePinFailCount, type PinRecord } from './pin-store.js';
+import { loadAccount, saveAccountFromLogin, type StoredAccount } from './account-store.js';
 import {
-  clearPin,
-  loadPin,
-  savePin,
-  savePinFailCount,
-  updatePinAfterUnlock,
-  type PinBootstrap,
-  type PinRecord,
-} from './pin-store.js';
+  VaultLockedError,
+  endLogin,
+  getServerUrl,
+  httpStatus,
+  loadEntriesCache,
+  lockVault,
+  refreshTokens,
+  revokeServerSession,
+  vaultClient,
+} from './vault-client.js';
 import { matchEntriesForUrl } from './autofill-service.js';
 import { deleteSsoRecord, getSsoRecord, noteSsoCandidate } from './sso-memory.js';
 import { persistSsoToEntries, ssoFromEntries } from './sso-entry.js';
 import type { SsoProvider } from '../shared/sso.js';
-import type { EntryData, LoginResponse, SessionInfo, UnlockedSession } from '@passbubble/shared-ts';
-
-// Uniform (already-encrypted / non-secret) session material, sourced from either
-// storage.session (normal) or the PIN bootstrap in storage.local (after a
-// browser restart). Used to rebuild an UnlockedSession on either unlock path.
-interface Bootstrap {
-  refreshToken: string;
-  encPrivX25519: string;
-  encPrivMLKEM: string;
-  kdfSalt: string;
-  kdfTime: number;
-  kdfMemory: number;
-  userId: string;
-  userEmail: string;
-  userName: string;
-  role: string;
-  pubX25519: string;
-  pubMLKEM: string;
-}
-
-function makeClient(serverUrl: string, accessToken?: string): PassbubbleClient {
-  const c = new PassbubbleClient(serverUrl);
-  if (accessToken) c.setTokens(accessToken, '', 900);
-  return c;
-}
+import type { EntryData, EntryResponse, SessionInfo, UnlockedSession } from '@passbubble/shared-ts';
 
 // --- Idle auto-lock -------------------------------------------------------
 
@@ -124,37 +104,72 @@ export async function touchActivity(): Promise<void> {
  * alarm is cleared instead. Called on every unlock; the alarm itself wakes the
  * service worker so locking happens even with the popup closed. */
 export async function scheduleAutoLock(): Promise<void> {
+  // Always record the unlock as activity, so switching from "never" to a timeout
+  // later measures idle time from a real timestamp.
+  await touchActivity();
   const minutes = await readAutoLockMinutes();
   if (minutes <= 0) {
     await browser.alarms.clear(AUTO_LOCK_ALARM);
     return;
   }
-  await touchActivity();
   await browser.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
 }
 
-/** Auto-lock tick: drop the in-memory session if the vault has been idle for at
- * least the configured timeout, and retire the alarm. Returns true if it locked
- * (or there was nothing to keep armed). Driven by the recurring AUTO_LOCK_ALARM. */
+/** True once the vault has been idle for at least `minutes` (0 = never). */
+async function idleLimitReached(minutes: number): Promise<boolean> {
+  if (minutes <= 0) return false;
+  const stored = await browser.storage.session.get(STORAGE_KEYS.LAST_ACTIVITY);
+  const last = Number(stored[STORAGE_KEYS.LAST_ACTIVITY]) || 0;
+  return Date.now() - last >= minutes * 60_000;
+}
+
+/** Auto-lock tick: lock the vault if it has been idle for at least the
+ * configured timeout, and retire the alarm. Returns true if it locked (or there
+ * was nothing to keep armed). Driven by the recurring AUTO_LOCK_ALARM. */
 export async function maybeAutoLock(): Promise<boolean> {
   const minutes = await readAutoLockMinutes();
   if (minutes <= 0) {
     await browser.alarms.clear(AUTO_LOCK_ALARM);
     return true;
   }
-  // No live session (e.g. the SW was evicted and the keys are already gone):
-  // nothing to lock, so retire the alarm until the next unlock re-arms it.
-  if (!getSession()) {
+  // A restarted service worker starts with empty memory while the unlocked
+  // session still sits in storage.session — that session must lock as well, so
+  // only retire the alarm when neither exists.
+  if (!getSession() && !(await readStoredSession())) {
     await browser.alarms.clear(AUTO_LOCK_ALARM);
     return true;
   }
-  const stored = await browser.storage.session.get(STORAGE_KEYS.LAST_ACTIVITY);
-  const last = Number(stored[STORAGE_KEYS.LAST_ACTIVITY]) || 0;
-  if (Date.now() - last < minutes * 60_000) return false;
-  clearSession();
-  await browser.alarms.clear(AUTO_LOCK_ALARM);
-  await browser.storage.session.remove(STORAGE_KEYS.LAST_ACTIVITY);
+  if (!(await idleLimitReached(minutes))) return false;
+  await lockVault();
   return true;
+}
+
+let restoring: Promise<void> | null = null;
+
+/**
+ * Bring the unlocked session back after the service worker was restarted (its
+ * memory is gone, the copy in storage.session is not). The auto-lock setting
+ * stays authoritative: a session idle for longer than the timeout is locked
+ * instead of restored. Must run before handling any message or alarm.
+ */
+export function ensureSessionRestored(): Promise<void> {
+  if (getSession()) return Promise.resolve();
+  restoring ??= (async () => {
+    try {
+      const stored = await readStoredSession();
+      if (!stored) return;
+      if (await idleLimitReached(await readAutoLockMinutes())) {
+        await lockVault();
+        return;
+      }
+      if (!getSession()) adoptSession(stored);
+    } catch {
+      /* stay locked */
+    }
+  })().finally(() => {
+    restoring = null;
+  });
+  return restoring;
 }
 
 /** Resolve credentials to satisfy an HTTP Basic Auth challenge for `url`, reusing
@@ -166,16 +181,14 @@ export async function maybeAutoLock(): Promise<boolean> {
 export async function resolveBasicAuthCredentials(
   url: string,
 ): Promise<{ username: string; password: string } | null> {
+  await ensureSessionRestored();
   const session = getSession();
   if (!session) return null;
-  const cache = getEntriesCache();
-  if (!cache) return null;
-  const matches = matchEntriesForUrl(url, cache);
-  // Exactly one match → unambiguous. Zero or several → let the user decide.
-  if (matches.length !== 1) return null;
   try {
-    const client = makeClient(session.serverUrl, session.accessToken);
-    const data = await decryptEntry(await client.getEntry(matches[0].id), session);
+    const matches = matchEntriesForUrl(url, await loadEntriesCache(session));
+    // Exactly one match → unambiguous. Zero or several → let the user decide.
+    if (matches.length !== 1) return null;
+    const data = await decryptEntry(await vaultClient(session).getEntry(matches[0].id), session);
     const password = data.password ?? '';
     if (!password) return null;
     return { username: data.username ?? '', password };
@@ -184,174 +197,78 @@ export async function resolveBasicAuthCredentials(
   }
 }
 
-async function getServerUrl(): Promise<string> {
-  const data = await browser.storage.sync.get(STORAGE_KEYS.SERVER_URL);
-  return (data[STORAGE_KEYS.SERVER_URL] as string | undefined) ?? '';
+/** The entries cache for URL matching, loaded on demand; [] if it cannot be
+ * loaded right now (a lock / sign-out still propagates). */
+async function entriesForMatching(session: UnlockedSession): Promise<EntryResponse[]> {
+  try {
+    return await loadEntriesCache(session);
+  } catch (err) {
+    if (err instanceof VaultLockedError) throw err;
+    return [];
+  }
 }
 
-async function loadSessionData() {
-  return browser.storage.session.get([
-    STORAGE_KEYS.REFRESH_TOKEN,
-    STORAGE_KEYS.ENC_PRIV_X25519,
-    STORAGE_KEYS.ENC_PRIV_MLKEM,
-    STORAGE_KEYS.KDF_SALT,
-    STORAGE_KEYS.KDF_TIME,
-    STORAGE_KEYS.KDF_MEMORY,
-    STORAGE_KEYS.USER_ID,
-    STORAGE_KEYS.USER_EMAIL,
-    STORAGE_KEYS.USER_NAME,
-    STORAGE_KEYS.ROLE,
-    STORAGE_KEYS.PUB_X25519,
-    STORAGE_KEYS.PUB_MLKEM,
-  ]);
-}
-
-/**
- * Persists the non-secret session material from a successful login (the master
- * password and plaintext private keys are never stored). Shared by the LOGIN
- * and VERIFY_TOTP handlers.
- */
-async function persistLoginResponse(resp: LoginResponse): Promise<void> {
-  await browser.storage.session.set({
-    [STORAGE_KEYS.REFRESH_TOKEN]: resp.refresh_token,
-    [STORAGE_KEYS.ENC_PRIV_X25519]: resp.enc_priv_x25519,
-    [STORAGE_KEYS.ENC_PRIV_MLKEM]: resp.enc_priv_mlkem768,
-    [STORAGE_KEYS.KDF_SALT]: resp.kdf_salt,
-    [STORAGE_KEYS.KDF_TIME]: resp.kdf_time,
-    [STORAGE_KEYS.KDF_MEMORY]: resp.kdf_memory,
-    [STORAGE_KEYS.USER_ID]: resp.user_id,
-    [STORAGE_KEYS.USER_EMAIL]: resp.email,
-    [STORAGE_KEYS.USER_NAME]: resp.name,
-    [STORAGE_KEYS.ROLE]: resp.role,
-    [STORAGE_KEYS.PUB_X25519]: resp.pub_x25519,
-    [STORAGE_KEYS.PUB_MLKEM]: resp.pub_mlkem768,
-  });
-}
-
-function bootstrapFromStored(stored: Record<string, unknown>): Bootstrap {
-  return {
-    refreshToken: stored[STORAGE_KEYS.REFRESH_TOKEN] as string,
-    encPrivX25519: stored[STORAGE_KEYS.ENC_PRIV_X25519] as string,
-    encPrivMLKEM: stored[STORAGE_KEYS.ENC_PRIV_MLKEM] as string,
-    kdfSalt: stored[STORAGE_KEYS.KDF_SALT] as string,
-    kdfTime: stored[STORAGE_KEYS.KDF_TIME] as number,
-    kdfMemory: stored[STORAGE_KEYS.KDF_MEMORY] as number,
-    userId: stored[STORAGE_KEYS.USER_ID] as string,
-    userEmail: stored[STORAGE_KEYS.USER_EMAIL] as string,
-    userName: stored[STORAGE_KEYS.USER_NAME] as string,
-    role: stored[STORAGE_KEYS.ROLE] as string,
-    pubX25519: stored[STORAGE_KEYS.PUB_X25519] as string,
-    pubMLKEM: stored[STORAGE_KEYS.PUB_MLKEM] as string,
-  };
-}
-
-function bootstrapFromPin(b: PinBootstrap): Bootstrap {
-  return {
-    refreshToken: b.refresh_token,
-    encPrivX25519: b.enc_priv_x25519,
-    encPrivMLKEM: b.enc_priv_mlkem,
-    kdfSalt: b.kdf_salt,
-    kdfTime: b.kdf_time,
-    kdfMemory: b.kdf_memory,
-    userId: b.user_id,
-    userEmail: b.user_email,
-    userName: b.user_name,
-    role: b.role,
-    pubX25519: b.pub_x25519,
-    pubMLKEM: b.pub_mlkem,
-  };
-}
-
-function pinBootstrapFrom(b: Bootstrap): PinBootstrap {
-  return {
-    refresh_token: b.refreshToken,
-    enc_priv_x25519: b.encPrivX25519,
-    enc_priv_mlkem: b.encPrivMLKEM,
-    kdf_salt: b.kdfSalt,
-    kdf_time: b.kdfTime,
-    kdf_memory: b.kdfMemory,
-    user_id: b.userId,
-    user_email: b.userEmail,
-    user_name: b.userName,
-    role: b.role,
-    pub_x25519: b.pubX25519,
-    pub_mlkem: b.pubMLKEM,
-  };
-}
-
-// Returns the session bootstrap from storage.session, falling back to the PIN
-// bootstrap in storage.local (which survives a browser restart). null = not
-// logged in on this device.
-async function loadBootstrap(): Promise<Bootstrap | null> {
-  const stored = await loadSessionData();
-  if (stored[STORAGE_KEYS.REFRESH_TOKEN]) return bootstrapFromStored(stored);
-  const pin = await loadPin();
-  if (pin.enabled && pin.bootstrap) return bootstrapFromPin(pin.bootstrap);
-  return null;
-}
-
-// Restores the full session bootstrap into storage.session (e.g. after a browser
-// restart, where only the PIN-local copy survived) so the other handlers and
-// GET_SESSION behave normally afterwards.
-async function persistBootstrapToSession(b: Bootstrap, refreshToken: string): Promise<void> {
-  await browser.storage.session.set({
-    [STORAGE_KEYS.REFRESH_TOKEN]: refreshToken,
-    [STORAGE_KEYS.ENC_PRIV_X25519]: b.encPrivX25519,
-    [STORAGE_KEYS.ENC_PRIV_MLKEM]: b.encPrivMLKEM,
-    [STORAGE_KEYS.KDF_SALT]: b.kdfSalt,
-    [STORAGE_KEYS.KDF_TIME]: b.kdfTime,
-    [STORAGE_KEYS.KDF_MEMORY]: b.kdfMemory,
-    [STORAGE_KEYS.USER_ID]: b.userId,
-    [STORAGE_KEYS.USER_EMAIL]: b.userEmail,
-    [STORAGE_KEYS.USER_NAME]: b.userName,
-    [STORAGE_KEYS.ROLE]: b.role,
-    [STORAGE_KEYS.PUB_X25519]: b.pubX25519,
-    [STORAGE_KEYS.PUB_MLKEM]: b.pubMLKEM,
-  });
-}
-
-// Refreshes the access token, builds the in-memory UnlockedSession, pre-loads the
-// entries cache, and schedules the refresh alarm. Returns the rotated refresh
-// token. Shared by the master-password and PIN unlock paths.
+// Gets fresh tokens (persisting the rotated refresh token first), builds the
+// unlocked session (memory + storage.session) and arms the auto-lock. Shared by
+// the master-password and PIN unlock paths.
 async function buildSession(
   privX25519: Uint8Array,
   privMLKEM: Uint8Array,
-  b: Bootstrap,
+  account: StoredAccount,
   serverUrl: string,
-): Promise<string> {
-  const client = makeClient(serverUrl);
-  const refreshResp = await client.refresh(b.refreshToken);
+): Promise<void> {
+  const refreshResp = await refreshTokens();
 
   const session: UnlockedSession = {
     privX25519,
     privMLKEM,
-    pubX25519: b64Dec(b.pubX25519),
-    pubMLKEM: b64Dec(b.pubMLKEM),
-    userId: b.userId,
-    userEmail: b.userEmail,
-    userName: b.userName,
-    role: b.role,
+    pubX25519: b64Dec(account.pubX25519),
+    pubMLKEM: b64Dec(account.pubMLKEM),
+    userId: account.userId,
+    userEmail: account.userEmail,
+    userName: account.userName,
+    role: account.role,
     accessToken: refreshResp.access_token,
-    refreshToken: refreshResp.refresh_token,
+    // The refresh token lives in storage.local only (account-store.ts).
+    refreshToken: '',
     accessTokenExpiresAt: Date.now() + refreshResp.expires_in * 1000,
     serverUrl,
-    kdfSalt: b64Dec(b.kdfSalt),
-    kdfTime: b.kdfTime,
-    kdfMemory: b.kdfMemory,
-    encPrivX25519: b64Dec(b.encPrivX25519),
-    encPrivMLKEM: b64Dec(b.encPrivMLKEM),
+    kdfSalt: b64Dec(account.kdfSalt),
+    kdfTime: account.kdfTime,
+    kdfMemory: account.kdfMemory,
+    encPrivX25519: b64Dec(account.encPrivX25519),
+    encPrivMLKEM: b64Dec(account.encPrivMLKEM),
   };
-  setSession(session);
-
-  const apiClient = makeClient(serverUrl, session.accessToken);
-  apiClient.setTokens(session.accessToken, session.refreshToken, refreshResp.expires_in);
-  setEntriesCache(await apiClient.listEntries());
-
-  await browser.alarms.create('token-refresh', {
-    delayInMinutes: (refreshResp.expires_in - 60) / 60,
-  });
+  await setSession(session);
   await scheduleAutoLock();
-  return refreshResp.refresh_token;
+
+  // Pre-load the entries cache. Not fatal: the popup and autofill load it on demand.
+  try {
+    setEntriesCache(await vaultClient(session).listEntries());
+  } catch (err) {
+    if (err instanceof VaultLockedError) throw err;
+  }
+}
+
+// A failed AES-GCM key unwrap (wrong master password) surfaces as a WebCrypto
+// OperationError; anything else is a different problem and must say so.
+function isDecryptionFailure(err: unknown): boolean {
+  return (err as { name?: unknown } | null)?.name === 'OperationError';
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return typeof err === 'string' ? err : 'unknown error';
+}
+
+/** User-facing message for a failed server round-trip during unlock. */
+function describeRequestError(err: unknown): string {
+  const status = httpStatus(err);
+  if (status === 429) return 'Too many requests — please wait a minute and try again.';
+  if (status !== undefined && status >= 500) return `The server reported an error (${status}) — please try again later.`;
+  if (status !== undefined) return `The server rejected the request (${status}: ${errorMessage(err)}).`;
+  if (err instanceof TypeError) return 'Could not reach the server — check your connection and try again.';
+  return `Unlock failed: ${errorMessage(err)}`;
 }
 
 /** True if `host` is covered by a blocklist entry (exact host or a parent domain). */
@@ -390,24 +307,43 @@ interface MessageSender {
 
 type Handler = (payload: Record<string, unknown>, sender: MessageSender) => Promise<unknown>;
 
+// A handler that finds the vault locked — or the device signed out — mid-request
+// (e.g. the refresh token was rejected) answers like a locked vault, so the popup
+// and content scripts switch to their unlock / sign-in state.
+function withLockHandling(handlers: Record<string, Handler>): Record<string, Handler> {
+  const wrapped: Record<string, Handler> = {};
+  for (const [type, handler] of Object.entries(handlers)) {
+    wrapped[type] = async (payload, sender) => {
+      try {
+        return await handler(payload, sender);
+      } catch (err) {
+        if (err instanceof VaultLockedError) return { locked: true, loggedOut: err.loggedOut };
+        throw err;
+      }
+    };
+  }
+  return wrapped;
+}
+
+const SESSION_EXPIRED_MESSAGE = 'Your session has expired — please log in again.';
+
 export function buildHandlers(): Record<string, Handler> {
-  return {
+  return withLockHandling({
     [MessageType.GET_SESSION]: async () => {
-      const stored = await loadSessionData();
+      const account = await loadAccount();
       const session = getSession();
       const serverUrl = await getServerUrl();
       const pin = await loadPin();
-      // A configured PIN keeps a logged-in bootstrap in storage.local, so the
-      // user stays "logged in" across a browser restart even though
-      // storage.session was wiped — they just need to PIN-unlock again.
-      const isLoggedIn = !!stored[STORAGE_KEYS.REFRESH_TOKEN] || (pin.enabled && !!pin.bootstrap);
+      // The login state lives in storage.local, so the device stays logged in
+      // across browser restarts — it just needs to be unlocked again.
+      const isLoggedIn = !!account;
       // PIN is offered for unlock only while it is still within its interval.
-      const pinAvailable = pin.enabled && !!pin.bootstrap && !pwIntervalElapsed(pin.lastMasterUnlock, pin.intervalDays);
+      const pinAvailable = isLoggedIn && pin.enabled && !pwIntervalElapsed(pin.lastMasterUnlock, pin.intervalDays);
       return {
         isLoggedIn,
         isUnlocked: !!session,
-        userEmail: (stored[STORAGE_KEYS.USER_EMAIL] as string) ?? session?.userEmail ?? pin.bootstrap?.user_email,
-        userName: (stored[STORAGE_KEYS.USER_NAME] as string) ?? session?.userName ?? pin.bootstrap?.user_name,
+        userEmail: account?.userEmail || session?.userEmail,
+        userName: account?.userName || session?.userName,
         serverUrl,
         pinEnabled: pin.enabled,
         pinAvailable,
@@ -418,14 +354,14 @@ export function buildHandlers(): Record<string, Handler> {
       const { email, password } = payload as { email: string; password: string };
       const serverUrl = await getServerUrl();
       if (!serverUrl) throw new Error('Server URL not configured');
-      const client = makeClient(serverUrl);
+      const client = new PassbubbleClient(serverUrl);
       const resp = await client.login(email, password);
       // Account-level 2FA: the password step succeeded but a TOTP code is
       // required. Do NOT persist anything yet (the response carries no keys).
       if (resp.status === '2fa_required') {
         return { ok: true, requiresTotp: true, pendingToken: resp.pending_token };
       }
-      await persistLoginResponse(resp);
+      await saveAccountFromLogin(resp);
       return { ok: true, needsUnlock: true };
     },
 
@@ -433,43 +369,47 @@ export function buildHandlers(): Record<string, Handler> {
       const { pendingToken, code } = payload as { pendingToken: string; code: string };
       const serverUrl = await getServerUrl();
       if (!serverUrl) throw new Error('Server URL not configured');
-      const client = makeClient(serverUrl);
+      const client = new PassbubbleClient(serverUrl);
       const resp = await client.verifyTotp(pendingToken, code);
-      await persistLoginResponse(resp);
+      await saveAccountFromLogin(resp);
       return { ok: true, needsUnlock: true };
     },
 
     [MessageType.UNLOCK]: async (payload) => {
       const { masterPassword } = payload as { masterPassword: string };
       const serverUrl = await getServerUrl();
-      // Fall back to the PIN-local bootstrap when storage.session was wiped (e.g.
-      // after a browser restart with a configured PIN).
-      const bs = await loadBootstrap();
-      if (!bs) throw new Error('Not logged in');
+      const account = await loadAccount();
+      if (!account) return { ok: false, loggedOut: true, error: 'Not logged in — please log in again.' };
 
-      const kdfParams = {
-        salt: b64Dec(bs.kdfSalt),
-        time: bs.kdfTime,
-        memory: bs.kdfMemory,
-      };
+      let kdfSalt: Uint8Array;
+      try {
+        kdfSalt = b64Dec(account.kdfSalt);
+      } catch {
+        return { ok: false, error: 'Stored login data is damaged — please log out and log in again.' };
+      }
       let privX25519: Uint8Array;
       let privMLKEM: Uint8Array;
       try {
-        ({ privX25519, privMLKEM } = await unlock(masterPassword, kdfParams, bs.encPrivX25519, bs.encPrivMLKEM));
-      } catch {
-        // A failed key-unwrap throws a raw DOMException; report it cleanly.
-        throw new Error('Wrong master password');
+        ({ privX25519, privMLKEM } = await unlock(
+          masterPassword,
+          { salt: kdfSalt, time: account.kdfTime, memory: account.kdfMemory },
+          account.encPrivX25519,
+          account.encPrivMLKEM,
+        ));
+      } catch (err) {
+        if (isDecryptionFailure(err)) return { ok: false, wrongPassword: true, error: 'Wrong master password' };
+        return { ok: false, error: `Unlock failed: ${errorMessage(err)}` };
       }
 
-      const newRefresh = await buildSession(privX25519, privMLKEM, bs, serverUrl);
-      // Make sure storage.session is fully populated again (it may have been
-      // empty when we unlocked from the PIN-local bootstrap).
-      await persistBootstrapToSession(bs, newRefresh);
+      try {
+        await buildSession(privX25519, privMLKEM, account, serverUrl);
+      } catch (err) {
+        if (err instanceof VaultLockedError) return { ok: false, loggedOut: true, error: SESSION_EXPIRED_MESSAGE };
+        return { ok: false, error: describeRequestError(err) };
+      }
 
       // A successful master-password unlock restarts the PIN re-auth interval.
-      const pin = await loadPin();
-      if (pin.enabled) await updatePinAfterUnlock(pin, newRefresh, true);
-
+      await resetPinAfterUnlock(await loadPin(), true);
       return { ok: true };
     },
 
@@ -479,17 +419,17 @@ export function buildHandlers(): Record<string, Handler> {
         pin: string;
         intervalDays?: number;
       };
-      const bs = await loadBootstrap();
-      if (!bs) throw new Error('Not logged in');
+      const account = await loadAccount();
+      if (!account) throw new Error('Not logged in');
 
       // Re-derive and verify the master password before trusting the key.
       const masterKey = await deriveKey(masterPassword, {
-        salt: b64Dec(bs.kdfSalt),
-        time: bs.kdfTime,
-        memory: bs.kdfMemory,
+        salt: b64Dec(account.kdfSalt),
+        time: account.kdfTime,
+        memory: account.kdfMemory,
       });
       try {
-        await aesGcmDecrypt(masterKey, b64Dec(bs.encPrivX25519));
+        await aesGcmDecrypt(masterKey, b64Dec(account.encPrivX25519));
       } catch {
         throw new Error('Wrong master password');
       }
@@ -506,7 +446,6 @@ export function buildHandlers(): Record<string, Handler> {
         failCount: 0,
         intervalDays: clampPwIntervalDays(intervalDays ?? DEFAULT_PIN_PW_INTERVAL_DAYS),
         lastMasterUnlock: Date.now(),
-        bootstrap: pinBootstrapFrom(bs),
       };
       await savePin(rec);
       return { ok: true };
@@ -515,7 +454,8 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.UNLOCK_WITH_PIN]: async (payload) => {
       const { pin } = payload as { pin: string };
       const rec = await loadPin();
-      if (!rec.enabled || !rec.bootstrap) return { ok: false, error: 'PIN not enabled' };
+      const account = await loadAccount();
+      if (!rec.enabled || !account) return { ok: false, error: 'PIN not enabled' };
 
       if (pwIntervalElapsed(rec.lastMasterUnlock, rec.intervalDays)) {
         return { ok: false, expired: true };
@@ -537,34 +477,32 @@ export function buildHandlers(): Record<string, Handler> {
           pin,
           b64Dec(rec.salt),
           b64Dec(rec.wrapped),
-          rec.bootstrap.enc_priv_x25519,
-          rec.bootstrap.enc_priv_mlkem,
+          account.encPrivX25519,
+          account.encPrivMLKEM,
         );
       } catch {
         if (newCount >= maxTries) {
           await clearPin();
+          await lockVault();
           return { ok: false, lockedOut: true };
         }
         return { ok: false, wrongPin: true, triesRemaining: maxTries - newCount };
       }
 
-      // The PIN was correct. Building the session may still fail (offline, or a
-      // stale/rotated refresh token); roll back the pre-incremented counter so a
-      // server-side hiccup never burns attempts or wipes a valid PIN.
-      const bs = bootstrapFromPin(rec.bootstrap);
+      // The PIN was correct. Building the session may still fail (offline, server
+      // error); roll back the pre-incremented counter so a server-side hiccup
+      // never burns attempts or wipes a valid PIN.
       try {
-        const newRefresh = await buildSession(privs.privX25519, privs.privMLKEM, bs, serverUrl);
-        await persistBootstrapToSession(bs, newRefresh);
-        // Reset the failure counter + rotate the stored refresh token. The interval
-        // is NOT reset — only a real master-password unlock restarts it.
-        await updatePinAfterUnlock({ ...rec, failCount: 0 }, newRefresh, false);
-      } catch {
+        await buildSession(privs.privX25519, privs.privMLKEM, account, serverUrl);
+      } catch (err) {
+        // A rejected refresh token signed the device out (PIN included).
+        if (err instanceof VaultLockedError) return { ok: false, loggedOut: true, error: SESSION_EXPIRED_MESSAGE };
         await savePinFailCount(rec.failCount);
-        return {
-          ok: false,
-          error: 'Could not refresh your session — please unlock with your master password.',
-        };
+        return { ok: false, error: describeRequestError(err) };
       }
+      // Reset the failure counter. The interval is NOT reset — only a real
+      // master-password unlock restarts it.
+      await resetPinAfterUnlock(rec, false);
       return { ok: true };
     },
 
@@ -586,23 +524,20 @@ export function buildHandlers(): Record<string, Handler> {
     },
 
     [MessageType.LOCK]: async () => {
-      clearSession();
-      await browser.alarms.clear('token-refresh');
-      await browser.alarms.clear(AUTO_LOCK_ALARM);
+      await lockVault();
       return { ok: true };
     },
 
-    // Full sign-out: unlike LOCK (which only drops the in-memory keys but keeps
-    // you logged in), this wipes the refresh token and all session storage so
-    // the next popup starts at the login screen.
+    // Full sign-out: unlike LOCK (which only drops the unlocked session but keeps
+    // you logged in), this revokes the server session (best-effort) and wipes the
+    // refresh token and all session storage so the next popup starts at the
+    // login screen.
     [MessageType.LOGOUT]: async () => {
-      clearSession();
-      await browser.alarms.clear('token-refresh');
-      await browser.alarms.clear(AUTO_LOCK_ALARM);
+      await revokeServerSession();
+      // The PIN wraps the master key — a logged-out device must never leave a
+      // PIN-unlockable copy behind (endLogin clears it with the login state).
+      await endLogin();
       await browser.storage.session.clear();
-      // The PIN wraps the master key and holds a logged-in bootstrap — a
-      // logged-out device must never leave a PIN-unlockable copy behind.
-      await clearPin();
       return { ok: true };
     },
 
@@ -610,7 +545,7 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { query } = payload as { query: string };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       // The popup loads the full vault with an empty query; the backend search
       // endpoint deliberately returns [] for a blank q, so list everything
       // instead (and refresh the cache used for URL matching while we're here).
@@ -625,7 +560,7 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.LIST_FOLDERS]: async () => {
       const session = getSession();
       if (!session) return { locked: true };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       return client.listFolders();
     },
 
@@ -633,7 +568,7 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { id } = payload as { id: string };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       const apiEntry = await client.getEntry(id);
       const data = await decryptEntry(apiEntry, session);
       return { entry: apiEntry, data };
@@ -646,7 +581,7 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.GET_USERNAMES]: async () => {
       const session = getSession();
       if (!session) return { locked: true };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       const full = await client.listEntriesFull();
       const usernames: Record<string, string> = {};
       for (const entry of full) {
@@ -664,7 +599,7 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { entryId } = payload as { entryId: string };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       const apiEntry = await client.getEntry(entryId);
       const data = await decryptEntry(apiEntry, session);
       // Remember the fill per tab so the 2FA step that usually follows can find
@@ -692,11 +627,10 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { url } = payload as { url: string };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       const tabId = sender?.tab?.id;
       const lastFilled = typeof tabId === 'number' ? getLastFilledEntry(tabId) : '';
-      const cache = getEntriesCache();
-      const matchIds = cache ? matchEntriesForUrl(url, cache).map((m) => m.id) : [];
+      const matchIds = matchEntriesForUrl(url, await entriesForMatching(session)).map((m) => m.id);
       const tryIds = [...new Set([...(lastFilled ? [lastFilled] : []), ...matchIds])];
       for (const id of tryIds) {
         try {
@@ -719,12 +653,8 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { type } = payload as { type: string };
-      const client = makeClient(session.serverUrl, session.accessToken);
-      let cache = getEntriesCache();
-      if (!cache) {
-        cache = await client.listEntries();
-        setEntriesCache(cache);
-      }
+      const client = vaultClient(session);
+      const cache = await loadEntriesCache(session);
       const items: { id: string; name: string; hint: string }[] = [];
       for (const meta of cache.filter((e) => e.type === type)) {
         let hint = '';
@@ -750,7 +680,7 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { entryId } = payload as { entryId: string };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       const apiEntry = await client.getEntry(entryId);
       const data = await decryptEntry(apiEntry, session);
       return {
@@ -796,9 +726,8 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { url } = payload as { url: string };
-      const cache = getEntriesCache();
-      if (!cache) return [];
-      return matchEntriesForUrl(url, cache);
+      // The cache is empty after a service-worker restart — reload it on demand.
+      return matchEntriesForUrl(url, await entriesForMatching(session));
     },
 
     [MessageType.CREATE_ENTRY]: async (payload) => {
@@ -813,7 +742,7 @@ export function buildHandlers(): Record<string, Handler> {
         folderId?: string;
         matchPatterns?: string[];
       };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       const result = await createEntry(client, name, type, url, data, session, folderId, matchPatterns);
       // Invalidate cache
       const entries = await client.listEntries();
@@ -832,7 +761,7 @@ export function buildHandlers(): Record<string, Handler> {
         matchPatterns?: string[];
         folderId?: string;
       };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       await client.updateEntry(entryId, { folder_id: folderId, match_patterns: matchPatterns });
       // Refresh the cache so autofill matching sees the new patterns immediately.
       setEntriesCache(await client.listEntries());
@@ -876,7 +805,7 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { checkBreaches } = payload as { checkBreaches?: boolean };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       const full = await client.listEntriesFull();
       const items: { id: string; name: string; password: string; updatedAt?: string }[] = [];
       for (const entry of full) {
@@ -902,7 +831,7 @@ export function buildHandlers(): Record<string, Handler> {
       const session = getSession();
       if (!session) return { locked: true };
       const { entryId, favorite } = payload as { entryId: string; favorite: boolean };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       await client.setFavorite(entryId, favorite);
       setEntriesCache(await client.listEntries());
       return { ok: true };
@@ -911,7 +840,7 @@ export function buildHandlers(): Record<string, Handler> {
     [MessageType.GENERATE]: async (payload) => {
       const session = getSession();
       if (!session) return { locked: true };
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       return client.generate(payload as Parameters<typeof client.generate>[0]);
     },
 
@@ -959,9 +888,8 @@ export function buildHandlers(): Record<string, Handler> {
       // username/password. If the exact credentials are already stored there's
       // nothing to offer; otherwise the user can create a new entry or update an
       // existing one (same username + different password = the likely target).
-      const client = makeClient(session.serverUrl, session.accessToken);
-      const cache = getEntriesCache();
-      const matches = cache ? matchEntriesForUrl(url, cache) : [];
+      const client = vaultClient(session);
+      const matches = matchEntriesForUrl(url, await entriesForMatching(session));
       const candidates: { id: string; username: string }[] = [];
       let suggestUpdateId: string | undefined;
       for (const m of matches) {
@@ -1005,7 +933,7 @@ export function buildHandlers(): Record<string, Handler> {
         | undefined;
       if (!pending) return { ok: false };
 
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       const data = { username: pending.username, password: pending.password } as EntryData;
       const result = await createEntry(client, pending.name || pending.url, 'password', pending.url, data, session);
       setEntriesCache(await client.listEntries());
@@ -1030,7 +958,7 @@ export function buildHandlers(): Record<string, Handler> {
         | undefined;
       if (!pending) return { ok: false };
 
-      const client = makeClient(session.serverUrl, session.accessToken);
+      const client = vaultClient(session);
       // Merge into the entry's existing data — overwriting with just
       // username+password would silently drop totp_secret, notes, sign_in_with….
       let data: EntryData;
@@ -1095,5 +1023,5 @@ export function buildHandlers(): Record<string, Handler> {
       });
       return { ok: true };
     },
-  };
+  });
 }

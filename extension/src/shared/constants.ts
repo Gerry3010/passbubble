@@ -84,33 +84,20 @@ export const STORAGE_KEYS = {
   // chrome.storage.sync — persists across devices
   SERVER_URL: 'server_url',
   AUTOFILL_ENABLED: 'autofill_enabled',
-  // Idle auto-lock timeout in minutes. 0 = never (lock only on browser close /
-  // service-worker eviction). Default applied by readers is AUTO_LOCK_DEFAULT_MINUTES.
+  // Idle auto-lock timeout in minutes. 0 = never (the vault still locks when the
+  // browser closes, since the unlocked session lives in storage.session). Default
+  // applied by readers is AUTO_LOCK_DEFAULT_MINUTES.
   AUTO_LOCK_MINUTES: 'auto_lock_minutes',
   // chrome.storage.local — device-local, persists across browser restarts
   SAVE_BLOCKLIST: 'save_blocklist',
   // Per-host "signs in with <provider>" records ({ [host]: { provider,
   // lastUsed, hits } }). Deliberately not synced — browsing metadata.
   SSO_MEMORY: 'sso_memory',
-  // PIN quick-unlock state (chrome.storage.local — survives browser close so the
-  // PIN can unlock after a restart). The PIN itself is never stored; PIN_WRAPPED
-  // is the master key encrypted under a PIN-derived key. PIN_BOOTSTRAP holds the
-  // (already-encrypted) session material needed to rebuild the session, since
-  // storage.session is wiped on browser close.
-  PIN_ENABLED: 'pin_enabled',
-  PIN_SALT: 'pin_salt',
-  PIN_WRAPPED: 'pin_wrapped_master_key',
-  PIN_KDF_TIME: 'pin_kdf_time',
-  PIN_KDF_MEMORY: 'pin_kdf_memory',
-  PIN_MAX_TRIES: 'pin_max_tries',
-  PIN_FAIL_COUNT: 'pin_fail_count',
-  PIN_PW_INTERVAL_DAYS: 'pin_pw_interval_days',
-  PIN_LAST_MASTER_UNLOCK: 'pin_last_master_unlock',
-  PIN_BOOTSTRAP: 'pin_bootstrap',
-  // chrome.storage.session — cleared on browser close
-  // Timestamp (ms) of the last vault activity; the auto-lock alarm compares it
-  // against AUTO_LOCK_MINUTES to decide when to drop the in-memory session.
-  LAST_ACTIVITY: 'last_activity',
+  // Login state (account-store.ts): the refresh token (single source of truth —
+  // rotated in place after every refresh) plus the already-encrypted key material
+  // and user info needed to unlock with the master password. Survives browser
+  // restarts and extension updates, so those only lock the vault instead of
+  // signing out. Cleared on logout or when the server rejects the refresh token.
   REFRESH_TOKEN: 'refresh_token',
   ENC_PRIV_X25519: 'enc_priv_x25519',
   ENC_PRIV_MLKEM: 'enc_priv_mlkem',
@@ -123,6 +110,33 @@ export const STORAGE_KEYS = {
   ROLE: 'role',
   PUB_X25519: 'pub_x25519',
   PUB_MLKEM: 'pub_mlkem',
+  // PIN quick-unlock state (chrome.storage.local — survives browser close so the
+  // PIN can unlock after a restart). The PIN itself is never stored; PIN_WRAPPED
+  // is the master key encrypted under a PIN-derived key. The PIN unlocks the key
+  // material of the login state above.
+  PIN_ENABLED: 'pin_enabled',
+  PIN_SALT: 'pin_salt',
+  PIN_WRAPPED: 'pin_wrapped_master_key',
+  PIN_KDF_TIME: 'pin_kdf_time',
+  PIN_KDF_MEMORY: 'pin_kdf_memory',
+  PIN_MAX_TRIES: 'pin_max_tries',
+  PIN_FAIL_COUNT: 'pin_fail_count',
+  PIN_PW_INTERVAL_DAYS: 'pin_pw_interval_days',
+  PIN_LAST_MASTER_UNLOCK: 'pin_last_master_unlock',
+  // Legacy: a duplicate of the login state (incl. refresh token) kept by older
+  // versions. Migrated into the keys above on first read and then removed.
+  PIN_BOOTSTRAP: 'pin_bootstrap',
+  // chrome.storage.session — RAM only, cleared on browser close and extension
+  // update. Only trusted extension contexts can read it (the default access
+  // level — never widened, so content scripts cannot see the keys).
+  // The unlocked session (decrypted private keys + access token), so a
+  // service-worker restart does not lock the vault. See session-store.ts.
+  UNLOCKED_SESSION: 'unlocked_session',
+  // Timestamp (ms) of the last vault activity; the auto-lock alarm compares it
+  // against AUTO_LOCK_MINUTES to decide when to lock the vault.
+  LAST_ACTIVITY: 'last_activity',
+  // Note: older versions kept the login state (REFRESH_TOKEN … PUB_MLKEM) here;
+  // account-store.ts migrates it to storage.local.
   DISMISSED_SAVE_HOSTS: 'dismissed_save_hosts',
   PENDING_SAVE: 'pending_save',
   // In-progress login draft + 2FA state, so closing the popup mid-login
@@ -136,3 +150,6 @@ export const AUTO_LOCK_DEFAULT_MINUTES = 15;
 
 /** Name of the recurring chrome.alarms alarm that drives the idle auto-lock. */
 export const AUTO_LOCK_ALARM = 'auto-lock';
+
+/** Name of the chrome.alarms alarm that refreshes the access token before it expires. */
+export const TOKEN_REFRESH_ALARM = 'token-refresh';

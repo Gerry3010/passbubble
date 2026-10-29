@@ -20,6 +20,7 @@ import { useState } from 'react';
 import browser from 'webextension-polyfill';
 import type { HealthReport } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
+import { handleLockedResponse } from '../store/session.js';
 import { term, buttonPrimary, muted, errorText, withDisabled } from '../../shared/theme.js';
 
 export function HealthPanel() {
@@ -36,7 +37,7 @@ export function HealthPanel() {
         type: MessageType.HEALTH_REPORT,
         payload: { checkBreaches },
       })) as { report?: HealthReport; locked?: boolean };
-      if (resp.locked || !resp.report) {
+      if (handleLockedResponse(resp) || !resp.report) {
         setError('Vault is locked');
         return;
       }

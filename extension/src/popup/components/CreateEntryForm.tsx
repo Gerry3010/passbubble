@@ -18,6 +18,7 @@ import browser from 'webextension-polyfill';
 import { base32Decode, parseOtpauthUri } from '@passbubble/shared-ts';
 import type { EntryData } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
+import { handleLockedResponse } from '../store/session.js';
 import { SSO_PROVIDER_LABELS } from '../../shared/sso.js';
 import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled } from '../../shared/theme.js';
 
@@ -153,7 +154,7 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
         type: MessageType.CREATE_ENTRY,
         payload: { name: name.trim(), type, url: type === 'password' ? url : '', data },
       })) as { locked?: boolean };
-      if (resp?.locked) {
+      if (handleLockedResponse(resp)) {
         setError('Vault is locked');
         return;
       }

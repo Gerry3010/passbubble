@@ -80,6 +80,8 @@ vi.mock('../session-store.js', () => ({
   })),
   setSession: vi.fn(),
   clearSession: vi.fn(),
+  readStoredSession: vi.fn(async () => null),
+  adoptSession: vi.fn(),
   getEntriesCache: getEntriesCacheMock,
   setEntriesCache: vi.fn(),
 }));

@@ -20,7 +20,7 @@ vi.mock('webextension-polyfill', () => ({
   default: {
     storage: {
       sync: { get: vi.fn(), set: vi.fn() },
-      session: { get: vi.fn(), set: vi.fn() },
+      session: { get: vi.fn(), set: vi.fn(), remove: vi.fn() },
       local: { get: vi.fn(), set: vi.fn(), remove: vi.fn() },
     },
     alarms: { create: vi.fn(), clear: vi.fn() },
@@ -31,6 +31,8 @@ vi.mock('../session-store.js', () => ({
   getSession: vi.fn(),
   setSession: vi.fn(),
   clearSession: vi.fn(),
+  readStoredSession: vi.fn(async () => null),
+  adoptSession: vi.fn(),
   getEntriesCache: vi.fn(),
   setEntriesCache: vi.fn(),
 }));
@@ -70,16 +72,35 @@ import browser from 'webextension-polyfill';
 import { unlockWithPin, PassbubbleClient } from '@passbubble/shared-ts';
 import { getSession, clearSession } from '../session-store.js';
 import { buildHandlers } from '../message-handler.js';
-import { savePinRefreshToken } from '../pin-store.js';
 import { STORAGE_KEYS } from '../../shared/constants.js';
 
 const mockUnlockWithPin = unlockWithPin as ReturnType<typeof vi.fn>;
 const mockClient = PassbubbleClient as unknown as ReturnType<typeof vi.fn>;
 
-// A complete PIN record as it would be read from storage.local. lastMasterUnlock
-// defaults to "now" so the interval is not elapsed.
+// The device login state as stored in storage.local (account-store.ts).
+function accountLocal(overrides: Record<string, unknown> = {}) {
+  return {
+    [STORAGE_KEYS.REFRESH_TOKEN]: 'rt',
+    [STORAGE_KEYS.ENC_PRIV_X25519]: btoa('encx'),
+    [STORAGE_KEYS.ENC_PRIV_MLKEM]: btoa('encm'),
+    [STORAGE_KEYS.KDF_SALT]: btoa('kdfsalt'),
+    [STORAGE_KEYS.KDF_TIME]: 3,
+    [STORAGE_KEYS.KDF_MEMORY]: 65536,
+    [STORAGE_KEYS.USER_ID]: 'u1',
+    [STORAGE_KEYS.USER_EMAIL]: 'alice@example.com',
+    [STORAGE_KEYS.USER_NAME]: 'Alice',
+    [STORAGE_KEYS.ROLE]: 'user',
+    [STORAGE_KEYS.PUB_X25519]: btoa('pubx'),
+    [STORAGE_KEYS.PUB_MLKEM]: btoa('pubm'),
+    ...overrides,
+  };
+}
+
+// A complete PIN record plus the login state, as read from storage.local.
+// lastMasterUnlock defaults to "now" so the interval is not elapsed.
 function pinLocal(overrides: Record<string, unknown> = {}) {
   return {
+    ...accountLocal(),
     [STORAGE_KEYS.PIN_ENABLED]: true,
     [STORAGE_KEYS.PIN_SALT]: btoa('saltsaltsaltsalt'),
     [STORAGE_KEYS.PIN_WRAPPED]: btoa('wrappedwrappedwrapped'),
@@ -89,20 +110,6 @@ function pinLocal(overrides: Record<string, unknown> = {}) {
     [STORAGE_KEYS.PIN_FAIL_COUNT]: 0,
     [STORAGE_KEYS.PIN_PW_INTERVAL_DAYS]: 14,
     [STORAGE_KEYS.PIN_LAST_MASTER_UNLOCK]: Date.now(),
-    [STORAGE_KEYS.PIN_BOOTSTRAP]: {
-      refresh_token: 'rt',
-      enc_priv_x25519: btoa('encx'),
-      enc_priv_mlkem: btoa('encm'),
-      kdf_salt: btoa('kdfsalt'),
-      kdf_time: 3,
-      kdf_memory: 65536,
-      user_id: 'u1',
-      user_email: 'alice@example.com',
-      user_name: 'Alice',
-      role: 'user',
-      pub_x25519: btoa('pubx'),
-      pub_mlkem: btoa('pubm'),
-    },
     ...overrides,
   };
 }
@@ -110,7 +117,7 @@ function pinLocal(overrides: Record<string, unknown> = {}) {
 const mockBrowser = browser as unknown as {
   storage: {
     sync: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> };
-    session: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> };
+    session: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
     local: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   };
   alarms: { create: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> };
@@ -147,6 +154,7 @@ describe('buildHandlers', () => {
   beforeEach(() => {
     mockBrowser.storage.sync.get.mockResolvedValue({ [STORAGE_KEYS.SERVER_URL]: 'https://passbubble.example.com' });
     mockBrowser.storage.session.get.mockResolvedValue({});
+    mockBrowser.storage.session.remove.mockResolvedValue(undefined);
     mockBrowser.storage.local.get.mockResolvedValue({});
     mockBrowser.storage.local.set.mockResolvedValue(undefined);
     mockBrowser.storage.local.remove.mockResolvedValue(undefined);
@@ -183,12 +191,17 @@ describe('buildHandlers', () => {
       expect(result.isLoggedIn).toBe(false);
     });
 
-    it('returns isLoggedIn: true when refresh token is in session storage', async () => {
-      mockBrowser.storage.session.get.mockResolvedValue({
-        [STORAGE_KEYS.REFRESH_TOKEN]: 'stored-token',
-      });
-      const result = await handlers['GET_SESSION']({}) as Record<string, unknown>;
+    it('returns isLoggedIn: true when the login state is in storage.local', async () => {
+      mockBrowser.storage.local.get.mockResolvedValue(accountLocal());
+      const result = await handlers['GET_SESSION']({}, {}) as Record<string, unknown>;
       expect(result.isLoggedIn).toBe(true);
+      expect(result.userEmail).toBe('alice@example.com');
+    });
+
+    it('returns isLoggedIn: false for a bare refresh token without key material', async () => {
+      mockBrowser.storage.local.get.mockResolvedValue({ [STORAGE_KEYS.REFRESH_TOKEN]: 'stored-token' });
+      const result = await handlers['GET_SESSION']({}, {}) as Record<string, unknown>;
+      expect(result.isLoggedIn).toBe(false);
     });
   });
 
@@ -242,8 +255,8 @@ describe('buildHandlers', () => {
       expect(result.triesRemaining).toBe(5);
     });
 
-    it('GET_SESSION reports logged-in via the PIN bootstrap after a restart', async () => {
-      // storage.session is empty (browser restart) but a PIN bootstrap exists.
+    it('GET_SESSION reports logged-in + PIN available after a restart', async () => {
+      // storage.session is empty (browser restart); storage.local has the login state + PIN.
       mockBrowser.storage.local.get.mockResolvedValue(pinLocal());
       const result = (await handlers['GET_SESSION']({})) as Record<string, unknown>;
       expect(result.isLoggedIn).toBe(true);
@@ -286,47 +299,57 @@ describe('buildHandlers', () => {
       expect(mockBrowser.storage.local.remove).toHaveBeenCalled();
     });
 
-    it('UNLOCK_WITH_PIN does not consume a try or wipe the PIN when the session refresh fails', async () => {
+    it('UNLOCK_WITH_PIN does not consume a try or wipe the PIN when the server is unreachable', async () => {
       mockBrowser.storage.local.get.mockResolvedValue(pinLocal());
       // Correct PIN: the crypto unwrap succeeds...
       mockUnlockWithPin.mockResolvedValueOnce({
         privX25519: new Uint8Array(32),
         privMLKEM: new Uint8Array(64),
       });
-      // ...but the server-side token refresh inside buildSession fails (e.g. a
-      // stale/rotated refresh token or offline).
+      // ...but the token refresh inside buildSession fails transiently (offline).
       mockClient.mockImplementationOnce(() => ({
         setTokens: vi.fn(),
-        refresh: vi.fn().mockRejectedValue(new Error('401 session expired or revoked')),
+        refresh: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')),
         listEntries: vi.fn().mockResolvedValue([]),
       }));
-      const result = (await handlers['UNLOCK_WITH_PIN']({ pin: '123456' })) as Record<string, unknown>;
+      const result = (await handlers['UNLOCK_WITH_PIN']({ pin: '123456' }, {})) as Record<string, unknown>;
       expect(result.ok).toBe(false);
-      expect(typeof result.error).toBe('string');
-      // PIN must NOT be wiped...
+      expect(result.error).toMatch(/could not reach the server/i);
+      expect(result.loggedOut).toBeUndefined();
+      // PIN and login state must NOT be wiped...
       expect(mockBrowser.storage.local.remove).not.toHaveBeenCalled();
       // ...and the pre-incremented counter is rolled back to its original value.
       const setCalls = mockBrowser.storage.local.set.mock.calls;
       expect(setCalls[setCalls.length - 1][0]).toEqual({ [STORAGE_KEYS.PIN_FAIL_COUNT]: 0 });
     });
-  });
 
-  describe('savePinRefreshToken', () => {
-    it('updates only the bootstrap refresh token, leaving the rest intact', async () => {
-      mockBrowser.storage.local.get.mockResolvedValue({
-        [STORAGE_KEYS.PIN_ENABLED]: true,
-        [STORAGE_KEYS.PIN_BOOTSTRAP]: { refresh_token: 'old-rt', user_id: 'u1' },
+    it('UNLOCK_WITH_PIN signs out when the server rejects the refresh token', async () => {
+      mockBrowser.storage.local.get.mockResolvedValue(pinLocal());
+      mockUnlockWithPin.mockResolvedValueOnce({
+        privX25519: new Uint8Array(32),
+        privMLKEM: new Uint8Array(64),
       });
-      await savePinRefreshToken('new-rt');
-      expect(mockBrowser.storage.local.set).toHaveBeenCalledWith({
-        [STORAGE_KEYS.PIN_BOOTSTRAP]: { refresh_token: 'new-rt', user_id: 'u1' },
-      });
+      mockClient.mockImplementationOnce(() => ({
+        setTokens: vi.fn(),
+        refresh: vi.fn().mockRejectedValue(Object.assign(new Error('session expired or revoked'), { status: 401 })),
+      }));
+      const result = (await handlers['UNLOCK_WITH_PIN']({ pin: '123456' }, {})) as Record<string, unknown>;
+      expect(result.ok).toBe(false);
+      expect(result.loggedOut).toBe(true);
+      // Login state + PIN are removed (a signed-out device keeps no PIN-unlockable key).
+      const removed = mockBrowser.storage.local.remove.mock.calls.flatMap((c) => c[0] as string[]);
+      expect(removed).toContain(STORAGE_KEYS.REFRESH_TOKEN);
+      expect(removed).toContain(STORAGE_KEYS.PIN_WRAPPED);
     });
 
-    it('is a no-op when no PIN is enabled', async () => {
-      mockBrowser.storage.local.get.mockResolvedValue({});
-      await savePinRefreshToken('new-rt');
-      expect(mockBrowser.storage.local.set).not.toHaveBeenCalled();
+    it('SET_PIN stores only the PIN-wrapped key, no copy of the login state', async () => {
+      mockBrowser.storage.local.get.mockResolvedValue(accountLocal());
+      const result = await handlers['SET_PIN']({ masterPassword: 'pw', pin: '123456' }, {});
+      expect(result).toEqual({ ok: true });
+      const written = Object.assign({}, ...mockBrowser.storage.local.set.mock.calls.map((c) => c[0]));
+      expect(written[STORAGE_KEYS.PIN_WRAPPED]).toBeTruthy();
+      expect(written).not.toHaveProperty(STORAGE_KEYS.PIN_BOOTSTRAP);
+      expect(written).not.toHaveProperty(STORAGE_KEYS.REFRESH_TOKEN);
     });
   });
 });

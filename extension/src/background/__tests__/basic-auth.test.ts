@@ -29,6 +29,8 @@ vi.mock('../session-store.js', () => ({
   getSession: vi.fn(() => (sessionPresent ? { serverUrl: 'https://srv', accessToken: 'at' } : null)),
   setSession: vi.fn(),
   clearSession: vi.fn(),
+  readStoredSession: vi.fn(async () => null),
+  adoptSession: vi.fn(),
   getEntriesCache: vi.fn(() => cache),
   setEntriesCache: vi.fn(),
   getLoginFrameHost: vi.fn(() => ''),

@@ -22,7 +22,16 @@ vi.mock('webextension-polyfill', () => ({
   default: {
     storage: {
       sync: { get: vi.fn().mockResolvedValue({ server_url: 'https://srv' }), set: vi.fn() },
-      session: { get: vi.fn().mockResolvedValue({}), set: vi.fn().mockResolvedValue(undefined) },
+      session: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
+      local: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
     },
     alarms: { create: vi.fn(), clear: vi.fn() },
   },
@@ -32,6 +41,8 @@ vi.mock('../session-store.js', () => ({
   getSession: vi.fn(),
   setSession: vi.fn(),
   clearSession: vi.fn(),
+  readStoredSession: vi.fn(async () => null),
+  adoptSession: vi.fn(),
   getEntriesCache: vi.fn(),
   setEntriesCache: vi.fn(),
 }));
@@ -53,7 +64,7 @@ import { buildHandlers } from '../message-handler.js';
 import { MessageType } from '../../shared/constants.js';
 
 const mockBrowser = browser as unknown as {
-  storage: { session: { set: ReturnType<typeof vi.fn> } };
+  storage: { session: { set: ReturnType<typeof vi.fn> }; local: { set: ReturnType<typeof vi.fn> } };
 };
 
 const fullLogin = {
@@ -78,6 +89,7 @@ describe('2FA login flow (background)', () => {
     loginMock.mockReset();
     verifyTotpMock.mockReset();
     mockBrowser.storage.session.set.mockClear();
+    mockBrowser.storage.local.set.mockClear();
   });
 
   it('LOGIN returns requiresTotp and does NOT persist when 2FA is required', async () => {
@@ -91,10 +103,11 @@ describe('2FA login flow (background)', () => {
 
     expect(res.requiresTotp).toBe(true);
     expect(res.pendingToken).toBe('pending-1');
+    expect(mockBrowser.storage.local.set).not.toHaveBeenCalled();
     expect(mockBrowser.storage.session.set).not.toHaveBeenCalled();
   });
 
-  it('LOGIN persists the session when 2FA is not required', async () => {
+  it('LOGIN persists the login state (storage.local) when 2FA is not required', async () => {
     loginMock.mockResolvedValue(fullLogin);
     const handlers = buildHandlers();
 
@@ -103,10 +116,13 @@ describe('2FA login flow (background)', () => {
     };
 
     expect(res.needsUnlock).toBe(true);
-    expect(mockBrowser.storage.session.set).toHaveBeenCalledTimes(1);
+    expect(mockBrowser.storage.local.set).toHaveBeenCalledTimes(1);
+    expect(mockBrowser.storage.local.set.mock.calls[0][0]).toMatchObject({ refresh_token: 'rt', enc_priv_x25519: 'e1' });
+    // Login state no longer goes to storage.session (wiped on browser close).
+    expect(mockBrowser.storage.session.set).not.toHaveBeenCalled();
   });
 
-  it('VERIFY_TOTP verifies the code and persists the session', async () => {
+  it('VERIFY_TOTP verifies the code and persists the login state', async () => {
     verifyTotpMock.mockResolvedValue(fullLogin);
     const handlers = buildHandlers();
 
@@ -117,6 +133,9 @@ describe('2FA login flow (background)', () => {
 
     expect(verifyTotpMock).toHaveBeenCalledWith('pending-1', '123456');
     expect(res.needsUnlock).toBe(true);
-    expect(mockBrowser.storage.session.set).toHaveBeenCalledTimes(1);
+    expect(mockBrowser.storage.local.set).toHaveBeenCalledTimes(1);
+    expect(mockBrowser.storage.local.set.mock.calls[0][0]).toMatchObject({ refresh_token: 'rt', enc_priv_x25519: 'e1' });
+    // Login state no longer goes to storage.session (wiped on browser close).
+    expect(mockBrowser.storage.session.set).not.toHaveBeenCalled();
   });
 });

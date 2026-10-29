@@ -29,7 +29,7 @@ import { term, buttonPrimary } from '../shared/theme.js';
 type Tab = 'vault' | 'generator' | 'health';
 
 export function App() {
-  const { isLoggedIn, isUnlocked, userName, userEmail, lock, checkSession, isLoading, totpRequired } =
+  const { isLoggedIn, isUnlocked, userName, userEmail, lock, checkSession, syncSession, isLoading, totpRequired } =
     useSessionStore();
   const accountLabel = userName || userEmail;
   const [tab, setTab] = useState<Tab>('vault');
@@ -43,6 +43,23 @@ export function App() {
       if (url) void checkSession();
     });
   }, []);
+
+  // The background can lock the vault (auto-lock) or sign the device out (refresh
+  // token rejected) while the popup is open. Both remove the stored unlocked
+  // session / refresh token — switch to the unlock or login screen right away.
+  useEffect(() => {
+    const onChanged = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
+      const removed = (key: string) => key in changes && changes[key].newValue === undefined;
+      if (
+        (area === 'session' && removed(STORAGE_KEYS.UNLOCKED_SESSION)) ||
+        (area === 'local' && removed(STORAGE_KEYS.REFRESH_TOKEN))
+      ) {
+        void syncSession();
+      }
+    };
+    browser.storage.onChanged.addListener(onChanged);
+    return () => browser.storage.onChanged.removeListener(onChanged);
+  }, [syncSession]);
 
   if (hasServerUrl === null || isLoading) {
     return (

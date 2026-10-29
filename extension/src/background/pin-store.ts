@@ -16,28 +16,11 @@
 // Device-local PIN quick-unlock state, persisted in chrome.storage.local so the
 // PIN can unlock after a browser restart (storage.session is wiped on close).
 // The PIN itself is never stored — only the master key wrapped under a
-// PIN-derived key, plus the already-encrypted session bootstrap.
+// PIN-derived key. The encrypted private keys + refresh token it unlocks come
+// from the device login state (account-store.ts); the PIN keeps no copy of them.
 
 import browser from 'webextension-polyfill';
 import { STORAGE_KEYS } from '../shared/constants.js';
-
-// The (already-encrypted / non-secret) session material needed to rebuild an
-// UnlockedSession after a browser restart. Mirrors what persistLoginResponse
-// writes to storage.session.
-export interface PinBootstrap {
-  refresh_token: string;
-  enc_priv_x25519: string;
-  enc_priv_mlkem: string;
-  kdf_salt: string;
-  kdf_time: number;
-  kdf_memory: number;
-  user_id: string;
-  user_email: string;
-  user_name: string;
-  role: string;
-  pub_x25519: string;
-  pub_mlkem: string;
-}
 
 export interface PinRecord {
   enabled: boolean;
@@ -49,7 +32,6 @@ export interface PinRecord {
   failCount: number;
   intervalDays: number;
   lastMasterUnlock: number; // ms epoch
-  bootstrap?: PinBootstrap;
 }
 
 const ALL_PIN_KEYS = [
@@ -62,6 +44,7 @@ const ALL_PIN_KEYS = [
   STORAGE_KEYS.PIN_FAIL_COUNT,
   STORAGE_KEYS.PIN_PW_INTERVAL_DAYS,
   STORAGE_KEYS.PIN_LAST_MASTER_UNLOCK,
+  // Legacy duplicate of the login state; removed together with the PIN.
   STORAGE_KEYS.PIN_BOOTSTRAP,
 ];
 
@@ -77,7 +60,6 @@ export async function loadPin(): Promise<PinRecord> {
     failCount: (s[STORAGE_KEYS.PIN_FAIL_COUNT] as number) ?? 0,
     intervalDays: (s[STORAGE_KEYS.PIN_PW_INTERVAL_DAYS] as number) ?? 0,
     lastMasterUnlock: (s[STORAGE_KEYS.PIN_LAST_MASTER_UNLOCK] as number) ?? 0,
-    bootstrap: (s[STORAGE_KEYS.PIN_BOOTSTRAP] as PinBootstrap | undefined) ?? undefined,
   };
 }
 
@@ -92,7 +74,6 @@ export async function savePin(rec: PinRecord): Promise<void> {
     [STORAGE_KEYS.PIN_FAIL_COUNT]: rec.failCount,
     [STORAGE_KEYS.PIN_PW_INTERVAL_DAYS]: rec.intervalDays,
     [STORAGE_KEYS.PIN_LAST_MASTER_UNLOCK]: rec.lastMasterUnlock,
-    [STORAGE_KEYS.PIN_BOOTSTRAP]: rec.bootstrap,
   });
 }
 
@@ -102,34 +83,11 @@ export async function savePinFailCount(count: number): Promise<void> {
   await browser.storage.local.set({ [STORAGE_KEYS.PIN_FAIL_COUNT]: count });
 }
 
-// Keep the PIN bootstrap's refresh token in sync with the rotated token from a
-// background refresh (the server invalidates the previous token on each refresh).
-// Touches ONLY the refresh token — failure counter and interval are left intact.
-// No-op when no PIN/bootstrap is stored.
-export async function savePinRefreshToken(token: string): Promise<void> {
-  const s = await browser.storage.local.get([
-    STORAGE_KEYS.PIN_ENABLED,
-    STORAGE_KEYS.PIN_BOOTSTRAP,
-  ]);
-  if (!s[STORAGE_KEYS.PIN_ENABLED]) return;
-  const bootstrap = s[STORAGE_KEYS.PIN_BOOTSTRAP] as PinBootstrap | undefined;
-  if (!bootstrap) return;
+// After a successful unlock: reset the failure counter and, for a master-password
+// unlock, restart the PIN re-auth interval. No-op when no PIN is configured.
+export async function resetPinAfterUnlock(rec: PinRecord, resetInterval: boolean): Promise<void> {
+  if (!rec.enabled) return;
   await browser.storage.local.set({
-    [STORAGE_KEYS.PIN_BOOTSTRAP]: { ...bootstrap, refresh_token: token },
-  });
-}
-
-// Persist the rotated refresh token + last-master-unlock after a successful
-// unlock, keeping the local bootstrap usable across restarts.
-export async function updatePinAfterUnlock(
-  rec: PinRecord,
-  refreshToken: string,
-  resetInterval: boolean,
-): Promise<void> {
-  if (!rec.enabled || !rec.bootstrap) return;
-  const bootstrap = { ...rec.bootstrap, refresh_token: refreshToken };
-  await browser.storage.local.set({
-    [STORAGE_KEYS.PIN_BOOTSTRAP]: bootstrap,
     [STORAGE_KEYS.PIN_FAIL_COUNT]: 0,
     ...(resetInterval ? { [STORAGE_KEYS.PIN_LAST_MASTER_UNLOCK]: Date.now() } : {}),
   });

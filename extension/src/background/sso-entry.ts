@@ -18,11 +18,12 @@
 // like any other vault field. The device-local record in sso-memory.ts remains
 // as a fallback for sites without a matching entry.
 
-import { PassbubbleClient, decryptEntry, encryptEntry } from '@passbubble/shared-ts';
-import { getEntriesCache, getSession, setEntriesCache } from './session-store.js';
+import { decryptEntry, encryptEntry } from '@passbubble/shared-ts';
+import { getSession, setEntriesCache } from './session-store.js';
+import { loadEntriesCache, vaultClient } from './vault-client.js';
 import { matchEntriesForUrl } from './autofill-service.js';
 import { isSsoProvider, type SsoProvider } from '../shared/sso.js';
-import type { EntryResponse } from '@passbubble/shared-ts';
+import type { EntryResponse, UnlockedSession } from '@passbubble/shared-ts';
 
 // Only login-ish entries can carry a sign-in-with provider.
 const LOGIN_TYPES = new Set(['password', 'totp', 'api-key', 'ssh-key']);
@@ -30,9 +31,13 @@ const LOGIN_TYPES = new Set(['password', 'totp', 'api-key', 'ssh-key']);
 // Cap the per-lookup decryption work: URL matches are typically 1–3 entries.
 const MAX_MATCHES = 6;
 
-function loginMatchesFor(url: string): EntryResponse[] {
-  const cache = getEntriesCache();
-  if (!cache) return [];
+async function loginMatchesFor(url: string, session: UnlockedSession): Promise<EntryResponse[]> {
+  let cache: EntryResponse[];
+  try {
+    cache = await loadEntriesCache(session);
+  } catch {
+    return [];
+  }
   return matchEntriesForUrl(url, cache)
     .filter((e) => LOGIN_TYPES.has(e.type))
     .slice(0, MAX_MATCHES);
@@ -47,9 +52,8 @@ export async function ssoFromEntries(
 ): Promise<{ provider: SsoProvider; entryId: string } | null> {
   const session = getSession();
   if (!session) return null;
-  const client = new PassbubbleClient(session.serverUrl);
-  client.setTokens(session.accessToken, '', 900);
-  for (const m of loginMatchesFor(url)) {
+  const client = vaultClient(session);
+  for (const m of await loginMatchesFor(url, session)) {
     try {
       const data = await decryptEntry(await client.getEntry(m.id), session);
       if (isSsoProvider(data.sign_in_with)) return { provider: data.sign_in_with, entryId: m.id };
@@ -69,10 +73,9 @@ export async function ssoFromEntries(
 export async function persistSsoToEntries(host: string, provider: SsoProvider | null): Promise<void> {
   const session = getSession();
   if (!session || !host) return;
-  const client = new PassbubbleClient(session.serverUrl);
-  client.setTokens(session.accessToken, '', 900);
+  const client = vaultClient(session);
   let changed = false;
-  for (const m of loginMatchesFor(`https://${host}/`)) {
+  for (const m of await loginMatchesFor(`https://${host}/`, session)) {
     try {
       const data = await decryptEntry(await client.getEntry(m.id), session);
       if ((data.sign_in_with ?? null) === provider) continue;

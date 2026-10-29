@@ -17,16 +17,29 @@
 // All E2E crypto operations run here; never in content scripts or popup.
 
 import browser from 'webextension-polyfill';
-import { getSession, setSession, clearLoginFrameHost, clearLastFilledEntry } from './session-store.js';
-import { buildHandlers, touchActivity, maybeAutoLock } from './message-handler.js';
+import { getSession, clearLoginFrameHost, clearLastFilledEntry } from './session-store.js';
+import {
+  buildHandlers,
+  touchActivity,
+  maybeAutoLock,
+  ensureSessionRestored,
+  scheduleAutoLock,
+} from './message-handler.js';
+import { handleTokenRefreshAlarm } from './vault-client.js';
+import { loadAccount } from './account-store.js';
 import { registerBasicAuthHandler } from './basic-auth.js';
 import { initSsoMemory, setSsoRecordedHook } from './sso-memory.js';
 import { persistSsoToEntries } from './sso-entry.js';
-import { savePinRefreshToken } from './pin-store.js';
-import { PassbubbleClient } from '@passbubble/shared-ts';
-import { MessageType, STORAGE_KEYS, AUTO_LOCK_ALARM } from '../shared/constants.js';
+import { MessageType, STORAGE_KEYS, AUTO_LOCK_ALARM, TOKEN_REFRESH_ALARM } from '../shared/constants.js';
 
 const handlers = buildHandlers();
+
+// Chrome terminates an idle service worker after ~30 s. On every (re)start,
+// bring the unlocked session back from storage.session right away (subject to
+// the auto-lock timeout) and migrate login state left by older versions. Every
+// message / alarm handler awaits ensureSessionRestored() as well.
+void loadAccount().catch(() => undefined);
+void ensureSessionRestored();
 
 // HTTP Basic Auth autofill (Chrome/Firefox; no-op where webRequest.onAuthRequired
 // is unavailable). Registered top-level so it survives service-worker restarts.
@@ -37,7 +50,9 @@ registerBasicAuthHandler();
 // in the matching entry's encrypted sign_in_with field so the memory syncs
 // cross-device (no-op while the vault is locked).
 initSsoMemory();
-setSsoRecordedHook((host, provider) => void persistSsoToEntries(host, provider));
+setSsoRecordedHook((host, provider) => {
+  void ensureSessionRestored().then(() => persistSsoToEntries(host, provider));
+});
 
 // Messages that count as "the user is actively using the vault" — receiving one
 // restarts the idle auto-lock countdown. Passive background traffic (autofill
@@ -58,16 +73,19 @@ const ACTIVITY_MESSAGES = new Set<string>([
   MessageType.GET_FILL_HOST,
 ]);
 
-browser.runtime.onMessage.addListener((message, sender) => {
+browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime.MessageSender) => {
   const { type, payload } = message as { type: string; payload: Record<string, unknown> };
   const handler = handlers[type];
   if (!handler) return;
-  if (ACTIVITY_MESSAGES.has(type) && getSession()) void touchActivity();
   // Return the promise directly so the channel stays open. Normalise rejections
   // to real Error objects — otherwise a non-Error rejection (e.g. a DOMException
   // from a failed AES/ML-KEM op) surfaces to callers as the unhelpful
   // "listener's promise rejected without an Error".
-  return handler(payload ?? {}, sender).catch((err: unknown) => {
+  return (async () => {
+    await ensureSessionRestored();
+    if (ACTIVITY_MESSAGES.has(type) && getSession()) await touchActivity();
+    return handler(payload ?? {}, sender);
+  })().catch((err: unknown) => {
     if (err instanceof Error) throw err;
     const msg =
       typeof err === 'string'
@@ -90,37 +108,22 @@ browser.tabs.onRemoved.addListener((tabId) => {
 });
 
 // Idle auto-lock: a recurring 1-minute alarm checks how long ago the vault was
-// last used and drops the in-memory session once the configured timeout elapses.
+// last used and locks it once the configured timeout elapses.
+// Token refresh: keeps the access token of an unlocked vault fresh; transient
+// failures retry instead of locking (see handleTokenRefreshAlarm).
 browser.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== AUTO_LOCK_ALARM) return;
-  await maybeAutoLock();
+  if (alarm.name === AUTO_LOCK_ALARM) {
+    await ensureSessionRestored();
+    await maybeAutoLock();
+  } else if (alarm.name === TOKEN_REFRESH_ALARM) {
+    await ensureSessionRestored();
+    await handleTokenRefreshAlarm();
+  }
 });
 
-// Token refresh alarm
-browser.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== 'token-refresh') return;
-  const session = getSession();
-  if (!session) return;
-
-  try {
-    const client = new PassbubbleClient(session.serverUrl);
-    const resp = await client.refresh(session.refreshToken);
-    session.accessToken = resp.access_token;
-    session.refreshToken = resp.refresh_token;
-    session.accessTokenExpiresAt = Date.now() + resp.expires_in * 1000;
-    setSession(session);
-    await browser.storage.session.set({ [STORAGE_KEYS.REFRESH_TOKEN]: resp.refresh_token });
-    // Keep the PIN bootstrap's copy of the (now-rotated) refresh token current, so
-    // a PIN unlock after a browser restart / extension reload does not try to
-    // refresh with an already-invalidated token.
-    await savePinRefreshToken(resp.refresh_token);
-    // Re-schedule for next rotation
-    await browser.alarms.create('token-refresh', {
-      delayInMinutes: (resp.expires_in - 60) / 60,
-    });
-  } catch {
-    // Token refresh failed; clear session so user sees lock screen
-    const { clearSession } = await import('./session-store.js');
-    clearSession();
-  }
+// Changing the auto-lock setting while unlocked takes effect immediately (the
+// alarm is armed or retired accordingly) instead of at the next unlock.
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'sync' || !(STORAGE_KEYS.AUTO_LOCK_MINUTES in changes)) return;
+  void ensureSessionRestored().then(() => (getSession() ? scheduleAutoLock() : undefined));
 });

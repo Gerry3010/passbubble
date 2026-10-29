@@ -33,6 +33,39 @@ type SessionResponse = SessionInfo & {
   pinAvailable?: boolean;
 };
 
+/** UNLOCK / UNLOCK_WITH_PIN failure details from the background. */
+interface UnlockResponse {
+  ok?: boolean;
+  error?: string;
+  /** The server rejected the refresh token — the device was signed out. */
+  loggedOut?: boolean;
+}
+
+/** GET_SESSION plus a pending 2FA step (restored if the popup was closed
+ * mid-login, so the user lands back on the code prompt instead of starting over). */
+async function fetchSessionState(): Promise<
+  SessionResponse & { totpRequired: boolean; pendingToken: string | null }
+> {
+  const resp = (await browser.runtime.sendMessage({
+    type: MessageType.GET_SESSION,
+    payload: {},
+  })) as SessionResponse;
+  let totp: { totpRequired: boolean; pendingToken: string | null } = {
+    totpRequired: false,
+    pendingToken: null,
+  };
+  if (!resp.isLoggedIn) {
+    try {
+      const stored = await browser.storage.session.get(STORAGE_KEYS.PENDING_2FA);
+      const token = stored[STORAGE_KEYS.PENDING_2FA] as string | undefined;
+      if (token) totp = { totpRequired: true, pendingToken: token };
+    } catch {
+      // ignore — fall back to a fresh login
+    }
+  }
+  return { ...resp, ...totp };
+}
+
 interface SessionState extends SessionInfo {
   serverUrl: string;
   isLoading: boolean;
@@ -46,6 +79,10 @@ interface SessionState extends SessionInfo {
   pinAvailable: boolean;
 
   checkSession: () => Promise<void>;
+  /** Re-read the session state without the loading screen — used when the
+   * background reports (or storage shows) that the vault was locked or the
+   * device signed out, so the popup switches to the unlock / login screen. */
+  syncSession: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   verifyTotp: (code: string) => Promise<void>;
   cancelTotp: () => void;
@@ -72,28 +109,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   checkSession: async () => {
     set({ isLoading: true, error: null });
     try {
-      const resp = await browser.runtime.sendMessage({
-        type: MessageType.GET_SESSION,
-        payload: {},
-      }) as SessionResponse;
-      // Restore a pending 2FA step if the popup was closed mid-login, so the
-      // user lands back on the code prompt instead of starting over.
-      let totp: { totpRequired: boolean; pendingToken: string | null } = {
-        totpRequired: false,
-        pendingToken: null,
-      };
-      if (!resp.isLoggedIn) {
-        try {
-          const stored = await browser.storage.session.get(STORAGE_KEYS.PENDING_2FA);
-          const token = stored[STORAGE_KEYS.PENDING_2FA] as string | undefined;
-          if (token) totp = { totpRequired: true, pendingToken: token };
-        } catch {
-          // ignore — fall back to a fresh login
-        }
-      }
-      set({ ...resp, ...totp, isLoading: false });
+      set({ ...(await fetchSessionState()), isLoading: false });
     } catch {
       set({ isLoading: false, error: 'Failed to connect to extension background' });
+    }
+  },
+
+  syncSession: async () => {
+    try {
+      set(await fetchSessionState());
+    } catch {
+      // background unreachable — keep the current state
     }
   },
 
@@ -156,18 +182,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   unlock: async (masterPassword) => {
     set({ isLoading: true, error: null });
     try {
-      await browser.runtime.sendMessage({
+      const resp = (await browser.runtime.sendMessage({
         type: MessageType.UNLOCK,
         payload: { masterPassword },
-      });
-      // Re-fetch session state
-      const resp = await browser.runtime.sendMessage({
+      })) as UnlockResponse | undefined;
+      // Re-fetch session state — after a rejected refresh token the device is
+      // signed out and App switches to the login form (showing the error).
+      const s = (await browser.runtime.sendMessage({
         type: MessageType.GET_SESSION,
         payload: {},
-      }) as SessionResponse;
-      set({ ...resp, isLoading: false });
+      })) as SessionResponse;
+      set({ ...s, isLoading: false, error: resp?.ok === false ? (resp.error ?? 'Unlock failed') : null });
     } catch (e) {
-      set({ isLoading: false, error: String(e) });
+      set({ isLoading: false, error: e instanceof Error ? e.message : String(e) });
     }
   },
 
@@ -177,7 +204,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const resp = (await browser.runtime.sendMessage({
         type: MessageType.UNLOCK_WITH_PIN,
         payload: { pin },
-      })) as { ok: boolean; expired?: boolean; wrongPin?: boolean; lockedOut?: boolean; triesRemaining?: number };
+      })) as UnlockResponse & {
+        expired?: boolean;
+        wrongPin?: boolean;
+        lockedOut?: boolean;
+        triesRemaining?: number;
+      };
       if (!resp.ok) {
         if (resp.expired) {
           set({ isLoading: false, pinAvailable: false, error: 'PIN expired — enter your master password' });
@@ -190,8 +222,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           });
         } else if (resp.wrongPin) {
           set({ isLoading: false, error: `Incorrect PIN — ${resp.triesRemaining ?? 0} attempt(s) left` });
+        } else if (resp.loggedOut) {
+          set({ ...(await fetchSessionState()), isLoading: false, error: resp.error ?? 'Please log in again.' });
         } else {
-          set({ isLoading: false, error: 'PIN unlock failed' });
+          set({ isLoading: false, error: resp.error ?? 'PIN unlock failed' });
         }
         return;
       }
@@ -201,7 +235,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       })) as SessionResponse;
       set({ ...s, isLoading: false });
     } catch (e) {
-      set({ isLoading: false, error: String(e) });
+      set({ isLoading: false, error: e instanceof Error ? e.message : String(e) });
     }
   },
 
@@ -226,3 +260,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   clearError: () => set({ error: null }),
 }));
+
+/**
+ * Call with any background response: if it says the vault is locked (or the
+ * device was signed out), refresh the session state so App switches to the
+ * unlock / login screen. Returns true when the response was such a "locked" one.
+ */
+export function handleLockedResponse(resp: unknown): boolean {
+  if (!resp || typeof resp !== 'object') return false;
+  const r = resp as { locked?: unknown; loggedOut?: unknown };
+  if (!r.locked && !r.loggedOut) return false;
+  void useSessionStore
+    .getState()
+    .syncSession()
+    .then(() => {
+      if (r.loggedOut) useSessionStore.setState({ error: 'Your session has expired — please log in again.' });
+    });
+  return true;
+}

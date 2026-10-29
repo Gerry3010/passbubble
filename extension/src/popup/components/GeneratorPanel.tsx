@@ -16,6 +16,7 @@
 import { useState } from 'react';
 import browser from 'webextension-polyfill';
 import { MessageType } from '../../shared/constants.js';
+import { handleLockedResponse } from '../store/session.js';
 import type { GenerateResponse } from '@passbubble/shared-ts';
 import { term, buttonPrimary, buttonGhost, withDisabled } from '../../shared/theme.js';
 
@@ -34,7 +35,10 @@ export function GeneratorPanel() {
       payload: { length, include_symbols: symbols, count: 1 },
     }) as GenerateResponse | { locked: boolean };
     setIsLoading(false);
-    if ('locked' in resp) return;
+    if ('locked' in resp) {
+      handleLockedResponse(resp);
+      return;
+    }
     const first = resp.passwords[0];
     if (first) {
       setGenerated(first.password);

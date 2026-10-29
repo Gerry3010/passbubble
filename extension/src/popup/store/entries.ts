@@ -16,6 +16,7 @@
 import { create } from 'zustand';
 import browser from 'webextension-polyfill';
 import { MessageType } from '../../shared/constants.js';
+import { handleLockedResponse } from './session.js';
 import type { EntryResponse, FolderResponse } from '@passbubble/shared-ts';
 
 interface EntriesState {
@@ -99,6 +100,12 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
           .sendMessage({ type: MessageType.GET_USERNAMES, payload: {} })
           .catch(() => ({ usernames: {} })),
       ]);
+      // Locked / signed out in the background (auto-lock, rejected refresh
+      // token): switch to the unlock or login screen instead of an empty list.
+      if (handleLockedResponse(entriesResp) || handleLockedResponse(foldersResp)) {
+        set({ isLoading: false });
+        return;
+      }
       const usernames =
         usernamesResp && typeof usernamesResp === 'object' && 'usernames' in usernamesResp
           ? ((usernamesResp as { usernames?: Record<string, string> }).usernames ?? {})
@@ -120,7 +127,7 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
       type: MessageType.GET_ENTRY,
       payload: { id: entryId },
     }) as { data?: { username?: string; password?: string }; locked?: boolean };
-    if (resp.locked || !resp.data) return;
+    if (handleLockedResponse(resp) || !resp?.data) return;
     const value = field === 'username' ? (resp.data.username ?? '') : (resp.data.password ?? '');
     await navigator.clipboard.writeText(value);
   },
@@ -154,10 +161,11 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
     // the next load, so the row doesn't jump around under the cursor.
     set({ entries: entries.map((e) => (e.id === entryId ? { ...e, favorite } : e)) });
     try {
-      await browser.runtime.sendMessage({
+      const resp = await browser.runtime.sendMessage({
         type: MessageType.TOGGLE_FAVORITE,
         payload: { entryId, favorite },
       });
+      if (handleLockedResponse(resp)) throw new Error('locked');
     } catch {
       set({ entries: get().entries.map((e) => (e.id === entryId ? { ...e, favorite: !favorite } : e)) });
     }
@@ -172,10 +180,11 @@ async function persistMatchPatterns(
   entry: EntryResponse,
   next: string[],
 ): Promise<void> {
-  await browser.runtime.sendMessage({
+  const resp = await browser.runtime.sendMessage({
     type: MessageType.UPDATE_ENTRY,
     payload: { entryId: entry.id, matchPatterns: next, folderId: entry.folder_id },
   });
+  if (handleLockedResponse(resp)) return;
   set({
     entries: get().entries.map((e) => (e.id === entry.id ? { ...e, match_patterns: next } : e)),
   });

@@ -18,14 +18,15 @@ import browser from 'webextension-polyfill';
 import { STORAGE_KEYS, AUTO_LOCK_DEFAULT_MINUTES } from '../../shared/constants.js';
 import { term, input, muted } from '../../shared/theme.js';
 
-// 0 = never (lock only on browser close / service-worker eviction).
+// 0 = never: no idle timeout, but the vault still locks when the browser closes
+// (the unlocked session lives in storage.session, which the browser wipes).
 const OPTIONS: { value: number; label: string }[] = [
   { value: 1, label: '1 minute' },
   { value: 5, label: '5 minutes' },
   { value: 15, label: '15 minutes' },
   { value: 30, label: '30 minutes' },
   { value: 60, label: '1 hour' },
-  { value: 0, label: 'Never (lock only on browser close)' },
+  { value: 0, label: 'Never (locks only when the browser closes)' },
 ];
 
 export function AutoLockSection() {
@@ -49,8 +50,9 @@ export function AutoLockSection() {
     <section style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
       <h2 style={{ fontSize: '18px', fontWeight: 700, color: term.green, fontFamily: term.font }}># auto-lock</h2>
       <p style={{ ...muted, fontSize: '13px' }}>
-        Lock the vault automatically after a period of inactivity. You will need your master
-        password or PIN to unlock again.
+        Lock the vault automatically after a period of inactivity. It also locks whenever the
+        browser closes or the extension is updated. You will need your master password or PIN to
+        unlock again — you stay signed in.
       </p>
       <label style={{ ...muted, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
         Lock after
