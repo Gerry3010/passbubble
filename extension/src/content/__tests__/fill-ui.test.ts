@@ -142,9 +142,13 @@ describe('fill-iframe focus handling', () => {
     view.appendChild(anchor);
 
     expect(initMessageFor(anchor)).toMatchObject({ type: 'FILL_INIT', keepFocus: true });
+    // The flag also rides on the URL, so the iframe holds the focus before
+    // FILL_INIT can arrive.
+    expect(iframeEl().src).toBe('chrome-extension://test/fill-iframe/index.html?keepFocus=1');
   });
 
   it('lets ordinary page fields lose the focus as before', () => {
     expect(initMessageFor(anchorAt(100, 130, 50))).toMatchObject({ type: 'FILL_INIT', keepFocus: false });
+    expect(iframeEl().src).toBe('chrome-extension://test/fill-iframe/index.html');
   });
 });

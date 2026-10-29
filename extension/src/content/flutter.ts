@@ -59,6 +59,33 @@ export function isLiveFlutterField(el: HTMLInputElement): boolean {
   return !!el.form && active instanceof HTMLInputElement && active.form === el.form;
 }
 
+// Tap the Flutter canvas at the centre of `rect` (where a text field was). Used
+// when a fill arrives after the field already lost the focus: Flutter answers
+// the tap like a user's, focuses the field again and creates a live input, and
+// the deferred fill below puts the values into it. Flutter's pointer binding
+// reads pointer events from its view and does not check isTrusted.
+export function tapFlutterField(rect: DOMRect): boolean {
+  if (rect.width === 0 || rect.height === 0) return false;
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  const target = document.elementFromPoint(x, y);
+  if (!target || !isFlutterField(target)) return false;
+  const init: PointerEventInit = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    clientX: x,
+    clientY: y,
+    pointerId: 1,
+    pointerType: 'mouse',
+    isPrimary: true,
+    button: 0,
+  };
+  target.dispatchEvent(new PointerEvent('pointerdown', { ...init, buttons: 1 }));
+  target.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+  return true;
+}
+
 // ---- Deferred fill -----------------------------------------------------------
 // Values of a chosen login entry that had no live field to go into (no
 // AutofillGroup: the other field is not in the DOM yet). They are applied when

@@ -25,8 +25,10 @@ import {
   flutterTextEntered,
   hasPendingFill,
   isFlutterField,
+  isLiveFlutterField,
   rememberPendingFill,
   takePendingFill,
+  tapFlutterField,
 } from './flutter.js';
 import { CC_KINDS, classifyField, classifyOtpField, type FieldKind } from './field-classifier.js';
 import { providerFromText, SSO_PROVIDER_LABELS, type SsoProvider } from '../shared/sso.js';
@@ -243,11 +245,24 @@ async function showFillFor(form: DetectedForm): Promise<void> {
   if (matches.length === 0 && !sso) return;
   if (!stillFocused()) return;
 
+  // Where the focused Flutter field sits on the canvas, for tapping it again.
+  const anchorRect = anchor.getBoundingClientRect();
+  const live = (f: HTMLInputElement | null) => !!f && f.isConnected && isLiveFlutterField(f);
+
   injectFillIframe(
     anchor,
     { matches, sso },
     {
       onFillMatch: (username, password) => {
+        // The press on the box took the focus after all (the iframe holds it
+        // back, but a browser may still hand it over): Flutter has ended its
+        // text input, and writing to the dormant inputs would change nothing.
+        // Keep the values and tap the field again; focusin fills the live input.
+        if (isFlutterField(anchor) && !live(usernameField) && !live(passwordField)) {
+          rememberPendingFill({ username: flutterTextEntered() ? undefined : username, password });
+          tapFlutterField(anchorRect);
+          return;
+        }
         if (usernameField) fillField(usernameField, username);
         if (passwordField) fillField(passwordField, password);
         // Flutter without an AutofillGroup: the other field is not in the DOM
@@ -446,8 +461,18 @@ function onFocusIn(e: FocusEvent): void {
     setTimeout(() => {
       if (deepActiveElement() !== target) return;
       const value = takePendingFill(target);
-      if (value !== null) fillField(target, value);
-      else offerFor(target);
+      if (value === null) {
+        offerFor(target);
+        return;
+      }
+      fillField(target, value);
+      // AutofillGroup: the other login field sits in the same form and is live
+      // while this one has the focus, so it can take its value right away.
+      for (const el of target.form ? Array.from(target.form.elements) : []) {
+        if (!(el instanceof HTMLInputElement) || el === target) continue;
+        const rest = takePendingFill(el);
+        if (rest !== null) fillField(el, rest);
+      }
     }, FLUTTER_SETTLE_MS);
     return;
   }

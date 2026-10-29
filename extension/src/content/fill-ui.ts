@@ -88,8 +88,15 @@ export function injectFillIframe(
 ): void {
   removeFillIframe();
 
+  // A press inside the iframe would take the focus from the field. Flutter web
+  // then ends its text input and ignores the fill, so for Flutter fields the
+  // iframe keeps the page's focus where it is (see flutter.ts). The flag rides
+  // on the URL so the iframe holds the focus from its very first script run —
+  // FILL_INIT arrives only after React has mounted.
+  const keepFocus = isFlutterField(anchorField);
+
   const iframe = document.createElement('iframe');
-  iframe.src = browser.runtime.getURL('fill-iframe/index.html');
+  iframe.src = browser.runtime.getURL('fill-iframe/index.html') + (keepFocus ? '?keepFocus=1' : '');
   iframe.style.cssText = [
     'position: fixed',
     'z-index: 2147483647',
@@ -113,10 +120,6 @@ export function injectFillIframe(
     window.removeEventListener('resize', reposition);
   };
 
-  // A press inside the iframe would take the focus from the field. Flutter web
-  // then ends its text input and ignores the fill, so for Flutter fields the
-  // iframe keeps the page's focus where it is (see flutter.ts).
-  const keepFocus = isFlutterField(anchorField);
   const postInit = () =>
     iframe.contentWindow?.postMessage(
       {

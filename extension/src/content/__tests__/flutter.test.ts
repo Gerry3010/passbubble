@@ -23,6 +23,7 @@ import {
   isLiveFlutterField,
   rememberPendingFill,
   takePendingFill,
+  tapFlutterField,
 } from '../flutter.js';
 
 // Builds Flutter web's text-editing DOM (engine ≥ 3.22): <flutter-view> with a
@@ -174,5 +175,50 @@ describe('flutterTextEntered', () => {
     search.value = 'query';
     document.body.appendChild(search);
     expect(flutterTextEntered()).toBe(false);
+  });
+});
+
+describe('tapFlutterField', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  function stubElementFromPoint(el: Element | null) {
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => el) });
+  }
+
+  it('taps the Flutter view at the centre of the field with a pointer down/up pair', () => {
+    const view = document.createElement('flutter-view');
+    document.body.appendChild(view);
+    stubElementFromPoint(view);
+    const seen: string[] = [];
+    for (const type of ['pointerdown', 'pointerup']) {
+      view.addEventListener(type, (e) => {
+        const p = e as PointerEvent;
+        seen.push(`${type}@${p.clientX},${p.clientY} buttons=${p.buttons}`);
+      });
+    }
+
+    expect(tapFlutterField(new DOMRect(100, 200, 300, 40))).toBe(true);
+    expect(document.elementFromPoint).toHaveBeenCalledWith(250, 220);
+    expect(seen).toEqual(['pointerdown@250,220 buttons=1', 'pointerup@250,220 buttons=0']);
+  });
+
+  it('does nothing when the point is not on a Flutter view', () => {
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    stubElementFromPoint(button);
+    const down = vi.fn();
+    button.addEventListener('pointerdown', down);
+
+    expect(tapFlutterField(new DOMRect(0, 0, 100, 40))).toBe(false);
+    expect(down).not.toHaveBeenCalled();
+  });
+
+  it('does nothing for a field without a box', () => {
+    stubElementFromPoint(null);
+    expect(tapFlutterField(new DOMRect(0, 0, 0, 0))).toBe(false);
+    expect(document.elementFromPoint).not.toHaveBeenCalled();
   });
 });

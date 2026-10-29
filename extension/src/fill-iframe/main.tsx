@@ -16,5 +16,13 @@
 import { createRoot } from 'react-dom/client';
 import { FillSuggestion } from './FillSuggestion.js';
 
+// Flutter web fields lose a fill once a press here moves the focus into this
+// iframe (see content/flutter.ts). When the embedder asks for it, cancel every
+// press's default action before React mounts, so there is no window in which a
+// click can still take the focus.
+if (new URLSearchParams(location.search).has('keepFocus')) {
+  document.addEventListener('mousedown', (e) => e.preventDefault(), true);
+}
+
 const root = document.getElementById('root')!;
 createRoot(root).render(<FillSuggestion />);
