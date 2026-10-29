@@ -45,27 +45,23 @@ export function EntryList({
   } = useEntriesStore();
   const [query, setQuery] = useState('');
   const [folderId, setFolderId] = useState<string | null>(null);
-  const [seededHost, setSeededHost] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState<CopyState | null>(null);
 
   useEffect(() => {
     void load();
   }, []);
 
-  // Once the vault has loaded, pre-fill the search with the active tab's host
-  // so the popup opens straight onto the credentials for the current site.
-  useEffect(() => {
-    if (!seededHost && currentHost) {
-      setQuery(currentHost);
-      setSeededHost(true);
-    }
-  }, [currentHost, seededHost]);
+  // The active tab's host is only the placeholder, never the field's value: the
+  // popup opens on the current site's credentials, and typing replaces the host
+  // instead of appending to it. "show all" (or a host without matches) falls
+  // back to the folder browser.
+  const typed = query.trim().toLowerCase();
+  const hostQuery = !showAll && currentHost ? currentHost.toLowerCase() : '';
+  const q = typed || hostQuery;
 
-  const q = query.trim().toLowerCase();
-  const searching = q.length > 0;
-
-  const results = useMemo(() => {
-    if (!searching) return [];
+  const matches = useMemo(() => {
+    if (!q) return [];
     return entries.filter(
       (e) =>
         e.name.toLowerCase().includes(q) ||
@@ -76,7 +72,11 @@ export function EntryList({
         // "*.github.com". (Add/remove stay exact — only search expands wildcards.)
         (e.match_patterns ?? []).some((p) => p.toLowerCase().includes(q) || patternMatchesHost(q, p)),
     );
-  }, [entries, usernames, q, searching]);
+  }, [entries, usernames, q]);
+
+  const hostMode = !typed && hostQuery.length > 0 && matches.length > 0;
+  const searching = typed.length > 0 || hostMode;
+  const results = searching ? matches : [];
 
   // Folder-browser view (empty search): folders + entries at the current level.
   const subfolders = useMemo(
@@ -114,9 +114,11 @@ export function EntryList({
       <div style={{ display: 'flex', gap: '6px' }}>
         <input
           type="search"
-          placeholder="grep entries…"
+          aria-label="Search entries"
+          placeholder={hostQuery ? currentHost : 'grep entries…'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          autoFocus
           style={{ ...input, flex: 1 }}
         />
         {onCreate && (
@@ -138,6 +140,15 @@ export function EntryList({
         >
           ‹ {currentFolder.name}
         </button>
+      )}
+
+      {hostMode && (
+        <p style={{ ...muted, margin: 0, fontSize: '11px' }}>
+          matches for {currentHost} ·{' '}
+          <button onClick={() => setShowAll(true)} style={{ ...link, fontSize: '11px' }}>
+            show all
+          </button>
+        </p>
       )}
 
       {isLoading && entries.length === 0 && <p style={muted}>Loading…</p>}

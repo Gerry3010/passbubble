@@ -206,4 +206,59 @@ describe('EntryList', () => {
     });
     expect(removeMock).toHaveBeenCalledWith('42', 'id.apple.com');
   });
+
+  describe('current-site placeholder', () => {
+    const entries = [
+      { ...makeEntry('1', 'GitHub'), match_patterns: ['github.com'] },
+      makeEntry('2', 'GitLab', 'https://gitlab.com'),
+      makeEntry('3', 'Google'),
+    ];
+
+    it('shows the host as placeholder, keeps the field empty and lists its matches', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, currentHost: 'github.com' }));
+      render(<EntryList />);
+
+      const search = screen.getByRole('searchbox', { name: 'Search entries' }) as HTMLInputElement;
+      expect(search.value).toBe('');
+      expect(search.placeholder).toBe('github.com');
+      expect(screen.getByText('GitHub')).toBeDefined();
+      expect(screen.queryByText('GitLab')).toBeNull();
+      expect(screen.getByText(/matches for github\.com/)).toBeDefined();
+    });
+
+    it('replaces the host filter with whatever the user types', async () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, currentHost: 'github.com' }));
+      render(<EntryList />);
+
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Search entries' }), {
+        target: { value: 'gitlab' },
+      });
+      await waitFor(() => {
+        expect(screen.getByText('GitLab')).toBeDefined();
+        expect(screen.queryByText('GitHub')).toBeNull();
+      });
+      expect(screen.queryByText(/matches for/)).toBeNull();
+    });
+
+    it('"show all" drops the host filter and opens the folder browser', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, currentHost: 'github.com' }));
+      render(<EntryList />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'show all' }));
+      expect(screen.getByText('GitHub')).toBeDefined();
+      expect(screen.getByText('GitLab')).toBeDefined();
+      expect(screen.getByText('Google')).toBeDefined();
+      expect(screen.getByPlaceholderText(/grep entries/i)).toBeDefined();
+    });
+
+    it('falls back to the folder browser when nothing matches the host', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, currentHost: 'example.org' }));
+      render(<EntryList />);
+
+      expect(screen.getByText('GitHub')).toBeDefined();
+      expect(screen.getByText('Google')).toBeDefined();
+      expect(screen.queryByText(/matches for/)).toBeNull();
+      expect(screen.queryByText('No entries found')).toBeNull();
+    });
+  });
 });
