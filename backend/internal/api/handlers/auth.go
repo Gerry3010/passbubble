@@ -56,6 +56,12 @@ const (
 	bcryptCost      = 12
 )
 
+// refreshGracePeriod is how long a refresh token stays valid after it has been
+// rotated. Two clients racing on the same token (browser tabs sharing storage,
+// an unlock overlapping the extension's refresh alarm, a client retrying after
+// a lost response) would otherwise see the loser logged out with a 401.
+var refreshGracePeriod = 30 * time.Second
+
 var errInvalidToken = errors.New("invalid invitation token")
 
 // Register handles POST /api/v1/auth/register
@@ -277,7 +283,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	claims := &mw.Claims{}
 	_, err = jwt.ParseWithClaims(req.RefreshToken, claims, func(t *jwt.Token) (any, error) {
 		return h.jwtSecret, nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil || claims.TokenType != "refresh" {
 		respondErr(w, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
@@ -285,10 +291,16 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	tokenHash := tokenSHA256(req.RefreshToken)
 	var exists bool
-	_ = h.pool.QueryRow(r.Context(),
+	if err := h.pool.QueryRow(r.Context(),
 		`SELECT EXISTS(SELECT 1 FROM sessions WHERE token_hash=$1 AND expires_at>NOW())`,
 		tokenHash,
-	).Scan(&exists)
+	).Scan(&exists); err != nil {
+		// A database hiccup must not read as "session revoked" — clients log the
+		// user out on 401 but retry on 5xx.
+		slog.Error("refresh: session lookup failed", "user_id", claims.UserID, "err", err)
+		respondErr(w, http.StatusInternalServerError, "failed to check session")
+		return
+	}
 	if !exists {
 		respondErr(w, http.StatusUnauthorized, "session expired or revoked")
 		return
@@ -299,7 +311,15 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusInternalServerError, "failed to issue tokens")
 		return
 	}
-	_, _ = h.pool.Exec(r.Context(), `DELETE FROM sessions WHERE token_hash=$1`, tokenHash)
+	// Retire the presented token after the grace period instead of deleting it,
+	// so a concurrent refresh with the same token still gets a session of its own.
+	if _, err := h.pool.Exec(r.Context(),
+		`UPDATE sessions SET expires_at = LEAST(expires_at, NOW() + make_interval(secs => $2))
+		 WHERE token_hash=$1`,
+		tokenHash, refreshGracePeriod.Seconds(),
+	); err != nil {
+		slog.Error("refresh: retiring rotated session failed", "user_id", claims.UserID, "err", err)
+	}
 	respond(w, http.StatusOK, tokens)
 }
 

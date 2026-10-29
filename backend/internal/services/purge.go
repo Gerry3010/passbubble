@@ -27,9 +27,9 @@ import (
 // trashRetention is how long soft-deleted entries stay restorable.
 const trashRetention = 30 * 24 * time.Hour
 
-// StartPurgeLoop hard-deletes entries whose trash retention has elapsed, once
-// at startup and then every 24h, until ctx is cancelled. Versions and keys go
-// with them via ON DELETE CASCADE.
+// StartPurgeLoop hard-deletes entries whose trash retention has elapsed and
+// expired refresh sessions, once at startup and then every 24h, until ctx is
+// cancelled. Entry versions and keys go with their entry via ON DELETE CASCADE.
 func StartPurgeLoop(ctx context.Context, pool *pgxpool.Pool) {
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
@@ -55,5 +55,16 @@ func purgeOnce(ctx context.Context, pool *pgxpool.Pool) {
 	}
 	if n := tag.RowsAffected(); n > 0 {
 		log.Printf("trash purge: removed %d expired entries", n)
+	}
+
+	// Expired and rotated refresh sessions can never be used again; without this
+	// every refresh leaves a row behind for good.
+	tag, err = pool.Exec(ctx, `DELETE FROM sessions WHERE expires_at < NOW()`)
+	if err != nil {
+		log.Printf("session purge failed: %v", err)
+		return
+	}
+	if n := tag.RowsAffected(); n > 0 {
+		log.Printf("session purge: removed %d expired sessions", n)
 	}
 }

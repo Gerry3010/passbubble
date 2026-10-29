@@ -64,8 +64,16 @@ func (s *Server) buildRouter() http.Handler {
 			r.Use(mw.PerIPRateLimiter(rate.Limit(5.0/60.0), 5)) // 5 req/min
 			r.Post("/auth/register", h.Register)
 			r.Post("/auth/login", h.Login)
-			r.Post("/auth/refresh", h.Refresh)
 			r.Get("/auth/verify-email", h.VerifyEmail)
+		})
+
+		// Token refresh gets its own, roomier budget: every client of a household
+		// behind one IP (browser tabs, the extension, phones) refreshes on its own
+		// schedule, and the extension also refreshes on every unlock. A 429 here
+		// would read as a broken session; credential guessing stays capped above.
+		r.Group(func(r chi.Router) {
+			r.Use(mw.PerIPRateLimiter(rate.Limit(30.0/60.0), 30)) // 30 req/min
+			r.Post("/auth/refresh", h.Refresh)
 		})
 
 		// Public, unauthenticated endpoints (zero-knowledge share-link retrieval
