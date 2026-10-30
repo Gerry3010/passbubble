@@ -67,7 +67,8 @@ export interface EntryData {
   purchase_date?: string;
   expires_at?: string;
   // universal
-  custom_fields?: Array<{ label: string; value: string }>;
+  // type as set by the app: 'text' (default), 'password', 'ssh', 'totp', 'file'
+  custom_fields?: Array<{ label: string; value: string; type?: string }>;
 }
 
 // In-memory session state held in the background service worker.

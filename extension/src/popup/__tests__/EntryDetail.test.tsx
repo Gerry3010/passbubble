@@ -53,6 +53,37 @@ describe('EntryDetail', () => {
     expect(screen.getByText('s3cret')).toBeDefined();
   });
 
+  it('masks secret custom fields and reveals each field on its own', async () => {
+    sendMessage.mockResolvedValue({
+      data: {
+        username: 'octocat',
+        password: 's3cret',
+        custom_fields: [
+          { label: 'Recovery', value: 'ask the cat', type: 'text' },
+          { label: 'PIN', value: '4711', type: 'password' },
+          { label: 'Backup', value: 'backup-code', type: 'password' },
+          { label: 'Deploy key', value: 'ssh-ed25519 AAAA', type: 'ssh' },
+        ],
+      },
+    });
+    render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('octocat')).toBeDefined());
+    expect(screen.getByText('ask the cat')).toBeDefined();
+    for (const secret of ['s3cret', '4711', 'backup-code', 'ssh-ed25519 AAAA']) {
+      expect(screen.queryByText(secret)).toBeNull();
+    }
+
+    // Show buttons in field order: password, PIN, Backup, Deploy key.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Show' })[1]);
+    expect(screen.getByText('4711')).toBeDefined();
+    expect(screen.queryByText('s3cret')).toBeNull();
+    expect(screen.queryByText('backup-code')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(screen.queryByText('4711')).toBeNull();
+  });
+
   it('shows a lock message when the vault is locked', async () => {
     sendMessage.mockResolvedValue({ locked: true });
     render(<EntryDetail entry={entry} onBack={() => {}} />);

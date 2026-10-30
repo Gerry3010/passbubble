@@ -167,6 +167,7 @@ void main() {
   group('entry detail', () {
     const password = 'hunter2-secret';
     const pin = '4711';
+    const backup = 'backup-code-9';
     late EntryResponse entry;
 
     setUpAll(() async {
@@ -178,6 +179,7 @@ void main() {
         'custom_fields': [
           {'label': 'Recovery', 'value': 'ask the cat', 'type': 'text'},
           {'label': 'PIN', 'value': pin, 'type': 'password'},
+          {'label': 'Backup', 'value': backup, 'type': 'password'},
         ],
       });
     });
@@ -205,7 +207,7 @@ void main() {
       // Secrets render as plain, non-selectable bullets while masked: nothing
       // selectable carries the real value (or even the mask), and no
       // SelectionArea wraps the mask either.
-      for (final secret in [password, pin]) {
+      for (final secret in [password, pin, backup]) {
         expect(find.text(secret), findsNothing);
         final masked = find.text('•' * secret.length);
         expect(masked, findsOneWidget);
@@ -213,14 +215,36 @@ void main() {
         expect(find.ancestor(of: masked, matching: find.byType(SelectableRegion)),
             findsNothing);
       }
-      expect(selectable.where((t) => t.contains(password) || t.contains(pin)),
+      expect(
+          selectable.where(
+              (t) => t.contains(password) || t.contains(pin) || t.contains(backup)),
           isEmpty);
       expect(selectable.where((t) => t.contains('•')), isEmpty);
 
-      // Once revealed, secrets are selectable like any other value.
-      await tester.tap(find.byIcon(Icons.visibility).first);
+      // Each eye reveals only its own row, also between custom fields; once
+      // revealed, a secret is selectable like any other value.
+      Finder eye(String label, IconData icon) => find.descendant(
+          of: find.ancestor(of: find.text(label), matching: find.byType(ListTile)),
+          matching: find.byIcon(icon));
+
+      await tester.tap(eye('PIN', Icons.visibility));
       await tester.pump();
-      expect(_selectableTexts(tester), containsAll([password, pin]));
+      expect(_selectableTexts(tester), contains(pin));
+      for (final secret in [password, backup]) {
+        expect(find.text(secret), findsNothing);
+        expect(find.text('•' * secret.length), findsOneWidget);
+      }
+
+      await tester.tap(eye('Password', Icons.visibility));
+      await tester.tap(eye('Backup', Icons.visibility));
+      await tester.pump();
+      expect(_selectableTexts(tester), containsAll([password, pin, backup]));
+
+      // Hiding one row leaves the others revealed.
+      await tester.tap(eye('PIN', Icons.visibility_off));
+      await tester.pump();
+      expect(find.text(pin), findsNothing);
+      expect(_selectableTexts(tester), containsAll([password, backup]));
     });
 
     testWidgets('copy buttons still copy next to selectable text', (tester) async {

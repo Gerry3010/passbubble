@@ -50,7 +50,9 @@ class EntryDetailScreen extends ConsumerStatefulWidget {
 class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
   Map<String, dynamic>? _decrypted;
   bool _decrypting = false;
-  bool _showPassword = false;
+  // Secret rows the user has revealed, by row id — each eye toggles only its
+  // own row.
+  final Set<String> _revealed = {};
   String? _totpCode;
   int _totpRemaining = 30;
   Timer? _totpTimer;
@@ -362,7 +364,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         child: Text('CUSTOM FIELDS',
             style: TextStyle(color: AppTheme.green, fontSize: 11, letterSpacing: 2)),
       ));
-      for (final cf in rawCf) {
+      for (final (i, cf) in rawCf.indexed) {
         if (cf is Map<String, dynamic>) {
           final label = cf['label'] as String? ?? '';
           final value = cf['value'] as String? ?? '';
@@ -371,7 +373,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
           switch (cfType) {
             case 'password':
             case 'ssh':
-              customFieldWidgets.add(_secretRow(label, value));
+              customFieldWidgets.add(_secretRow(label, value, id: 'cf:$i'));
             case 'totp':
               if (value.isNotEmpty && _totpCode == null) _startTOTP(value);
               customFieldWidgets.add(_copyRow(label, value));
@@ -394,15 +396,15 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     return switch (type) {
       'password' || 'api-key' => [
           if (str('username') != null) _copyRow('Username', str('username')!),
-          if (str('password') != null) _secretRow('Password', str('password')!),
-          if (str('totp_secret') != null) _secretRow('TOTP Secret', str('totp_secret')!),
+          if (str('password') != null) _secretRow('Password', str('password')!, id: 'password'),
+          if (str('totp_secret') != null) _secretRow('TOTP Secret', str('totp_secret')!, id: 'totp_secret'),
           if (str('sign_in_with') != null)
             _infoRow('Sign in with', _ssoLabel(str('sign_in_with')!)),
           ...common,
         ],
       'totp' => [
           if (str('username') != null) _copyRow('Account', str('username')!),
-          if (str('totp_secret') != null) _secretRow('TOTP Secret', str('totp_secret')!),
+          if (str('totp_secret') != null) _secretRow('TOTP Secret', str('totp_secret')!, id: 'totp_secret'),
           ...common,
         ],
       'note' => [
@@ -416,12 +418,12 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ],
       'credit-card' => [
           if (str('card_number') != null)
-            _maskedCardRow('Card Number', str('card_number')!),
+            _maskedCardRow('Card Number', str('card_number')!, id: 'card_number'),
           if (str('holder_name') != null) _infoRow('Cardholder', str('holder_name')!),
           if (str('expiry_month') != null || str('expiry_year') != null)
             _infoRow('Expires',
                 '${str('expiry_month') ?? '??'}/${str('expiry_year') ?? '????'}'),
-          if (str('cvv') != null) _secretRow('CVV', str('cvv')!),
+          if (str('cvv') != null) _secretRow('CVV', str('cvv')!, id: 'cvv'),
           ...common,
         ],
       'bank-account' => [
@@ -449,7 +451,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ],
       'license' => [
           if (str('product_name') != null) _infoRow('Product', str('product_name')!),
-          if (str('license_key') != null) _secretRow('License Key', str('license_key')!),
+          if (str('license_key') != null) _secretRow('License Key', str('license_key')!, id: 'license_key'),
           if (str('purchase_email') != null)
             _copyRow('Purchase Email', str('purchase_email')!),
           if (str('purchase_date') != null) _infoRow('Purchased', str('purchase_date')!),
@@ -458,7 +460,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ],
       _ => [
           if (str('username') != null) _copyRow('Username', str('username')!),
-          if (str('password') != null) _secretRow('Password', str('password')!),
+          if (str('password') != null) _secretRow('Password', str('password')!, id: 'password'),
           ...common,
         ],
     };
@@ -473,24 +475,24 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     return parts.join(', ');
   }
 
-  Widget _maskedCardRow(String label, String number) {
+  Widget _maskedCardRow(String label, String number, {required String id}) {
     final masked = number.length >= 4
         ? '•••• •••• •••• ${number.substring(number.length - 4)}'
         : '••••••••';
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(label, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
-      subtitle: _secretText(number, masked: masked),
+      subtitle: _secretText(number, masked: masked, revealed: _revealed.contains(id)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
             icon: Icon(
-              _showPassword ? Icons.visibility_off : Icons.visibility,
+              _revealed.contains(id) ? Icons.visibility_off : Icons.visibility,
               size: 18,
               color: AppTheme.onBgDim,
             ),
-            onPressed: () => setState(() => _showPassword = !_showPassword),
+            onPressed: () => _toggleReveal(id),
           ),
           IconButton(
             icon: const Icon(Icons.copy, size: 18, color: AppTheme.onBgDim),
@@ -583,6 +585,9 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     );
   }
 
+  void _toggleReveal(String id) =>
+      setState(() => _revealed.contains(id) ? _revealed.remove(id) : _revealed.add(id));
+
   /// A plaintext value the user can select (mouse drag / long-press) and copy.
   /// SelectableText is backed by a real text-editing surface, so selection and
   /// Ctrl/Cmd+C also work on web, where plain canvas text is not selectable.
@@ -592,9 +597,9 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
   /// A secret value: plain (non-selectable) bullets while masked, so only the
   /// mask could ever be picked up; selectable like any other value once the
   /// user has revealed it.
-  Widget _secretText(String value, {required String masked}) {
+  Widget _secretText(String value, {required String masked, required bool revealed}) {
     const style = TextStyle(fontSize: 14, letterSpacing: 2);
-    return _showPassword
+    return revealed
         ? SelectableText(value, style: style)
         : Text(masked, style: style);
   }
@@ -625,21 +630,22 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     );
   }
 
-  Widget _secretRow(String label, String value) {
+  Widget _secretRow(String label, String value, {required String id}) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(label, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
-      subtitle: _secretText(value, masked: '•' * value.length.clamp(0, 20)),
+      subtitle: _secretText(value,
+          masked: '•' * value.length.clamp(0, 20), revealed: _revealed.contains(id)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
             icon: Icon(
-              _showPassword ? Icons.visibility_off : Icons.visibility,
+              _revealed.contains(id) ? Icons.visibility_off : Icons.visibility,
               size: 18,
               color: AppTheme.onBgDim,
             ),
-            onPressed: () => setState(() => _showPassword = !_showPassword),
+            onPressed: () => _toggleReveal(id),
           ),
           IconButton(
             icon: const Icon(Icons.copy, size: 18, color: AppTheme.onBgDim),

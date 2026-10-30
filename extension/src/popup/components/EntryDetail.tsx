@@ -25,7 +25,9 @@ import { term, link, muted, errorText } from '../../shared/theme.js';
 export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: () => void }) {
   const [data, setData] = useState<EntryData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reveal, setReveal] = useState(false);
+  // Secret fields the user has revealed, by field id — each Show toggles only
+  // its own field.
+  const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set());
   const [totp, setTotp] = useState<{ code: string; remaining: number } | null>(null);
 
   useEffect(() => {
@@ -67,6 +69,22 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
     void navigator.clipboard.writeText(value);
   }
 
+  function toggleReveal(id: string) {
+    setRevealed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+
+  function revealButton(id: string) {
+    return (
+      <button onClick={() => toggleReveal(id)} style={link}>
+        {revealed.has(id) ? 'Hide' : 'Show'}
+      </button>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <button onClick={onBack} style={link}>‹ Back</button>
@@ -87,9 +105,9 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
           {data.password && (
             <Field
               label="Password"
-              value={reveal ? data.password : '••••••••'}
+              value={revealed.has('password') ? data.password : '••••••••'}
               onCopy={() => copy(data.password!)}
-              extra={<button onClick={() => setReveal((v) => !v)} style={link}>{reveal ? 'Hide' : 'Show'}</button>}
+              extra={revealButton('password')}
             />
           )}
           {totp && (
@@ -106,24 +124,26 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
               <Field
                 key={key}
                 label={label}
-                value={secret && !reveal ? mask(key, value) : value}
+                value={secret && !revealed.has(key) ? mask(key, value) : value}
                 onCopy={() => copy(value)}
-                extra={
-                  secret ? (
-                    <button onClick={() => setReveal((v) => !v)} style={link}>
-                      {reveal ? 'Hide' : 'Show'}
-                    </button>
-                  ) : undefined
-                }
+                extra={secret ? revealButton(key) : undefined}
               />
             );
           })}
-          {(data.custom_fields ?? []).map(
-            (cf, i) =>
-              cf.value && (
-                <Field key={`cf-${i}`} label={cf.label || 'Custom'} value={cf.value} onCopy={() => copy(cf.value)} />
-              ),
-          )}
+          {(data.custom_fields ?? []).map((cf, i) => {
+            if (!cf.value) return null;
+            const id = `cf-${i}`;
+            const secret = SECRET_CUSTOM_TYPES.has(cf.type ?? '');
+            return (
+              <Field
+                key={id}
+                label={cf.label || 'Custom'}
+                value={secret && !revealed.has(id) ? mask(id, cf.value) : cf.value}
+                onCopy={() => copy(cf.value)}
+                extra={secret ? revealButton(id) : undefined}
+              />
+            );
+          })}
           {data.notes && <Field label="Notes" value={data.notes} onCopy={() => copy(data.notes!)} />}
         </div>
       )}
@@ -158,6 +178,9 @@ const TYPED_FIELDS: Array<[keyof EntryData & string, string, boolean?]> = [
   ['license_key', 'License key', true],
   ['purchase_email', 'Purchase email'],
 ];
+
+// Custom field types the app masks until revealed.
+const SECRET_CUSTOM_TYPES = new Set(['password', 'ssh']);
 
 function mask(key: string, value: string): string {
   if (key === 'card_number') {
