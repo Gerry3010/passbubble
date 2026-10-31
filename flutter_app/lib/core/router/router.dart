@@ -166,7 +166,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/entries',
-        pageBuilder: (_, state) => _tabPage(state, 0, const EntriesListScreen()),
+        // `?tag=…` opens the list filtered by that tag.
+        pageBuilder: (_, state) => _tabPage(
+          state,
+          0,
+          EntriesListScreen(initialTag: state.uri.queryParameters['tag']),
+        ),
         routes: [
           GoRoute(
             path: 'new',

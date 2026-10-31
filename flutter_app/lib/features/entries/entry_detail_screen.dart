@@ -28,6 +28,7 @@ import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/util/entry_tags.dart';
 import '../../shared/widgets/prompt_title.dart';
 import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
@@ -294,6 +295,8 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
 
   Widget _buildDetail(EntryResponse entry) {
     final d = _decrypted;
+    // Tags live in the encrypted data, so they show once decrypted.
+    final tags = d == null ? const <String>[] : tagsOf(d);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -309,6 +312,10 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
               ),
           ],
         ),
+        if (tags.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _tagChips(tags),
+        ],
         const SizedBox(height: 16),
         if (entry.url.isNotEmpty) _infoRow('URL', entry.url),
         const Divider(),
@@ -337,6 +344,22 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       ],
     );
   }
+
+  /// The entry's tags; tapping one lists every entry carrying it.
+  Widget _tagChips(List<String> tags) => Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (final tag in tags)
+            ActionChip(
+              avatar: const Icon(Icons.tag, size: 14, color: AppTheme.green),
+              label: Text(tag),
+              tooltip: 'Show entries tagged $tag',
+              onPressed: () => context.go(
+                  Uri(path: '/entries', queryParameters: {'tag': tag}).toString()),
+            ),
+        ],
+      );
 
   // ── Type-specific field renderers ─────────────────────────────────────────
 

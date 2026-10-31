@@ -25,6 +25,7 @@ import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/util/entry_tags.dart';
 import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
 import '../../core/autofill/autofill_service.dart';
@@ -42,12 +43,34 @@ final entriesProvider = FutureProvider<List<EntryResponse>>((ref) async {
   return ref.watch(apiClientProvider).listEntries();
 });
 
+/// What the list knows about each entry from its decrypted data (see
+/// [searchIndexProvider]).
+class SearchIndex {
+  /// Searchable text per entry id, lowercased.
+  final Map<String, String> text;
+
+  /// Normalised tags per entry id; entries without tags are absent.
+  final Map<String, List<String>> tags;
+
+  /// Every tag in the vault (first-seen spelling, sorted case-insensitively),
+  /// for the filter chips and the edit screen's suggestions.
+  final List<String> allTags;
+
+  SearchIndex({this.text = const {}, this.tags = const {}})
+      : allTags = collectTags(tags.values);
+
+  static final empty = SearchIndex();
+
+  List<String> tagsFor(String entryId) => tags[entryId] ?? const [];
+}
+
 /// Decrypted, searchable text per entry id — username plus the non-secret
 /// typed fields (email, names, company, phone, notes, custom-field labels/
-/// values, cardholder, IBAN last-4), lowercased and joined. Passwords, CVVs,
-/// full card/IBAN numbers and TOTP secrets are deliberately NOT indexed.
-/// In-memory only; recomputed whenever the entry list is invalidated.
-final searchIndexProvider = FutureProvider<Map<String, String>>((ref) async {
+/// values, cardholder, IBAN last-4, tags), lowercased and joined — and each
+/// entry's tags. Passwords, CVVs, full card/IBAN numbers and TOTP secrets are
+/// deliberately NOT indexed. In-memory only; recomputed whenever the entry
+/// list is invalidated.
+final searchIndexProvider = FutureProvider<SearchIndex>((ref) async {
   ref.watch(entriesProvider);
   // Rebuild on lock too (empty without keys), not only on a session change.
   ref.watch(authStateProvider.select((s) => s.isUnlocked));
@@ -55,8 +78,9 @@ final searchIndexProvider = FutureProvider<Map<String, String>>((ref) async {
   final authSvc = ref.watch(authServiceProvider);
   final privX = authSvc.privX25519;
   final privM = authSvc.privMLKEM;
-  if (privX == null || privM == null) return const {};
+  if (privX == null || privM == null) return SearchIndex.empty;
   final index = <String, String>{};
+  final tagIndex = <String, List<String>>{};
   for (final e in await api.listEntriesFull()) {
     final encKey = e.entryKey;
     if (encKey == null) continue;
@@ -94,12 +118,17 @@ final searchIndexProvider = FutureProvider<Map<String, String>>((ref) async {
           }
         }
       }
+      final tags = tagsOf(data);
+      if (tags.isNotEmpty) {
+        tagIndex[e.id] = tags;
+        parts.addAll(tags);
+      }
       if (parts.isNotEmpty) index[e.id] = parts.join(' ').toLowerCase();
     } catch (_) {
       // skip entries we cannot read
     }
   }
-  return index;
+  return SearchIndex(text: index, tags: tagIndex);
 });
 
 /// Folder tree of the current session; same lifecycle as [entriesProvider].
@@ -110,7 +139,10 @@ final foldersProvider = FutureProvider<List<FolderResponse>>((ref) async {
 });
 
 class EntriesListScreen extends ConsumerStatefulWidget {
-  const EntriesListScreen({super.key});
+  /// Opens the list filtered by this tag (`/entries?tag=…`, e.g. from a tag
+  /// chip on the detail screen).
+  final String? initialTag;
+  const EntriesListScreen({super.key, this.initialTag});
 
   @override
   ConsumerState<EntriesListScreen> createState() => _EntriesListScreenState();
@@ -120,6 +152,11 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
+
+  // Tags picked in the filter chip row (AND, combined with the search box and
+  // its `#tag` tokens). Filtering by tag lists matches from the whole vault,
+  // like a search.
+  final List<String> _tagFilter = [];
 
   // Folder navigation stack — null means root level.
   final List<FolderResponse?> _stack = [null];
@@ -135,11 +172,44 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
   @override
   void initState() {
     super.initState();
+    _applyInitialTag();
     WidgetsBinding.instance.addObserver(this);
     // One-time autofill intro after the first unlock (no-ops if already
     // enabled / seen / unsupported).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) maybeShowAutofillIntro(context, ref);
+    });
+  }
+
+  // The list page stays mounted below the detail page, so a tag chip tapped
+  // there arrives as a new widget, not a new state.
+  @override
+  void didUpdateWidget(EntriesListScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialTag != oldWidget.initialTag) _applyInitialTag();
+  }
+
+  /// Shows exactly the entries tagged [EntriesListScreen.initialTag].
+  void _applyInitialTag() {
+    final tag = cleanTag(widget.initialTag ?? '');
+    if (tag.isEmpty) return;
+    _tagFilter
+      ..clear()
+      ..add(tag);
+    _searchCtrl.clear();
+    _searchQuery = '';
+    _editMode = false;
+    _selected.clear();
+  }
+
+  void _toggleTagFilter(String tag) {
+    setState(() {
+      final i = _tagFilter.indexWhere((t) => sameTag(t, tag));
+      if (i >= 0) {
+        _tagFilter.removeAt(i);
+      } else {
+        _tagFilter.add(tag);
+      }
     });
   }
 
@@ -842,29 +912,80 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     );
   }
 
+  /// The search box split into `#tag` tokens and text.
+  TagQuery get _query => parseTagQuery(_searchQuery);
+
+  /// Whether the list shows vault-wide matches instead of the current folder.
+  bool get _isFiltering => _tagFilter.isNotEmpty || !_query.isEmpty;
+
+  /// Entries matching the search text (name, URL or decrypted index) and
+  /// carrying every required tag — from the chip row and from `#tag` tokens.
   List<EntryResponse> _searchEntries(List<EntryResponse> all) {
-    final q = _searchQuery.toLowerCase();
+    final query = _query;
+    final q = query.text.toLowerCase();
+    final requiredTags = [..._tagFilter, ...query.tags];
     final searchIndex =
-        ref.read(searchIndexProvider).valueOrNull ?? const <String, String>{};
+        ref.read(searchIndexProvider).valueOrNull ?? SearchIndex.empty;
     return all
         .where((e) =>
-            e.name.toLowerCase().contains(q) ||
-            e.url.toLowerCase().contains(q) ||
-            (searchIndex[e.id]?.contains(q) ?? false))
+            hasAllTags(searchIndex.tagsFor(e.id), requiredTags) &&
+            (q.isEmpty ||
+                e.name.toLowerCase().contains(q) ||
+                e.url.toLowerCase().contains(q) ||
+                (searchIndex.text[e.id]?.contains(q) ?? false)))
         .toList();
+  }
+
+  /// Horizontal row of tag filter chips (multi-select, AND). Shown only when
+  /// the vault has tags — or a selected tag that no longer exists, so it can
+  /// still be cleared.
+  Widget _tagFilterBar(List<String> vaultTags) {
+    final tags = [
+      ...vaultTags,
+      ..._tagFilter.where((t) => !containsTag(vaultTags, t)),
+    ];
+    if (tags.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        key: const ValueKey('tag-filter-bar'),
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        children: [
+          for (final (tag, selected) in [
+            for (final t in tags) (t, containsTag(_tagFilter, t)),
+          ])
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: FilterChip(
+                label: Text(tag),
+                selected: selected,
+                onSelected: (_) => _toggleTagFilter(tag),
+                selectedColor: AppTheme.greenFaint,
+                checkmarkColor: AppTheme.green,
+                side: BorderSide(
+                    color: selected ? AppTheme.green : AppTheme.border),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final foldersAsync = ref.watch(foldersProvider);
     final entriesAsync = ref.watch(entriesProvider);
-    // Load the username index so search can match usernames and the list
-    // rebuilds once decryption completes.
-    ref.watch(searchIndexProvider);
+    // Load the decrypted index so search can match usernames and tags and the
+    // list rebuilds once decryption completes.
+    final vaultTags =
+        ref.watch(searchIndexProvider).valueOrNull?.allTags ?? const <String>[];
     final allEntries =
         entriesAsync.valueOrNull ?? const <EntryResponse>[];
 
-    final isSearching = _searchQuery.isNotEmpty;
+    final isSearching = _isFiltering;
 
     final title = _editMode
         ? '${_selected.length} selected'
@@ -934,7 +1055,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
                 controller: _searchCtrl,
                 onChanged: (v) => setState(() => _searchQuery = v),
                 decoration: InputDecoration(
-                  hintText: 'grep entries…',
+                  hintText: 'grep entries… (#tag)',
                   prefixIcon: const Icon(Icons.search, size: 18),
                   suffixIcon: _searchCtrl.text.isNotEmpty
                       ? IconButton(
@@ -956,6 +1077,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
         body: Column(
           children: [
             const AutofillBanner(),
+            _tagFilterBar(vaultTags),
             Expanded(
               child: foldersAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),

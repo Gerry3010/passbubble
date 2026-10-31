@@ -14,9 +14,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Widget tests for the entry detail view (selectable plaintext, masked
-// secrets) and the edit screen (drag & drop order of custom fields). Both
-// screens decrypt/encrypt for real, so the data-key wrapping needs the native
-// hybrid-KEM lib (`make native-crypto`, built in CI); without it the tests skip.
+// secrets), the edit screen (drag & drop order of custom fields) and entry
+// tags (edit, detail chips, list filter). The screens decrypt/encrypt for
+// real, so the data-key wrapping needs the native hybrid-KEM lib
+// (`make native-crypto`, built in CI); without it the tests skip.
 @TestOn('vm')
 library;
 
@@ -35,6 +36,7 @@ import 'package:passbubble/core/auth/auth_service.dart';
 import 'package:passbubble/core/crypto/ml_kem.dart';
 import 'package:passbubble/core/crypto/vault_crypto.dart';
 import 'package:passbubble/features/entries/add_edit_screen.dart';
+import 'package:passbubble/features/entries/entries_list_screen.dart';
 import 'package:passbubble/features/entries/entry_detail_screen.dart';
 
 const _libPath = 'native/passbubble_crypto/build/libpassbubble_crypto.so';
@@ -58,13 +60,15 @@ class _Keys {
   Future<EntryResponse> encryptEntry(
     Map<String, dynamic> data, {
     String type = 'password',
+    String id = 'e1',
+    String name = 'Mail',
   }) async {
     final enc = await VaultCrypto.encryptEntryData(data);
     final wrapped = await VaultCrypto.encryptDataKey(enc.dataKey, pubXB64, pubMB64);
     return EntryResponse(
-      id: 'e1',
+      id: id,
       type: type,
-      name: 'Mail',
+      name: name,
       url: 'https://mail.example.com',
       encryptedData: enc.encryptedData,
       dataNonce: enc.dataNonce,
@@ -102,8 +106,11 @@ class _FakeAuth extends AuthService {
 
 class _FakeApi extends ApiClient {
   final EntryResponse entry;
+
+  /// The whole vault, for the list and the decrypted search/tag index.
+  final List<EntryResponse> vault;
   UpdateEntryRequest? updated;
-  _FakeApi(this.entry);
+  _FakeApi(this.entry, {this.vault = const []});
 
   @override
   Future<EntryResponse> getEntry(String id) async => entry;
@@ -112,7 +119,16 @@ class _FakeApi extends ApiClient {
   @override
   Future<List<FolderResponse>> listFolders() async => const [];
   @override
-  Future<List<EntryResponse>> listEntries() async => const [];
+  Future<List<EntryResponse>> listEntries() async => vault;
+  @override
+  Future<List<EntryResponse>> listEntriesFull() async => vault;
+}
+
+// The list only loads for a logged-in session.
+class _LoggedInAuth extends AuthNotifier {
+  _LoggedInAuth(super.svc) {
+    state = const AuthState(isLoggedIn: true, isUnlocked: true, userId: 'u1');
+  }
 }
 
 Widget _app(_FakeApi api, _Keys keys, String location) {
@@ -121,7 +137,12 @@ Widget _app(_FakeApi api, _Keys keys, String location) {
     routes: [
       GoRoute(
         path: '/entries',
-        builder: (_, _) => const Scaffold(body: Text('LIST')),
+        builder: (_, s) => Scaffold(
+          body: Text(switch (s.uri.queryParameters['tag']) {
+            final tag? => 'LIST #$tag',
+            null => 'LIST',
+          }),
+        ),
       ),
       GoRoute(
         path: '/entries/:id',
@@ -141,6 +162,23 @@ Widget _app(_FakeApi api, _Keys keys, String location) {
     child: MaterialApp.router(routerConfig: router),
   );
 }
+
+/// [app] on a logged-in, unlocked session (the entry list loads only then).
+Widget _loggedIn(_FakeApi api, _Keys keys, Widget app) {
+  final auth = _FakeAuth(api, keys);
+  return ProviderScope(
+    overrides: [
+      apiClientProvider.overrideWithValue(api),
+      authServiceProvider.overrideWithValue(auth),
+      authStateProvider.overrideWith((ref) => _LoggedInAuth(auth)),
+    ],
+    child: app,
+  );
+}
+
+/// The real entry list.
+Widget _listApp(_FakeApi api, _Keys keys, {String? initialTag}) => _loggedIn(
+    api, keys, MaterialApp(home: EntriesListScreen(initialTag: initialTag)));
 
 void _useTallView(WidgetTester tester) {
   tester.view.physicalSize = const Size(1000, 2400);
@@ -375,6 +413,288 @@ void main() {
       expect(cfs[2]['type'], 'password');
       expect(saved['issuer'], 'ACME', reason: 'unknown entry keys are kept');
       expect(find.text('LIST'), findsOneWidget); // navigated back after save
+    });
+  }, skip: libExists ? false : 'native crypto lib not built ($_libPath)');
+
+  group('entry tags', () {
+    const tooLong = 'Tags can be at most 40 characters';
+    Finder tagChip(String tag) => find.widgetWithText(InputChip, tag);
+    final tagInput = find.byKey(const ValueKey('tag-input'));
+
+    Future<Map<String, dynamic>> savedData(WidgetTester tester, _FakeApi api) async {
+      final req = api.updated!;
+      return (await tester.runAsync(
+          () => keys.decrypt(req.encryptedData!, req.entryKeys!.single.encryptedKey)))!;
+    }
+
+    testWidgets('edit screen adds and removes tags and keeps unknown keys',
+        (tester) async {
+      _useTallView(tester);
+      final entry = (await tester.runAsync(() => keys.encryptEntry({
+            'username': 'alice',
+            'password': 'pw',
+            'tags': ['Work', 42, '  #client   a '],
+            'issuer': 'ACME', // managed by another client → must survive
+            'custom_fields': [
+              {'label': 'Alpha', 'value': 'a', 'type': 'text', 'id': 'cf-1'},
+            ],
+          })))!;
+      final other = (await tester.runAsync(() => keys.encryptEntry(
+          {'username': 'bob', 'tags': ['Team']}, id: 'e2', name: 'Other')))!;
+      final api = _FakeApi(entry, vault: [entry, other]);
+      await tester.pumpWidget(_app(api, keys, '/entries/e1/edit'));
+      await tester.pumpAndSettle();
+
+      // Stored tags show normalised; the non-string item is ignored.
+      expect(find.byType(InputChip), findsNWidgets(2));
+      expect(tagChip('Work'), findsOneWidget);
+      expect(tagChip('client a'), findsOneWidget);
+
+      // Each chip has its own remove button.
+      await tester.tap(find.descendant(of: tagChip('Work'), matching: find.byIcon(Icons.close)));
+      await tester.pump();
+      expect(tagChip('Work'), findsNothing);
+
+      // Enter adds a tag (leading # stripped) and clears the field.
+      await tester.enterText(tagInput, '#home');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(tagChip('home'), findsOneWidget);
+      expect(tester.widget<TextField>(tagInput).controller!.text, isEmpty);
+
+      // A comma ends a tag, several at once too; a case-insensitive duplicate
+      // is not added again.
+      await tester.enterText(tagInput, 'x, HOME,y,');
+      await tester.pump();
+      expect(tagChip('x'), findsOneWidget);
+      expect(tagChip('y'), findsOneWidget);
+      expect(tagChip('HOME'), findsNothing);
+      expect(tester.widget<TextField>(tagInput).controller!.text, isEmpty);
+
+      // Over-long tags are refused with a message, not silently dropped.
+      await tester.enterText(tagInput, 'a' * 41);
+      await tester.pump();
+      expect(find.text(tooLong), findsOneWidget);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(tagChip('a' * 41), findsNothing);
+      expect(find.text(tooLong), findsOneWidget);
+
+      // Typing suggests vault tags; tapping one adds it.
+      await tester.enterText(tagInput, 'te');
+      await tester.pump();
+      expect(find.text(tooLong), findsNothing);
+      await tester.tap(find.widgetWithText(ActionChip, 'Team'));
+      await tester.pump();
+      expect(tagChip('Team'), findsOneWidget);
+      expect(find.widgetWithText(ActionChip, 'Team'), findsNothing);
+
+      // A tag the vault already has keeps the vault's spelling.
+      await tester.enterText(tagInput, 'WORK');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(tagChip('Work'), findsOneWidget);
+
+      // Text left in the field is saved as a tag too.
+      await tester.enterText(tagInput, 'pending');
+      await tester.pump();
+      await tester.tap(find.text('SAVE CHANGES'));
+      await tester.pumpAndSettle();
+
+      final saved = await savedData(tester, api);
+      expect(saved['tags'], ['client a', 'home', 'x', 'y', 'Team', 'Work', 'pending']);
+      expect(saved['issuer'], 'ACME', reason: 'unknown entry keys are kept');
+      expect(saved['username'], 'alice');
+      final cfs = (saved['custom_fields'] as List).cast<Map<String, dynamic>>();
+      expect(cfs.single['id'], 'cf-1', reason: 'unknown per-field keys are kept');
+      expect(find.text('LIST'), findsOneWidget);
+    });
+
+    testWidgets('an over-long tag in the field blocks the save', (tester) async {
+      _useTallView(tester);
+      final entry = (await tester.runAsync(() => keys.encryptEntry({'password': 'pw'})))!;
+      final api = _FakeApi(entry, vault: [entry]);
+      await tester.pumpWidget(_app(api, keys, '/entries/e1/edit'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(tagInput, 'b' * 41);
+      await tester.tap(find.text('SAVE CHANGES'));
+      await tester.pumpAndSettle();
+      expect(api.updated, isNull);
+      expect(find.text(tooLong), findsOneWidget);
+    });
+
+    testWidgets('removing every tag omits the key and keeps the rest',
+        (tester) async {
+      _useTallView(tester);
+      final entry = (await tester.runAsync(() => keys.encryptEntry({
+            'password': 'pw',
+            'tags': ['solo'],
+            'issuer': 'ACME',
+            'custom_fields': [
+              {'label': 'A', 'value': 'a', 'type': 'text', 'id': 'cf-1', 'color': 'red'},
+            ],
+          })))!;
+      final api = _FakeApi(entry, vault: [entry]);
+      await tester.pumpWidget(_app(api, keys, '/entries/e1/edit'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Remove tag'));
+      await tester.pump();
+      expect(find.byType(InputChip), findsNothing);
+      await tester.tap(find.text('SAVE CHANGES'));
+      await tester.pumpAndSettle();
+
+      final saved = await savedData(tester, api);
+      expect(saved.containsKey('tags'), isFalse);
+      expect(saved['issuer'], 'ACME');
+      expect(saved['password'], 'pw');
+      final cf = (saved['custom_fields'] as List).single as Map<String, dynamic>;
+      expect(cf['id'], 'cf-1');
+      expect(cf['color'], 'red');
+    });
+
+    testWidgets('detail shows tags as chips that open the filtered list',
+        (tester) async {
+      _useTallView(tester);
+      final entry = (await tester.runAsync(
+          () => keys.encryptEntry({'password': 'pw', 'tags': ['Work', 'client a']})))!;
+      await tester.pumpWidget(_app(_FakeApi(entry), keys, '/entries/e1'));
+      await tester.pumpAndSettle();
+      // Tags are part of the encrypted data.
+      expect(find.widgetWithText(ActionChip, 'Work'), findsNothing);
+
+      await tester.tap(find.text('DECRYPT'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ActionChip, 'Work'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ActionChip, 'client a'));
+      await tester.pumpAndSettle();
+      expect(find.text('LIST #client a'), findsOneWidget);
+    });
+
+    group('list', () {
+      late List<EntryResponse> vault;
+
+      setUpAll(() async {
+        if (!libExists) return;
+        vault = [
+          await keys.encryptEntry(
+              {'username': 'alice', 'tags': ['Work', 'client']}, id: 'e1', name: 'Mail'),
+          await keys.encryptEntry(
+              {'username': 'bob', 'tags': ['work']}, id: 'e2', name: 'Bank'),
+          await keys.encryptEntry({'username': 'carol'}, id: 'e3', name: 'Shop'),
+        ];
+      });
+
+      List<String> shown() => [
+            for (final name in ['Mail', 'Bank', 'Shop'])
+              if (find.text(name).evaluate().isNotEmpty) name,
+          ];
+      Finder filterChip(String tag) => find.widgetWithText(FilterChip, tag);
+
+      testWidgets('filter chips combine with AND', (tester) async {
+        await tester.pumpWidget(_listApp(_FakeApi(vault.first, vault: vault), keys));
+        await tester.pumpAndSettle();
+        expect(shown(), ['Mail', 'Bank', 'Shop']);
+
+        // Union of the vault's tags, first-seen spelling, sorted.
+        expect(
+            tester
+                .widgetList<FilterChip>(find.byType(FilterChip))
+                .map((c) => (c.label as Text).data),
+            ['client', 'Work']);
+
+        await tester.tap(filterChip('Work'));
+        await tester.pumpAndSettle();
+        expect(shown(), ['Mail', 'Bank']);
+        expect(tester.widget<FilterChip>(filterChip('Work')).selected, isTrue);
+
+        await tester.tap(filterChip('client'));
+        await tester.pumpAndSettle();
+        expect(shown(), ['Mail']);
+
+        await tester.tap(filterChip('Work'));
+        await tester.tap(filterChip('client'));
+        await tester.pumpAndSettle();
+        expect(shown(), ['Mail', 'Bank', 'Shop']);
+      });
+
+      testWidgets('#tag tokens filter, plain text also matches tags',
+          (tester) async {
+        await tester.pumpWidget(_listApp(_FakeApi(vault.first, vault: vault), keys));
+        await tester.pumpAndSettle();
+        final search = find.byType(TextField);
+
+        Future<List<String>> searchFor(String q) async {
+          await tester.enterText(search, q);
+          await tester.pumpAndSettle();
+          return shown();
+        }
+
+        expect(await searchFor('#WORK'), ['Mail', 'Bank']);
+        expect(await searchFor('#work #client'), ['Mail']);
+        expect(await searchFor('#work bank'), ['Bank']);
+        expect(await searchFor('client'), ['Mail']);
+        expect(await searchFor('#nope'), isEmpty);
+        expect(find.text('No entries found'), findsOneWidget);
+
+        // Chips and the search box combine.
+        await searchFor('bank');
+        await tester.tap(filterChip('client'));
+        await tester.pumpAndSettle();
+        expect(shown(), isEmpty);
+      });
+
+      testWidgets('opens filtered by the initial tag', (tester) async {
+        await tester.pumpWidget(
+            _listApp(_FakeApi(vault.first, vault: vault), keys, initialTag: 'CLIENT'));
+        await tester.pumpAndSettle();
+        expect(shown(), ['Mail']);
+        expect(tester.widget<FilterChip>(filterChip('client')).selected, isTrue);
+      });
+
+      testWidgets('a tag chip on the detail page filters the list below it',
+          (tester) async {
+        _useTallView(tester);
+        // Same nesting as the app router: the list page stays mounted below
+        // the detail page and gets the tag as a new widget.
+        final router = GoRouter(
+          initialLocation: '/entries/e1',
+          routes: [
+            GoRoute(
+              path: '/entries',
+              builder: (_, s) =>
+                  EntriesListScreen(initialTag: s.uri.queryParameters['tag']),
+              routes: [
+                GoRoute(
+                  path: ':id',
+                  builder: (_, s) => EntryDetailScreen(id: s.pathParameters['id']!),
+                ),
+              ],
+            ),
+          ],
+        );
+        await tester.pumpWidget(_loggedIn(_FakeApi(vault.first, vault: vault), keys,
+            MaterialApp.router(routerConfig: router)));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('DECRYPT'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.widgetWithText(ActionChip, 'client'));
+        await tester.pumpAndSettle();
+        expect(find.byType(EntryDetailScreen), findsNothing);
+        expect(shown(), ['Mail']);
+        expect(tester.widget<FilterChip>(filterChip('client')).selected, isTrue);
+      });
+
+      testWidgets('no chip row without tags', (tester) async {
+        final untagged = [vault.last];
+        await tester.pumpWidget(_listApp(_FakeApi(untagged.single, vault: untagged), keys));
+        await tester.pumpAndSettle();
+        expect(shown(), ['Shop']);
+        expect(find.byKey(const ValueKey('tag-filter-bar')), findsNothing);
+      });
     });
   }, skip: libExists ? false : 'native crypto lib not built ($_libPath)');
 }

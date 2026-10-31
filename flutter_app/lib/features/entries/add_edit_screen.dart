@@ -27,10 +27,12 @@ import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/importexport/entry_record.dart' show CustomFieldType, CustomFieldTypeX;
 import '../../core/theme/app_theme.dart';
+import '../../core/util/entry_tags.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
 import '../../shared/widgets/prompt_title.dart';
-import 'entries_list_screen.dart' show entriesProvider, foldersProvider;
+import 'entries_list_screen.dart'
+    show entriesProvider, foldersProvider, searchIndexProvider;
 
 // ─── Custom field state ───────────────────────────────────────────────────────
 
@@ -115,6 +117,12 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
 
   final List<_CustomFieldState> _customFields = [];
 
+  // Tags in the user's order; the text field takes the next one.
+  final List<String> _tags = [];
+  final _tagCtrl = TextEditingController();
+  final _tagFocus = FocusNode();
+  String? _tagError;
+
   String _type = 'password';
   bool _loading = false;
   bool _obscurePassword = true;
@@ -163,6 +171,8 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   void dispose() {
     for (final c in _ctrl.values) { c.dispose(); }
     for (final cf in _customFields) { cf.dispose(); }
+    _tagCtrl.dispose();
+    _tagFocus.dispose();
     super.dispose();
   }
 
@@ -205,8 +215,11 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         if (data.containsKey('sign_in_with')) {
           setState(() => _signInWith = (data['sign_in_with'] as String?) ?? '');
         }
+        _tags.addAll(tagsOf(data));
         // Keep everything this form doesn't manage (see _extraData).
-        const managed = {..._allFields, 'account_type', 'sign_in_with', 'custom_fields'};
+        const managed = {
+          ..._allFields, 'account_type', 'sign_in_with', 'custom_fields', tagsKey,
+        };
         _extraData = {
           for (final e in data.entries)
             if (!managed.contains(e.key)) e.key: e.value,
@@ -290,6 +303,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       });
     }
     if (cfList.isNotEmpty) data['custom_fields'] = cfList;
+    putTags(data, _tags);
     return data;
   }
 
@@ -308,6 +322,8 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
 
   Future<void> _save() async {
     if (!_form.currentState!.validate()) return;
+    // Text still in the tag field counts as a tag, unless it is refused.
+    if (!_commitTagInput()) return;
     final authSvc = ref.read(authServiceProvider);
     if (authSvc.privX25519 == null) {
       setState(() => _error = 'Vault is locked');
@@ -402,6 +418,125 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         );
       },
       orElse: () => const SizedBox.shrink(),
+    );
+  }
+
+  // ── Tags ──────────────────────────────────────────────────────────────────
+
+  /// Every tag in the vault (from the decrypted list index).
+  List<String> _vaultTags() =>
+      ref.read(searchIndexProvider).valueOrNull?.allTags ?? const [];
+
+  /// Adds [raw] as a tag unless it is blank or already on the entry. A tag
+  /// the vault already has keeps the vault's spelling. Returns false when it
+  /// is too long.
+  bool _addTag(String raw) {
+    if (tagInputError(raw) != null) return false;
+    final tag = cleanTag(raw);
+    if (tag.isEmpty || containsTag(_tags, tag)) return true;
+    _tags.add(_vaultTags().firstWhere((t) => sameTag(t, tag), orElse: () => tag));
+    return true;
+  }
+
+  /// Turns [raw] (default: the typed text) into a tag — on Enter, on picking
+  /// a suggestion and on save. Returns false, keeping the text and showing
+  /// why, when it is refused.
+  bool _commitTagInput([String? raw]) {
+    final text = raw ?? _tagCtrl.text;
+    final ok = _addTag(text);
+    setState(() {
+      if (ok) _tagCtrl.clear();
+      _tagError = ok ? null : tagInputError(text);
+    });
+    return ok;
+  }
+
+  /// A comma ends a tag, so "a, b" typed or pasted becomes two tags; a part
+  /// that is too long stays in the field with the error.
+  void _onTagInputChanged(String value) {
+    if (value.contains(',')) {
+      final parts = value.split(',');
+      final kept = <String>[];
+      for (final part in parts.take(parts.length - 1)) {
+        if (!_addTag(part)) kept.add(part.trim());
+      }
+      final rest = parts.last.trimLeft();
+      if (rest.isNotEmpty) kept.add(rest);
+      final text = kept.join(', ');
+      _tagCtrl.value = TextEditingValue(
+          text: text, selection: TextSelection.collapsed(offset: text.length));
+    }
+    // Also refreshes the suggestions for the new text.
+    setState(() => _tagError = tagInputError(_tagCtrl.text));
+  }
+
+  void _removeTag(String tag) => setState(() => _tags.remove(tag));
+
+  Widget _tagsInput() {
+    final vaultTags =
+        ref.watch(searchIndexProvider).valueOrNull?.allTags ?? const <String>[];
+    final suggestions = suggestTags(vaultTags, _tagCtrl.text, exclude: _tags);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_tags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  for (final tag in _tags)
+                    InputChip(
+                      avatar: const Icon(Icons.tag, size: 14, color: AppTheme.green),
+                      label: Text(tag),
+                      onDeleted: () => _removeTag(tag),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                      deleteButtonTooltipMessage: 'Remove tag',
+                    ),
+                ],
+              ),
+            ),
+          TextField(
+            key: const ValueKey('tag-input'),
+            controller: _tagCtrl,
+            focusNode: _tagFocus,
+            textInputAction: TextInputAction.done,
+            onChanged: _onTagInputChanged,
+            onSubmitted: (_) => _commitTagInput(),
+            // Keep the focus (and the keyboard) for the next tag.
+            onEditingComplete: () {},
+            decoration: InputDecoration(
+              labelText: 'Tags',
+              hintText: 'Add a tag, then Enter or comma',
+              prefixIcon: const Icon(Icons.sell_outlined),
+              errorText: _tagError,
+            ),
+          ),
+          if (suggestions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  for (final s in suggestions)
+                    ActionChip(
+                      avatar: const Icon(Icons.add, size: 14, color: AppTheme.green),
+                      label: Text(s),
+                      tooltip: 'Add tag $s',
+                      onPressed: () {
+                        _commitTagInput(s);
+                        _tagFocus.requestFocus();
+                      },
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1014,6 +1149,9 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
               // Folder — pick where the entry lives (and move it between folders)
               const SizedBox(height: 12),
               _folderPicker(),
+
+              // Tags — free-form labels, filterable in the list
+              _tagsInput(),
 
               // Type-specific fields
               ..._buildTypeFields(),

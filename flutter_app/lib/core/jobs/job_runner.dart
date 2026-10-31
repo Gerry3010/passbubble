@@ -474,6 +474,8 @@ class JobRunner extends Notifier<List<LocalJob>> {
     return null;
   }
 
+  /// The decrypted entry JSON for an imported record. Writes only keys from
+  /// [importManagedKeys] — keep the two in step.
   Map<String, dynamic> _recordToPayload(EntryRecord rec) {
     final m = <String, dynamic>{};
     void set(String k, String v) {
@@ -538,7 +540,11 @@ class JobRunner extends Notifier<List<LocalJob>> {
     if (full.entryKey == null) return;
     final dataKey = await VaultCrypto.decryptDataKey(
         full.entryKey!.encryptedKey, auth.privX25519!, auth.privMLKEM!);
-    final plaintext = utf8.encode(jsonEncode(_recordToPayload(rec)));
+    // Overwrite what the import manages, keep the rest (tags, other clients'
+    // keys) — see [mergeImportedData].
+    final existing = await VaultCrypto.decryptEntryData(full.encryptedData, dataKey);
+    final plaintext =
+        utf8.encode(jsonEncode(mergeImportedData(existing, _recordToPayload(rec))));
     final ciphertext =
         await VaultCrypto.encrypt(SecretKey(dataKey), Uint8List.fromList(plaintext));
     await api.updateEntry(
@@ -602,3 +608,27 @@ class JobRunner extends Notifier<List<LocalJob>> {
     );
   }
 }
+
+/// Keys of the decrypted entry JSON an import writes (see
+/// `JobRunner._recordToPayload`).
+const importManagedKeys = {
+  'username', 'password', 'totp_secret', 'notes',
+  'card_number', 'holder_name', 'expiry_month', 'expiry_year', 'cvv',
+  'first_name', 'last_name', 'company', 'email', 'phone',
+  'street', 'city', 'state', 'postal_code', 'country',
+  'license_key', 'product_name', 'custom_fields',
+};
+
+/// The data an "overwrite" import saves over an existing entry: the imported
+/// [payload] replaces every key the import manages (also clearing those the
+/// record leaves empty), while keys it knows nothing about — tags, the SSO
+/// provider, bank fields, other clients' data — are kept from [existing].
+Map<String, dynamic> mergeImportedData(
+  Map<String, dynamic> existing,
+  Map<String, dynamic> payload,
+) =>
+    {
+      for (final e in existing.entries)
+        if (!importManagedKeys.contains(e.key)) e.key: e.value,
+      ...payload,
+    };
