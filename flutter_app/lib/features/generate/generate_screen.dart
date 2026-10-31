@@ -16,13 +16,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/api/api_client.dart';
-import '../../core/api/models.dart';
+import '../../core/generator/generator_defaults_provider.dart';
+import '../../core/generator/password_generator.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/bottom_nav.dart';
+import '../../shared/widgets/generator_options_form.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/prompt_title.dart';
+import '../../shared/widgets/strength_bar.dart';
 
+/// The Generate tab. Generates on the device, starting from the generator
+/// defaults; option changes here are not saved (Settings → Password
+/// generator changes the defaults).
 class GenerateScreen extends ConsumerStatefulWidget {
   const GenerateScreen({super.key});
 
@@ -31,38 +36,39 @@ class GenerateScreen extends ConsumerStatefulWidget {
 }
 
 class _GenerateScreenState extends ConsumerState<GenerateScreen> {
-  int _length = 20;
-  String _type = 'strong';
-  bool _noAmbiguous = false;
+  late GeneratorOptions _options;
+  bool _edited = false;
   int _count = 1;
-  List<GeneratedPassword> _results = [];
-  bool _loading = false;
+  List<String> _results = [];
 
-  Future<void> _generate() async {
-    setState(() { _loading = true; _results = []; });
-    try {
-      final resp = await ref.read(apiClientProvider).generate(
-            length: _length,
-            type: _type,
-            count: _count,
-            noAmbiguous: _noAmbiguous,
-          );
-      setState(() => _results = resp.passwords);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+  void _generate() {
+    _results = validateGeneratorOptions(_options) == null
+        ? [for (var i = 0; i < _count; i++) generatePassword(_options)]
+        : [];
   }
+
+  void _onChanged(GeneratorOptions o) => setState(() {
+        _edited = true;
+        _options = o;
+        _generate();
+      });
 
   @override
   void initState() {
     super.initState();
+    final defaults = ref.read(generatorDefaultsProvider.notifier);
+    _options = ref.read(generatorDefaultsProvider);
     _generate();
+    // Right after start the stored defaults may still be loading.
+    defaults.loaded.then((_) {
+      if (!mounted || _edited) return;
+      final loaded = ref.read(generatorDefaultsProvider);
+      if (loaded == _options) return;
+      setState(() {
+        _options = loaded;
+        _generate();
+      });
+    });
   }
 
   @override
@@ -72,62 +78,8 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Length slider
-          Row(
-            children: [
-              const Text('Length: '),
-              Text(
-                '$_length',
-                style: const TextStyle(color: AppTheme.green, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          Slider(
-            value: _length.toDouble(),
-            min: 8,
-            max: 64,
-            divisions: 56,
-            activeColor: AppTheme.green,
-            onChanged: (v) => setState(() => _length = v.round()),
-            onChangeEnd: (_) => _generate(),
-          ),
-
-          // Type selector
+          GeneratorOptionsForm(options: _options, onChanged: _onChanged),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final t in ['strong', 'alphanum', 'numbers', 'lower'])
-                ChoiceChip(
-                  label: Text(t),
-                  selected: _type == t,
-                  onSelected: (_) {
-                    setState(() => _type = t);
-                    _generate();
-                  },
-                  selectedColor: AppTheme.greenFaint,
-                  side: BorderSide(
-                    color: _type == t ? AppTheme.green : AppTheme.border,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Options
-          Row(
-            children: [
-              Checkbox(
-                value: _noAmbiguous,
-                onChanged: (v) {
-                  setState(() => _noAmbiguous = v ?? false);
-                  _generate();
-                },
-                activeColor: AppTheme.green,
-              ),
-              const Text('No ambiguous characters (0, O, l, 1, I)'),
-            ],
-          ),
 
           // Count
           Row(
@@ -140,10 +92,10 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
                   child: ChoiceChip(
                     label: Text('${i + 1}'),
                     selected: _count == i + 1,
-                    onSelected: (_) {
-                      setState(() => _count = i + 1);
+                    onSelected: (_) => setState(() {
+                      _count = i + 1;
                       _generate();
-                    },
+                    }),
                     selectedColor: AppTheme.greenFaint,
                   ),
                 ),
@@ -154,17 +106,14 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
           const Divider(height: 32),
 
           // Results
-          if (_loading)
-            const Center(child: CircularProgressIndicator())
-          else
-            for (final pw in _results) _PasswordCard(pw: pw),
+          for (final pw in _results) _PasswordCard(password: pw),
 
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: PbButton(
               label: 'Regenerate',
-              onPressed: _generate,
+              onPressed: _results.isEmpty ? null : () => setState(_generate),
               icon: Icons.refresh,
               outlined: true,
             ),
@@ -177,8 +126,8 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
 }
 
 class _PasswordCard extends StatelessWidget {
-  final GeneratedPassword pw;
-  const _PasswordCard({required this.pw});
+  final String password;
+  const _PasswordCard({required this.password});
 
   @override
   Widget build(BuildContext context) {
@@ -196,21 +145,22 @@ class _PasswordCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  pw.password,
+                  password,
+                  key: const ValueKey('generated-password'),
                   style: AppTheme.mono(
                     fontSize: 14,
                     color: AppTheme.green,
                   ),
                 ),
                 const SizedBox(height: 4),
-                _StrengthBar(strength: pw.strength),
+                StrengthBar(password: password),
               ],
             ),
           ),
           IconButton(
             icon: const Icon(Icons.copy, size: 18, color: AppTheme.onBgDim),
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: pw.password));
+              Clipboard.setData(ClipboardData(text: password));
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Password copied')),
               );
@@ -221,36 +171,3 @@ class _PasswordCard extends StatelessWidget {
     );
   }
 }
-
-class _StrengthBar extends StatelessWidget {
-  final int strength;
-  const _StrengthBar({required this.strength});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = strength >= 80
-        ? AppTheme.green
-        : strength >= 50
-            ? Colors.amber
-            : AppTheme.error;
-
-    return Row(
-      children: [
-        Expanded(
-          child: LinearProgressIndicator(
-            value: strength / 100,
-            backgroundColor: AppTheme.border,
-            valueColor: AlwaysStoppedAnimation(color),
-            minHeight: 3,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '$strength',
-          style: TextStyle(color: color, fontSize: 11),
-        ),
-      ],
-    );
-  }
-}
-

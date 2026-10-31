@@ -14,20 +14,23 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Widget tests for the entry detail view (selectable plaintext, masked
-// secrets), the edit screen (drag & drop order of custom fields) and entry
-// tags (edit, detail chips, list filter). The screens decrypt/encrypt for
+// secrets), the edit screen (drag & drop order of custom fields, password
+// generator dialog), entry tags (edit, detail chips, list filter) and the
+// generator defaults and Generate tab. The entry screens decrypt/encrypt for
 // real, so the data-key wrapping needs the native hybrid-KEM lib
-// (`make native-crypto`, built in CI); without it the tests skip.
+// (`make native-crypto`, built in CI); without it those tests skip.
 @TestOn('vm')
 library;
 
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart' show HttpClientAdapter, RequestOptions, ResponseBody;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:passbubble/core/api/api_client.dart';
@@ -35,9 +38,13 @@ import 'package:passbubble/core/api/models.dart';
 import 'package:passbubble/core/auth/auth_service.dart';
 import 'package:passbubble/core/crypto/ml_kem.dart';
 import 'package:passbubble/core/crypto/vault_crypto.dart';
+import 'package:passbubble/core/generator/password_generator.dart';
 import 'package:passbubble/features/entries/add_edit_screen.dart';
 import 'package:passbubble/features/entries/entries_list_screen.dart';
 import 'package:passbubble/features/entries/entry_detail_screen.dart';
+import 'package:passbubble/features/generate/generate_screen.dart';
+import 'package:passbubble/features/settings/generator_settings_tile.dart';
+import 'package:passbubble/shared/widgets/generator_dialog.dart';
 
 const _libPath = 'native/passbubble_crypto/build/libpassbubble_crypto.so';
 
@@ -202,6 +209,39 @@ List<String> _selectableTexts(WidgetTester tester) => tester
     .widgetList<SelectableText>(find.byType(SelectableText))
     .map((w) => w.data ?? '')
     .toList();
+
+/// Fails every request, and records it: the generator must not need the server.
+class _NoServer implements HttpClientAdapter {
+  final requests = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    requests.add(options.path);
+    throw StateError('unexpected server call: ${options.path}');
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+const _defaultsKey = 'generator_defaults';
+final _generatorDialog = find.byType(GeneratorDialog);
+final _shown = find.byKey(const ValueKey('generated-password'));
+
+/// The password the open generator dialog shows.
+String _shownPassword(WidgetTester tester) =>
+    tester.widget<SelectableText>(_shown).data!;
+
+/// The controller of the text field [field] (a TextFormField finder).
+TextEditingController _ctrlOf(WidgetTester tester, Finder field) =>
+    tester.widget<TextFormField>(field).controller!;
+
+/// The text field using [ctrl]; stays valid while its text changes.
+Finder _fieldWith(TextEditingController ctrl) =>
+    find.byWidgetPredicate((w) => w is TextFormField && w.controller == ctrl);
+
+Set<int> _cps(String s) => s.runes.toSet();
 
 void main() {
   final libExists = File(_libPath).existsSync();
@@ -436,6 +476,366 @@ void main() {
       expect(find.text('LIST'), findsOneWidget); // navigated back after save
     });
   }, skip: libExists ? false : 'native crypto lib not built ($_libPath)');
+
+  group('entry password generator', () {
+    late Map<String, String> store;
+    final letters = _cps(lowercaseChars + uppercaseChars);
+
+    setUp(() {
+      // Stored defaults: 24 characters, only - and _ as symbols.
+      store = {_defaultsKey: jsonEncode({'length': 24, 'symbol_set': '-_'})};
+      FlutterSecureStorage.setMockInitialValues(store);
+    });
+
+    Future<Map<String, dynamic>> savedData(WidgetTester tester, _FakeApi api) async {
+      final req = api.updated!;
+      return (await tester.runAsync(
+          () => keys.decrypt(req.encryptedData!, req.entryKeys!.single.encryptedKey)))!;
+    }
+
+    testWidgets('main password: Cancel keeps the field, OK writes the shown password',
+        (tester) async {
+      _useTallView(tester);
+      final entry = (await tester.runAsync(
+          () => keys.encryptEntry({'username': 'alice', 'password': 'old-pw'})))!;
+      final api = _FakeApi(entry);
+      await tester.pumpWidget(_app(api, keys, '/entries/e1/edit'));
+      await tester.pumpAndSettle();
+
+      final passwordField = find.widgetWithText(TextFormField, 'Password');
+      final ctrl = _ctrlOf(tester, passwordField);
+      final generate = find.descendant(
+          of: _fieldWith(ctrl), matching: find.byTooltip('Generate'));
+      expect(ctrl.text, 'old-pw');
+
+      // Opens with the stored defaults; Cancel leaves the field alone.
+      await tester.tap(generate);
+      await tester.pumpAndSettle();
+      expect(_generatorDialog, findsOneWidget);
+      final first = _shownPassword(tester);
+      expect(first.runes.length, 24);
+      expect(_cps(first).difference({...letters, ..._cps(digitChars), ..._cps('-_')}),
+          isEmpty);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(_generatorDialog, findsNothing);
+      expect(ctrl.text, 'old-pw');
+
+      // Regenerate makes a new one, so does every option change.
+      await tester.tap(generate);
+      await tester.pumpAndSettle();
+      final before = _shownPassword(tester);
+      await tester.tap(find.byTooltip('Regenerate'));
+      await tester.pump();
+      final regenerated = _shownPassword(tester);
+      expect(regenerated, isNot(before));
+      await tester.tap(find.byKey(const ValueKey('generator-symbols')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('generator-digits')));
+      await tester.pump();
+      final chosen = _shownPassword(tester);
+      expect(chosen, isNot(regenerated));
+      expect(_cps(chosen).difference(letters), isEmpty, reason: chosen);
+      expect(ctrl.text, 'old-pw', reason: 'nothing is written before OK');
+
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(_generatorDialog, findsNothing);
+      expect(ctrl.text, chosen);
+
+      // The option changes applied to that dialog only.
+      expect(jsonDecode(store[_defaultsKey]!), {'length': 24, 'symbol_set': '-_'});
+      await tester.tap(generate);
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilterChip>(find.byKey(const ValueKey('generator-symbols'))).selected,
+          isTrue);
+      expect(_cps(_shownPassword(tester)).intersection(_cps('-_')), isNotEmpty);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(ctrl.text, chosen);
+
+      await tester.tap(find.text('SAVE CHANGES'));
+      await tester.pumpAndSettle();
+      final saved = await savedData(tester, api);
+      expect(saved['password'], chosen);
+      expect(saved['username'], 'alice');
+    });
+
+    testWidgets('custom password fields generate into their own field; SSH keys do not',
+        (tester) async {
+      _useTallView(tester);
+      final entry = (await tester.runAsync(() => keys.encryptEntry({
+            'password': 'main-pw',
+            'custom_fields': [
+              {'label': 'PIN', 'value': 'old-pin', 'type': 'password'},
+              {'label': 'Deploy key', 'value': 'ssh-key-data', 'type': 'ssh'},
+              {'label': 'Note', 'value': 'plain', 'type': 'text'},
+            ],
+          })))!;
+      final api = _FakeApi(entry);
+      await tester.pumpWidget(_app(api, keys, '/entries/e1/edit'));
+      await tester.pumpAndSettle();
+
+      final mainCtrl = _ctrlOf(tester, find.widgetWithText(TextFormField, 'Password'));
+      final pinCtrl = _ctrlOf(tester, find.widgetWithText(TextFormField, 'old-pin'));
+      final sshField = find.widgetWithText(TextFormField, 'ssh-key-data');
+      final pinGenerate = find.descendant(
+          of: _fieldWith(pinCtrl), matching: find.byTooltip('Generate'));
+
+      // Main password + PIN; the SSH key keeps just its eye.
+      expect(find.byTooltip('Generate'), findsNWidgets(2));
+      expect(pinGenerate, findsOneWidget);
+      expect(find.descendant(of: sshField, matching: find.byTooltip('Generate')),
+          findsNothing);
+      expect(find.descendant(of: sshField, matching: find.byIcon(Icons.visibility_off)),
+          findsOneWidget);
+      // Masked it is one line (TextField asserts that); revealed it gets four.
+      expect(tester.widget<TextField>(
+              find.descendant(of: sshField, matching: find.byType(TextField))).maxLines,
+          1);
+      await tester.tap(find.descendant(of: sshField, matching: find.byIcon(Icons.visibility_off)));
+      await tester.pump();
+      expect(tester.widget<TextField>(
+              find.descendant(of: sshField, matching: find.byType(TextField))).maxLines,
+          4);
+
+      await tester.tap(pinGenerate);
+      await tester.pumpAndSettle();
+      expect(_shownPassword(tester).runes.length, 24);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(pinCtrl.text, 'old-pin');
+
+      await tester.tap(pinGenerate);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Regenerate'));
+      await tester.pump();
+      final chosen = _shownPassword(tester);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(pinCtrl.text, chosen);
+      expect(mainCtrl.text, 'main-pw', reason: 'the main password is not touched');
+
+      await tester.tap(find.text('SAVE CHANGES'));
+      await tester.pumpAndSettle();
+      final saved = await savedData(tester, api);
+      expect(saved['password'], 'main-pw');
+      final cfs = (saved['custom_fields'] as List).cast<Map<String, dynamic>>();
+      expect(cfs.map((c) => c['value']), [chosen, 'ssh-key-data', 'plain']);
+    });
+  }, skip: libExists ? false : 'native crypto lib not built ($_libPath)');
+
+  // No vault involved, so these run without the native lib too.
+  group('generator defaults and Generate tab', () {
+    late Map<String, String> store;
+    final symbolsChip = find.byKey(const ValueKey('generator-symbols'));
+    final digitsChip = find.byKey(const ValueKey('generator-digits'));
+    final symbolSet = find.byKey(const ValueKey('generator-symbol-set'));
+    final error = find.byKey(const ValueKey('generator-error'));
+
+    setUp(() {
+      store = {};
+      FlutterSecureStorage.setMockInitialValues(store);
+    });
+
+    /// The settings tile and a button that opens the generator dialog.
+    Future<List<String?>> pumpSettings(WidgetTester tester) async {
+      final results = <String?>[];
+      _useTallView(tester);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          apiClientProvider.overrideWithValue(ApiClient(httpClientAdapter: _NoServer())),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Column(children: [
+              const GeneratorSettingsTile(),
+              Consumer(
+                builder: (context, ref, _) => TextButton(
+                  onPressed: () async => results.add(await showGeneratorDialog(context, ref)),
+                  child: const Text('OPEN GENERATOR'),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return results;
+    }
+
+    Future<void> openSettings(WidgetTester tester) async {
+      await tester.tap(find.byType(GeneratorSettingsTile));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+    }
+
+    Future<void> setLength(WidgetTester tester, int length) async {
+      tester
+          .widget<Slider>(find.byKey(const ValueKey('generator-length')))
+          .onChanged!(length.toDouble());
+      await tester.pump();
+    }
+
+    TextButton button(WidgetTester tester, String label) =>
+        tester.widget<TextButton>(find.widgetWithText(TextButton, label));
+
+    testWidgets('settings save and reset the defaults; the dialog starts from them',
+        (tester) async {
+      final results = await pumpSettings(tester);
+      expect(find.text(describeGeneratorOptions(defaultGeneratorOptions)), findsOneWidget);
+
+      // Change length, digits and the symbol set, then save.
+      await openSettings(tester);
+      expect(button(tester, 'Reset to defaults').onPressed, isNull,
+          reason: 'nothing to reset yet');
+      await setLength(tester, 32);
+      await tester.tap(digitsChip);
+      await tester.pump();
+      await tester.enterText(symbolSet, ' -_ - ');
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+
+      const saved = GeneratorOptions(length: 32, digits: false, symbolSet: '-_');
+      expect(jsonDecode(store[_defaultsKey]!), saved.toJson(),
+          reason: 'stored with the symbol set cleaned');
+      expect(find.text('32 characters · a-z A-Z symbols'), findsOneWidget);
+
+      // The generator dialog starts from the new defaults.
+      await tester.tap(find.text('OPEN GENERATOR'));
+      await tester.pumpAndSettle();
+      final pw = _shownPassword(tester);
+      expect(pw.runes.length, 32);
+      expect(_cps(pw).difference(_cps('$lowercaseChars$uppercaseChars-_')), isEmpty);
+      expect(tester.widget<FilterChip>(digitsChip).selected, isFalse);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(results, [pw]);
+
+      // Cancel in the dialog returns nothing.
+      await tester.tap(find.text('OPEN GENERATOR'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(results, [pw, null]);
+
+      // "Reset to defaults" resets the form; Cancel keeps the stored defaults.
+      await openSettings(tester);
+      expect(tester.widget<TextField>(symbolSet).controller!.text, '-_');
+      await tester.tap(find.text('Reset to defaults'));
+      await tester.pump();
+      expect(tester.widget<TextField>(symbolSet).controller!.text, defaultSymbolSet);
+      expect(tester.widget<FilterChip>(digitsChip).selected, isTrue);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(jsonDecode(store[_defaultsKey]!), saved.toJson());
+
+      // Reset + Save goes back to the factory defaults (nothing stored).
+      await openSettings(tester);
+      await tester.tap(find.text('Reset to defaults'));
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(store.containsKey(_defaultsKey), isFalse);
+      expect(find.text(describeGeneratorOptions(defaultGeneratorOptions)), findsOneWidget);
+
+      await tester.tap(find.text('OPEN GENERATOR'));
+      await tester.pumpAndSettle();
+      expect(_shownPassword(tester).runes.length, 20);
+    });
+
+    testWidgets('invalid options are explained and block OK and Save', (tester) async {
+      await pumpSettings(tester);
+
+      // Generator dialog: an empty symbol set with symbols on.
+      await tester.tap(find.text('OPEN GENERATOR'));
+      await tester.pumpAndSettle();
+      await tester.enterText(symbolSet, '   ');
+      await tester.pump();
+      expect(tester.widget<Text>(error).data, contains('symbol'));
+      expect(button(tester, 'OK').onPressed, isNull);
+      expect(_shownPassword(tester), '—');
+      // Symbols off: valid again.
+      await tester.tap(symbolsChip);
+      await tester.pump();
+      expect(error, findsNothing);
+      expect(button(tester, 'OK').onPressed, isNotNull);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      // Settings: no character type at all.
+      await openSettings(tester);
+      for (final key in ['lowercase', 'uppercase', 'digits', 'symbols']) {
+        await tester.tap(find.byKey(ValueKey('generator-$key')));
+        await tester.pump();
+      }
+      expect(tester.widget<Text>(error).data, 'Select at least one character type');
+      expect(button(tester, 'Save').onPressed, isNull);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(store, isEmpty);
+    });
+
+    testWidgets('the Generate tab generates locally from the defaults', (tester) async {
+      store[_defaultsKey] = jsonEncode({'length': 30, 'symbol_set': '-_'});
+      final server = _NoServer();
+      _useTallView(tester);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          apiClientProvider.overrideWithValue(ApiClient(httpClientAdapter: server)),
+        ],
+        child: const MaterialApp(home: GenerateScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      List<String> shown() =>
+          tester.widgetList<Text>(_shown).map((t) => t.data!).toList();
+      final allowed = _cps('$lowercaseChars$uppercaseChars$digitChars-_');
+
+      expect(shown(), hasLength(1));
+      expect(shown().single.runes.length, 30);
+      expect(_cps(shown().single).difference(allowed), isEmpty);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, '3'));
+      await tester.pump();
+      expect(shown(), hasLength(3));
+      final before = shown();
+      await tester.tap(find.text('REGENERATE'));
+      await tester.pump();
+      expect(shown(), hasLength(3));
+      expect(shown(), isNot(before));
+
+      // The four classes and the symbol set replace the old type chips.
+      await tester.tap(symbolsChip);
+      await tester.pump();
+      for (final pw in shown()) {
+        expect(_cps(pw).intersection(_cps('-_')), isEmpty, reason: pw);
+      }
+      await tester.tap(symbolsChip);
+      await tester.pump();
+      await tester.enterText(symbolSet, '€');
+      await tester.pump();
+      for (final pw in shown()) {
+        expect(_cps(pw).difference(_cps('$lowercaseChars$uppercaseChars$digitChars€')),
+            isEmpty);
+        expect(pw, contains('€'));
+      }
+
+      // Nothing selected: no passwords, an explanation instead.
+      for (final key in ['lowercase', 'uppercase', 'digits', 'symbols']) {
+        await tester.tap(find.byKey(ValueKey('generator-$key')));
+        await tester.pump();
+      }
+      expect(shown(), isEmpty);
+      expect(error, findsOneWidget);
+
+      // Changes here are not saved, and the server was never asked.
+      expect(jsonDecode(store[_defaultsKey]!), {'length': 30, 'symbol_set': '-_'});
+      expect(server.requests, isEmpty);
+    });
+  });
 
   group('entry tags', () {
     const tooLong = 'Tags can be at most 40 characters';

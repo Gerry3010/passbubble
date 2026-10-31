@@ -366,25 +366,6 @@ class ApiClient {
         .toList();
   }
 
-  // ── Generate ──────────────────────────────────────────────────────────────
-
-  Future<GenerateResponse> generate({
-    int length = 20,
-    String type = 'strong',
-    int count = 1,
-    bool noAmbiguous = false,
-    String? excludeChars,
-  }) async {
-    final resp = await _post('/api/v1/generate', {
-      'length': length,
-      'type': type,
-      'count': count,
-      'no_ambiguous': noAmbiguous,
-      'exclude_chars': ?excludeChars,
-    });
-    return GenerateResponse.fromJson(resp.data as Map<String, dynamic>);
-  }
-
   // ── Jobs ──────────────────────────────────────────────────────────────────
 
   Future<List<JobResponse>> listJobs() async {

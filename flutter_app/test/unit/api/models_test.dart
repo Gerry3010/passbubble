@@ -146,22 +146,6 @@ void main() {
     });
   });
 
-  group('GenerateResponse', () {
-    test('fromJson parses passwords list', () {
-      final json = {
-        'passwords': [
-          {'password': 'Abc123!', 'strength': 72},
-          {'password': 'Xyz789@', 'strength': 85},
-        ],
-      };
-      final resp = GenerateResponse.fromJson(json);
-      expect(resp.passwords.length, 2);
-      expect(resp.passwords[0].password, 'Abc123!');
-      expect(resp.passwords[0].strength, 72);
-      expect(resp.passwords[1].strength, 85);
-    });
-  });
-
   group('FolderResponse', () {
     test('fromJson parses nested children', () {
       final json = {

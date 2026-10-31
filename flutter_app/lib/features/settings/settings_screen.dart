@@ -25,6 +25,7 @@ import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/prompt_title.dart';
 import 'autofill_settings_tile.dart';
 import 'biometric_settings_tile.dart';
+import 'generator_settings_tile.dart';
 import 'pin_settings_tile.dart';
 import 'post_quantum_tile.dart';
 import 'providers/version_provider.dart';
@@ -124,6 +125,7 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.go('/trash'),
           ),
+          const GeneratorSettingsTile(),
 
           const Divider(),
 

@@ -483,27 +483,6 @@ class ShareEntryRequest {
       };
 }
 
-class GenerateResponse {
-  final List<GeneratedPassword> passwords;
-  const GenerateResponse({required this.passwords});
-  factory GenerateResponse.fromJson(Map<String, dynamic> j) => GenerateResponse(
-        passwords: (j['passwords'] as List)
-            .map((p) => GeneratedPassword.fromJson(p as Map<String, dynamic>))
-            .toList(),
-      );
-}
-
-class GeneratedPassword {
-  final String password;
-  final int strength;
-  const GeneratedPassword({required this.password, required this.strength});
-  factory GeneratedPassword.fromJson(Map<String, dynamic> j) =>
-      GeneratedPassword(
-        password: j['password'] as String,
-        strength: j['strength'] as int? ?? 0,
-      );
-}
-
 class InvitationResponse {
   final String id;
   final String email;

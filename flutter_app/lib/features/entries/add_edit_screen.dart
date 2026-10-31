@@ -28,6 +28,7 @@ import '../../core/crypto/vault_crypto.dart';
 import '../../core/importexport/entry_record.dart' show CustomFieldType, CustomFieldTypeX;
 import '../../core/theme/app_theme.dart';
 import '../../core/util/entry_tags.dart';
+import '../../shared/widgets/generator_dialog.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
 import '../../shared/widgets/prompt_title.dart';
@@ -309,13 +310,10 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
 
   // ── Generate password ─────────────────────────────────────────────────────
 
-  Future<void> _generatePassword() async {
-    try {
-      final resp = await ref.read(apiClientProvider).generate(length: 20, type: 'strong');
-      if (resp.passwords.isNotEmpty) {
-        setState(() => _ctrl['password']!.text = resp.passwords.first.password);
-      }
-    } catch (_) {}
+  /// Opens the generator dialog; only OK writes the password into [target].
+  Future<void> _generateInto(TextEditingController target) async {
+    final password = await showGeneratorDialog(context, ref);
+    if (password != null && mounted) setState(() => target.text = password);
   }
 
   // ── Save entry ────────────────────────────────────────────────────────────
@@ -770,7 +768,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
           IconButton(
             icon: const Icon(Icons.auto_fix_high, size: 18, color: AppTheme.onBgDim),
             tooltip: 'Generate',
-            onPressed: _generatePassword,
+            onPressed: () => _generateInto(_ctrl['password']!),
           ),
         ],
       ),
@@ -808,7 +806,8 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
               if (showGenerate)
                 IconButton(
                   icon: const Icon(Icons.auto_fix_high, size: 18, color: AppTheme.onBgDim),
-                  onPressed: _generatePassword,
+                  tooltip: 'Generate',
+                  onPressed: () => _generateInto(_ctrl[ctrl]!),
                 ),
             ],
           ),
@@ -945,6 +944,14 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
 
     final isObscured = cf.type == CustomFieldType.password || cf.type == CustomFieldType.ssh;
     final isMultiline = cf.type == CustomFieldType.note || cf.type == CustomFieldType.ssh;
+    final revealBtn = IconButton(
+      icon: Icon(
+        cf.obscured ? Icons.visibility_off : Icons.visibility,
+        size: 18,
+        color: AppTheme.onBgDim,
+      ),
+      onPressed: () => setState(() => cf.obscured = !cf.obscured),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -971,17 +978,25 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
               controller: cf.value,
               prefixIcon: Icons.edit_outlined,
               obscureText: isObscured ? cf.obscured : false,
-              maxLines: isMultiline ? 4 : 1,
-              suffixIcon: isObscured
-                  ? IconButton(
-                      icon: Icon(
-                        cf.obscured ? Icons.visibility_off : Icons.visibility,
-                        size: 18,
-                        color: AppTheme.onBgDim,
-                      ),
-                      onPressed: () => setState(() => cf.obscured = !cf.obscured),
+              // A masked field must be single-line (TextField asserts it),
+              // so a hidden SSH key grows to 4 lines only once revealed.
+              maxLines: isMultiline && !(isObscured && cf.obscured) ? 4 : 1,
+              // Passwords get a generator next to the eye; SSH keys don't.
+              suffixIcon: cf.type == CustomFieldType.password
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        revealBtn,
+                        IconButton(
+                          icon: const Icon(Icons.auto_fix_high, size: 18, color: AppTheme.onBgDim),
+                          tooltip: 'Generate',
+                          onPressed: () => _generateInto(cf.value),
+                        ),
+                      ],
                     )
-                  : null,
+                  : isObscured
+                      ? revealBtn
+                      : null,
             ),
           ),
         ]),
