@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -63,6 +64,8 @@ const (
 	NewFolderForm
 	RenameFolderForm
 	ConfirmDeleteFolderForm
+	GeneratorOptionsForm
+	GeneratorDefaultsForm
 )
 
 // FormField represents a single input field
@@ -73,6 +76,7 @@ type FormField struct {
 	IsPassword  bool
 	IsRequired  bool
 	Validator   func(string) error
+	Key         string // key in FormSubmittedMsg.Fields (in addition to the label mapping)
 }
 
 // FormModel represents the form state
@@ -89,7 +93,9 @@ type FormModel struct {
 	FolderID   string  // target folder id (rename/delete)
 	ParentID   *string // parent folder for create/rename
 	FolderName string  // display name for the delete confirmation
-	width      int     // terminal width, set by caller
+	// Check validates the fields together before the form submits.
+	Check func(fields map[string]string) error
+	width int // terminal width, set by caller
 }
 
 // isConfirm reports whether this form is a yes/no confirmation dialog.
@@ -627,8 +633,8 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			}
 			if f.CurrentField < len(f.Fields) {
 				field := &f.Fields[f.CurrentField]
-				if len(field.Value) > 0 {
-					field.Value = field.Value[:len(field.Value)-1]
+				if r := []rune(field.Value); len(r) > 0 {
+					field.Value = string(r[:len(r)-1]) // whole characters, not bytes
 				}
 			}
 			
@@ -645,12 +651,17 @@ func (f FormModel) Update(msg tea.Msg) (FormModel, tea.Cmd) {
 			fallthrough
 
 		default:
-			// Add character to current field
+			// Add typed (or pasted) characters to the current field;
+			// multi-byte characters such as € count as one key.
 			if !f.isConfirm() && f.CurrentField < len(f.Fields) {
 				field := &f.Fields[f.CurrentField]
-				if len(msg.String()) == 1 {
-					field.Value += msg.String()
+				switch {
+				case msg.Type == tea.KeyRunes && !msg.Alt:
+					field.Value += string(msg.Runes)
 					f.Error = "" // Clear error on new input
+				case msg.Type == tea.KeySpace:
+					field.Value += " "
+					f.Error = ""
 				}
 			}
 		}
@@ -719,6 +730,16 @@ func (f FormModel) submitForm() (FormModel, tea.Cmd) {
 			fieldMap["period"] = field.Value
 		case "Folder Name":
 			fieldMap["folder_name"] = field.Value
+		}
+		if field.Key != "" {
+			fieldMap[field.Key] = field.Value
+		}
+	}
+
+	if f.Check != nil {
+		if err := f.Check(fieldMap); err != nil {
+			f.Error = err.Error()
+			return f, nil
 		}
 	}
 
@@ -806,7 +827,7 @@ func (f FormModel) View() string {
 		// Field input
 		value := field.Value
 		if field.IsPassword && value != "" {
-			value = strings.Repeat("•", len(value))
+			value = strings.Repeat("•", utf8.RuneCountInString(value))
 		}
 		
 		if value == "" && field.Placeholder != "" {

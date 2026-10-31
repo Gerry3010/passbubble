@@ -203,25 +203,6 @@ type ShareEntryRequest struct {
 	EncryptedKey string `json:"encrypted_key"` // base64
 }
 
-// --- Generate ---
-
-type GenerateRequest struct {
-	Length       int    `json:"length"`
-	Type         string `json:"type"`
-	Count        int    `json:"count"`
-	NoAmbiguous  bool   `json:"no_ambiguous"`
-	ExcludeChars string `json:"exclude_chars,omitempty"`
-}
-
-type GeneratedPassword struct {
-	Password string `json:"password"`
-	Strength int    `json:"strength"`
-}
-
-type GenerateResponse struct {
-	Passwords []GeneratedPassword `json:"passwords"`
-}
-
 // --- Errors ---
 
 type ErrorResponse struct {

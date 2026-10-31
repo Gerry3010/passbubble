@@ -22,7 +22,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/Gerry3010/passbubble/cli/pkg/backup"
-	"github.com/Gerry3010/passbubble/cli/pkg/generator"
 	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
 	"github.com/Gerry3010/passbubble/cli/pkg/totp"
 )
@@ -52,7 +51,7 @@ type BackupRestoredMsg struct {
 func processFormSubmission(formMsg FormSubmittedMsg) tea.Cmd {
 	switch formMsg.Type {
 	case AddPasswordForm:
-		return handleAddPassword(formMsg.Fields)
+		return addPasswordCmd(formMsg.Fields)
 	case AddTOTPForm:
 		return handleAddTOTP(formMsg.Fields)
 	case AddTOTPToEntryForm:
@@ -89,19 +88,14 @@ func handleAddPassword(fields map[string]string) tea.Cmd {
 			}
 		}
 		
-		// Generate password if not provided
+		// An empty field goes through the generate confirm step first
+		// (Model.startGenConfirm), so a password always arrives here.
 		if password == "" {
-			gen := generator.New(nil)
-			passwords, err := gen.Generate()
-			if err != nil {
-				return ActionResultMsg{
-					Success: false,
-					Message: "Failed to generate password",
-					Action:  "add_password",
-					Error:   err,
-				}
+			return ActionResultMsg{
+				Success: false,
+				Message: "Password is required",
+				Action:  "add_password",
 			}
-			password = passwords[0]
 		}
 		
 		// Create entry

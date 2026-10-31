@@ -16,7 +16,9 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -71,5 +73,102 @@ func TestUnsetPreferencesStayNil(t *testing.T) {
 	}
 	if out.FolderFirst != nil {
 		t.Errorf("FolderFirst should stay nil when unset, got %v", *out.FolderFirst)
+	}
+	if out.Generator != nil {
+		t.Errorf("Generator should stay nil when unset, got %+v", *out.Generator)
+	}
+	if got := out.GeneratorDefaults(); got != DefaultGeneratorSettings() {
+		t.Errorf("GeneratorDefaults() without a block = %+v, want factory defaults", got)
+	}
+}
+
+func TestGeneratorRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	want := GeneratorSettings{
+		Length:         32,
+		Lowercase:      true,
+		Uppercase:      false,
+		Digits:         true,
+		Symbols:        true,
+		SymbolSet:      `-_!"'#: €🔑`,
+		AvoidAmbiguous: true,
+	}
+	in := &Config{ServerURL: "https://example.test", UserID: "u1", Generator: &want}
+	if err := in.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	out, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if out.Generator == nil {
+		t.Fatal("Generator block was not read back")
+	}
+	if *out.Generator != want {
+		t.Errorf("Generator = %+v, want %+v", *out.Generator, want)
+	}
+	if got := out.GeneratorDefaults(); got != want {
+		t.Errorf("GeneratorDefaults() = %+v, want %+v", got, want)
+	}
+
+	// Resetting drops the block again.
+	out.Generator = nil
+	if err := out.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "generator") {
+		t.Errorf("reset config still has a generator block:\n%s", raw)
+	}
+}
+
+func TestGeneratorPartialBlockKeepsDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := "server_url: https://example.test\ngenerator:\n  symbol_set: \"-_\"\n  uppercase: false\n"
+	if err := os.WriteFile(path, []byte(yaml), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := DefaultGeneratorSettings()
+	want.SymbolSet = "-_"
+	want.Uppercase = false
+	if got := out.GeneratorDefaults(); got != want {
+		t.Errorf("GeneratorDefaults() = %+v, want %+v", got, want)
+	}
+}
+
+func TestGeneratorSettingsHelpers(t *testing.T) {
+	g := DefaultGeneratorSettings()
+	if g.Length != 20 || !g.Lowercase || !g.Uppercase || !g.Digits || !g.Symbols || g.AvoidAmbiguous {
+		t.Errorf("factory defaults = %+v", g)
+	}
+	if err := g.Validate(); err != nil {
+		t.Errorf("factory defaults should validate: %v", err)
+	}
+	if got := g.Summary(); got != "20 chars · a-z A-Z 0-9 symbols · avoid ambiguous: off" {
+		t.Errorf("Summary() = %q", got)
+	}
+
+	g.ApplySymbolSetInput("none")
+	if g.Symbols || g.SymbolSetInput() != "none" {
+		t.Errorf("\"none\" should turn symbols off: %+v", g)
+	}
+	if g.SymbolSet != DefaultGeneratorSettings().SymbolSet {
+		t.Errorf("turning symbols off should keep the set, got %q", g.SymbolSet)
+	}
+	g.ApplySymbolSetInput("-_")
+	if !g.Symbols || g.SymbolSet != "-_" || g.SymbolSetInput() != "-_" {
+		t.Errorf("a set should turn symbols on: %+v", g)
+	}
+	o := g.Options()
+	if o.Length != g.Length || o.SymbolSet != "-_" || !o.Symbols || o.NoAmbiguous {
+		t.Errorf("Options() = %+v", o)
 	}
 }

@@ -17,10 +17,13 @@ package generator
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // PasswordType represents different types of passwords
@@ -34,31 +37,64 @@ const (
 	Passphrase   PasswordType = "passphrase"
 )
 
+// Character classes and defaults of the strong generator. They are part of
+// the generator spec shared with the app and the browser extension; keep
+// them identical there.
+const (
+	LowercaseChars = "abcdefghijklmnopqrstuvwxyz"
+	UppercaseChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	DigitChars     = "0123456789"
+	// DefaultSymbolSet is the symbol class unless the user picks another one.
+	DefaultSymbolSet = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+	// AmbiguousChars are removed from every class when NoAmbiguous is set.
+	AmbiguousChars = "0Oo1lI|"
+
+	DefaultLength = 20
+	// MinLength and MaxLength bound the length users can pick in the UI. The
+	// generator itself only requires one character per enabled class.
+	MinLength = 8
+	MaxLength = 128
+)
+
+// Errors of the strong generator. Callers show them instead of silently
+// falling back to other characters.
+var (
+	ErrNoClasses  = errors.New("enable at least one character class")
+	ErrEmptyClass = errors.New("an enabled character class has no characters left")
+	ErrTooShort   = errors.New("length is shorter than the number of enabled character classes")
+)
+
 // Options contains password generation options
 type Options struct {
-	Length       int
-	Type         PasswordType
-	Count        int
-	Symbols      string
-	ExcludeChars string
-	NoAmbiguous  bool
-	MinUpper     int
-	MinLower     int
-	MinDigits    int
-	MinSymbols   int
+	Length int
+	Type   PasswordType
+	Count  int
+
+	// Character classes of the strong generator. Every enabled class
+	// contributes at least one character.
+	Lowercase bool
+	Uppercase bool
+	Digits    bool
+	Symbols   bool
+	// SymbolSet is the symbol class. It is cleaned before use (see
+	// CleanSymbolSet), so it may contain any Unicode characters.
+	SymbolSet string
+
+	ExcludeChars string // removed from every class
+	NoAmbiguous  bool   // removes AmbiguousChars from every class
 }
 
 // DefaultOptions returns default generation options
 func DefaultOptions() *Options {
 	return &Options{
-		Length:     16,
-		Type:       Strong,
-		Count:      1,
-		Symbols:    "!@#$%^&*()_+-=[]{}|;:,.<>?",
-		MinUpper:   1,
-		MinLower:   1,
-		MinDigits:  1,
-		MinSymbols: 1,
+		Length:    DefaultLength,
+		Type:      Strong,
+		Count:     1,
+		Lowercase: true,
+		Uppercase: true,
+		Digits:    true,
+		Symbols:   true,
+		SymbolSet: DefaultSymbolSet,
 	}
 }
 
@@ -75,11 +111,16 @@ func New(opts *Options) *Generator {
 	return &Generator{options: opts}
 }
 
-// Generate generates passwords based on the configured options
+// Generate generates passwords based on the configured options. A Count
+// below one yields a single password.
 func (g *Generator) Generate() ([]string, error) {
-	var passwords []string
+	count := g.options.Count
+	if count < 1 {
+		count = 1
+	}
+	passwords := make([]string, 0, count)
 
-	for i := 0; i < g.options.Count; i++ {
+	for i := 0; i < count; i++ {
 		password, err := g.generateSingle()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate password: %w", err)
@@ -92,125 +133,137 @@ func (g *Generator) Generate() ([]string, error) {
 
 func (g *Generator) generateSingle() (string, error) {
 	switch g.options.Type {
-	case Strong:
-		return g.generateStrong()
 	case Alphanumeric:
-		return g.generateAlphanumeric()
+		opts := *g.options
+		opts.Lowercase, opts.Uppercase, opts.Digits, opts.Symbols = true, true, true, false
+		return generateStrong(&opts)
 	case Numbers:
-		return g.generateNumbers()
+		opts := *g.options
+		opts.Lowercase, opts.Uppercase, opts.Digits, opts.Symbols = false, false, true, false
+		return generateStrong(&opts)
 	case Memorable:
 		return g.generateMemorable()
 	case Passphrase:
 		return g.generatePassphrase()
 	default:
-		return g.generateStrong()
+		return generateStrong(g.options)
 	}
 }
 
-func (g *Generator) generateStrong() (string, error) {
-	lowercase := "abcdefghijklmnopqrstuvwxyz"
-	uppercase := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	digits := "0123456789"
-	symbols := g.options.Symbols
-
-	if g.options.NoAmbiguous {
-		lowercase = strings.ReplaceAll(lowercase, "l", "")
-		uppercase = strings.ReplaceAll(uppercase, "O", "")
-		uppercase = strings.ReplaceAll(uppercase, "I", "")
-		digits = strings.ReplaceAll(digits, "0", "")
-		digits = strings.ReplaceAll(digits, "1", "")
-	}
-
-	// Remove excluded characters
-	if g.options.ExcludeChars != "" {
-		for _, char := range g.options.ExcludeChars {
-			c := string(char)
-			lowercase = strings.ReplaceAll(lowercase, c, "")
-			uppercase = strings.ReplaceAll(uppercase, c, "")
-			digits = strings.ReplaceAll(digits, c, "")
-			symbols = strings.ReplaceAll(symbols, c, "")
-		}
-	}
-
-	var password strings.Builder
-
-	// Ensure minimum requirements
-	for i := 0; i < g.options.MinLower; i++ {
-		char, err := randomChar(lowercase)
-		if err != nil {
-			return "", err
-		}
-		password.WriteString(char)
-	}
-
-	for i := 0; i < g.options.MinUpper; i++ {
-		char, err := randomChar(uppercase)
-		if err != nil {
-			return "", err
-		}
-		password.WriteString(char)
-	}
-
-	for i := 0; i < g.options.MinDigits; i++ {
-		char, err := randomChar(digits)
-		if err != nil {
-			return "", err
-		}
-		password.WriteString(char)
-	}
-
-	for i := 0; i < g.options.MinSymbols; i++ {
-		char, err := randomChar(symbols)
-		if err != nil {
-			return "", err
-		}
-		password.WriteString(char)
-	}
-
-	// Fill remaining length with random characters from all sets
-	allChars := lowercase + uppercase + digits + symbols
-	remaining := g.options.Length - password.Len()
-
-	for i := 0; i < remaining; i++ {
-		char, err := randomChar(allChars)
-		if err != nil {
-			return "", err
-		}
-		password.WriteString(char)
-	}
-
-	// Shuffle the password
-	return shuffleString(password.String())
+// Validate reports whether the strong generator can produce a password with
+// these options. It returns ErrNoClasses, ErrEmptyClass or ErrTooShort.
+func (o *Options) Validate() error {
+	_, err := o.classes()
+	return err
 }
 
-func (g *Generator) generateAlphanumeric() (string, error) {
-	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+// CleanSymbolSet drops whitespace, control characters and repeated
+// characters from a symbol set, keeping the first occurrence of each. It
+// works on code points, so multi-byte characters stay whole.
+func CleanSymbolSet(set string) string {
+	seen := make(map[rune]bool)
+	var b strings.Builder
+	for i := 0; i < len(set); {
+		r, size := utf8.DecodeRuneInString(set[i:])
+		i += size
+		if r == utf8.RuneError && size == 1 {
+			continue // invalid UTF-8 byte
+		}
+		if unicode.IsSpace(r) || unicode.IsControl(r) || seen[r] {
+			continue
+		}
+		seen[r] = true
+		b.WriteRune(r)
+	}
+	return b.String()
+}
 
-	if g.options.NoAmbiguous {
-		chars = strings.ReplaceAll(chars, "l", "")
-		chars = strings.ReplaceAll(chars, "O", "")
-		chars = strings.ReplaceAll(chars, "I", "")
-		chars = strings.ReplaceAll(chars, "0", "")
-		chars = strings.ReplaceAll(chars, "1", "")
+// classes returns the enabled character classes after cleaning and
+// filtering, in the order lowercase, uppercase, digits, symbols.
+func (o *Options) classes() ([][]rune, error) {
+	type class struct {
+		name    string
+		enabled bool
+		chars   string
+	}
+	all := []class{
+		{"lowercase", o.Lowercase, LowercaseChars},
+		{"uppercase", o.Uppercase, UppercaseChars},
+		{"digits", o.Digits, DigitChars},
+		{"symbols (the symbol set has no usable characters)", o.Symbols, CleanSymbolSet(o.SymbolSet)},
 	}
 
-	// Remove excluded characters
-	if g.options.ExcludeChars != "" {
-		for _, char := range g.options.ExcludeChars {
-			c := string(char)
-			chars = strings.ReplaceAll(chars, c, "")
+	removed := o.ExcludeChars
+	if o.NoAmbiguous {
+		removed += AmbiguousChars
+	}
+
+	var out [][]rune
+	for _, c := range all {
+		if !c.enabled {
+			continue
+		}
+		var chars []rune
+		for _, r := range c.chars {
+			if !strings.ContainsRune(removed, r) {
+				chars = append(chars, r)
+			}
+		}
+		if len(chars) == 0 {
+			return nil, fmt.Errorf("%w: %s", ErrEmptyClass, c.name)
+		}
+		out = append(out, chars)
+	}
+
+	if len(out) == 0 {
+		return nil, ErrNoClasses
+	}
+	if o.Length < len(out) {
+		return nil, fmt.Errorf("%w (length %d, %d classes)", ErrTooShort, o.Length, len(out))
+	}
+	return out, nil
+}
+
+// generateStrong draws one character from every enabled class, fills up to
+// the length from the union of the classes, and shuffles the result.
+func generateStrong(o *Options) (string, error) {
+	classes, err := o.classes()
+	if err != nil {
+		return "", err
+	}
+
+	password := make([]rune, 0, o.Length)
+	var union []rune
+	seen := make(map[rune]bool)
+	for _, class := range classes {
+		r, err := randomRune(class)
+		if err != nil {
+			return "", err
+		}
+		password = append(password, r)
+
+		// A custom symbol set may repeat letters or digits; count each
+		// character once so the fill stays uniform over distinct characters.
+		for _, c := range class {
+			if !seen[c] {
+				seen[c] = true
+				union = append(union, c)
+			}
 		}
 	}
 
-	return randomString(chars, g.options.Length)
-}
-
-func (g *Generator) generateNumbers() (string, error) {
-	chars := "0123456789"
-	if g.options.NoAmbiguous {
-		chars = "23456789"
+	for len(password) < o.Length {
+		r, err := randomRune(union)
+		if err != nil {
+			return "", err
+		}
+		password = append(password, r)
 	}
-	return randomString(chars, g.options.Length)
+
+	if err := shuffleRunes(password); err != nil {
+		return "", err
+	}
+	return string(password), nil
 }
 
 func (g *Generator) generateMemorable() (string, error) {
@@ -408,46 +461,54 @@ type StrengthResult struct {
 }
 
 // Helper functions
-func randomChar(chars string) (string, error) {
-	if len(chars) == 0 {
-		return "", fmt.Errorf("character set is empty")
+
+// randomIndex returns a uniformly distributed index in [0, n) from
+// crypto/rand. rand.Int rejection-samples, so there is no modulo bias.
+func randomIndex(n int) (int, error) {
+	if n <= 0 {
+		return 0, fmt.Errorf("character set is empty")
 	}
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0, err
+	}
+	return int(v.Int64()), nil
+}
+
+func randomRune(chars []rune) (rune, error) {
+	i, err := randomIndex(len(chars))
+	if err != nil {
+		return 0, err
+	}
+	return chars[i], nil
+}
+
+// randomChar picks one character (code point) of chars.
+func randomChar(chars string) (string, error) {
+	r, err := randomRune([]rune(chars))
 	if err != nil {
 		return "", err
 	}
-	return string(chars[n.Int64()]), nil
-}
-
-func randomString(chars string, length int) (string, error) {
-	var result strings.Builder
-	for i := 0; i < length; i++ {
-		char, err := randomChar(chars)
-		if err != nil {
-			return "", err
-		}
-		result.WriteString(char)
-	}
-	return result.String(), nil
+	return string(r), nil
 }
 
 func randomChoice(choices []string) (string, error) {
 	if len(choices) == 0 {
 		return "", fmt.Errorf("choices slice is empty")
 	}
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(choices))))
+	i, err := randomIndex(len(choices))
 	if err != nil {
 		return "", err
 	}
-	return choices[n.Int64()], nil
+	return choices[i], nil
 }
 
 func randomRange(min, max int) (int, error) {
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+	n, err := randomIndex(max - min + 1)
 	if err != nil {
 		return 0, err
 	}
-	return int(n.Int64()) + min, nil
+	return n + min, nil
 }
 
 func randomBool() bool {
@@ -455,14 +516,14 @@ func randomBool() bool {
 	return n.Int64() == 1
 }
 
-func shuffleString(s string) (string, error) {
-	runes := []rune(s)
+// shuffleRunes shuffles in place (Fisher-Yates).
+func shuffleRunes(runes []rune) error {
 	for i := len(runes) - 1; i > 0; i-- {
-		j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		j, err := randomIndex(i + 1)
 		if err != nil {
-			return "", err
+			return err
 		}
-		runes[i], runes[j.Int64()] = runes[j.Int64()], runes[i]
+		runes[i], runes[j] = runes[j], runes[i]
 	}
-	return string(runes), nil
+	return nil
 }

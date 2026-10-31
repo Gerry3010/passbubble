@@ -21,6 +21,7 @@ import (
 	"time"
 
 	vaultpkg "github.com/Gerry3010/passbubble/cli/internal/vault"
+	"github.com/Gerry3010/passbubble/cli/pkg/generator"
 	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -101,6 +102,18 @@ func (m Model) handleSettingsScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.authErr = ""
 		m.authBusy = false
 		return m, nil
+
+	case "g":
+		// Edit the password generator defaults saved in the config.
+		m.showingForm = true
+		m.form = CreateGeneratorDefaultsForm(m.generatorDefaults())
+		m.form.width = m.width
+		m.status = "Editing generator defaults"
+		m.statusType = "info"
+		return m, nil
+
+	case "G":
+		return m.resetGeneratorDefaults(), nil
 
 	case "l":
 		return m.lockVault(), nil
@@ -229,6 +242,8 @@ func (m Model) lockVault() Model {
 	m.authErr = ""
 	m.authBusy = false
 	// Drop loaded data so a locked vault never shows stale entries.
+	m.clearGenConfirm()
+	m.generatedPassword = ""
 	m.allEntries = nil
 	m.folders = nil
 	m.folderStack = nil
@@ -310,6 +325,13 @@ func (m Model) renderSettingsScreen() string {
 	}
 	b.WriteString("\n")
 
+	gen := m.generatorDefaults()
+	fmt.Fprintf(&b, "Password generator  (press 'g' to edit, 'G' to reset)\n  Defaults:   %s\n", gen.Summary())
+	if gen.Symbols {
+		fmt.Fprintf(&b, "  Symbol set: %s\n", generator.CleanSymbolSet(gen.SymbolSet))
+	}
+	b.WriteString("\n")
+
 	b.WriteString(m.titleStyle.Render("Keybindings"))
 	b.WriteString("\n")
 	if m.kbCapturing {
@@ -333,7 +355,7 @@ func (m Model) renderSettingsScreen() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(m.helpStyle.Render("↑/↓: select  Enter: rebind  (then Esc: unbind)  t: auto-lock  p: PIN  l: lock  o: log out  q: back"))
+	b.WriteString(m.helpStyle.Render("↑/↓: select  Enter: rebind  (then Esc: unbind)  t: auto-lock  p: PIN  g/G: generator  l: lock  o: log out  q: back"))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

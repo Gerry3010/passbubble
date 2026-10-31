@@ -26,7 +26,6 @@ import (
 	"github.com/Gerry3010/passbubble/cli/internal/config"
 	vaultpkg "github.com/Gerry3010/passbubble/cli/internal/vault"
 	"github.com/Gerry3010/passbubble/cli/pkg/backup"
-	"github.com/Gerry3010/passbubble/cli/pkg/generator"
 	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -198,6 +197,16 @@ type Model struct {
 	generatedPassword string
 	generateType      string // "random", "memorable", or "passphrase"
 
+	// Generator options of the generate screen or the confirm step. They
+	// start from the saved defaults and changes apply only there.
+	genSettings config.GeneratorSettings
+
+	// Confirm step of the add form: a generated password waits for Enter.
+	showGenConfirm bool
+	genConfirmPW   string
+	genFields      map[string]string // the submitted add form fields
+	genReturnForm  FormModel         // the add form, restored on cancel
+
 	// Form state
 	showingForm bool
 	form        FormModel
@@ -365,6 +374,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.createFolderCmd(msg.Fields["folder_name"], msg.ParentID)
 			case RenameFolderForm:
 				return m, m.renameFolderCmd(msg.FolderID, msg.Fields["folder_name"], msg.ParentID)
+			case AddPasswordForm:
+				// An empty password field asks for a generated one first.
+				if strings.TrimSpace(msg.Fields["password"]) == "" {
+					return m.startGenConfirm(msg), nil
+				}
+				return m, processFormSubmission(msg)
+			case GeneratorOptionsForm:
+				return m.applyGeneratorOptionsForm(msg.Fields), nil
+			case GeneratorDefaultsForm:
+				return m.saveGeneratorDefaultsForm(msg.Fields), nil
 			default:
 				return m, processFormSubmission(msg)
 			}
@@ -610,18 +629,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nextTickCmd
-
-	case PasswordGeneratedMsg:
-		if msg.Error != nil {
-			m.status = fmt.Sprintf("Password generation failed: %v", msg.Error)
-			m.statusType = "error"
-			return m, nil
-		}
-		m.generatedPassword = msg.Password
-		m.generateType = msg.Type
-		m.status = fmt.Sprintf("%s password generated successfully", msg.Type)
-		m.statusType = "success"
-		return m, nil
 	}
 
 	return m, nil
@@ -629,6 +636,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKeyPress handles keyboard input based on current screen
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.showGenConfirm {
+		return m.handleGenConfirm(msg)
+	}
 	switch m.screen {
 	case MainScreen:
 		return m.handleMainScreen(msg)
@@ -904,11 +914,8 @@ func (m Model) runAction(action string) (tea.Model, tea.Cmd) {
 
 	case actGenerate:
 		m.screen = GenerateScreen
-		m.generatedPassword = ""
-		m.generateType = ""
-		m.status = "Password Generator"
-		m.statusType = "info"
-		return m, nil
+		m.genSettings = m.generatorDefaults()
+		return m.generateOnScreen("random"), nil
 
 	case actRefresh:
 		m.status = "Refreshing entries..."
@@ -1116,19 +1123,25 @@ func (m Model) handleGenerateScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
-		// Generate random password
-		m.generateType = "random"
-		return m, m.generatePassword("strong")
+		// (Re)generate a random password from the screen's options
+		return m.generateOnScreen("random"), nil
 
 	case "m":
 		// Generate memorable password
-		m.generateType = "memorable"
-		return m, m.generatePassword("memorable")
+		return m.generateOnScreen("memorable"), nil
 
 	case "p":
 		// Generate passphrase
-		m.generateType = "passphrase"
-		return m, m.generatePassword("passphrase")
+		return m.generateOnScreen("passphrase"), nil
+
+	case "o":
+		// Length and symbol set for this screen only
+		m.showingForm = true
+		m.form = CreateGeneratorOptionsForm(m.genSettings)
+		m.form.width = m.width
+		m.status = "Generator options for this screen"
+		m.statusType = "info"
+		return m, nil
 
 	case "s":
 		if m.generatedPassword != "" {
@@ -1149,6 +1162,10 @@ func (m Model) View() string {
 	// Show form overlay if active
 	if m.showingForm {
 		return m.form.View()
+	}
+	// Show the add form's generated-password confirm step if active
+	if m.showGenConfirm {
+		return m.renderGenConfirm()
 	}
 	// Show sort overlay if active
 	if m.showSortMenu {
@@ -1415,6 +1432,9 @@ func (m Model) renderGenerateScreen() string {
 	content = append(content, "  [m] Memorable - Easy to type with alternating case")
 	content = append(content, "  [p] Passphrase - Word-based password with separators")
 	content = append(content, "")
+	content = append(content, m.renderGenOptions(m.genSettings)...)
+	content = append(content, m.helpStyle.Render("[o] changes length and symbol set here; defaults live in settings"))
+	content = append(content, "")
 
 	// Show generated password if available
 	if m.generatedPassword != "" {
@@ -1422,6 +1442,7 @@ func (m Model) renderGenerateScreen() string {
 		content = append(content, "")
 		passwordDisplay := m.secretStyle.Render(m.generatedPassword)
 		content = append(content, fmt.Sprintf("Password: %s", passwordDisplay))
+		content = append(content, m.renderStrength(m.generatedPassword))
 		content = append(content, "")
 		content = append(content, "Press [s] to save this password to keyring")
 	} else {
@@ -1434,7 +1455,7 @@ func (m Model) renderGenerateScreen() string {
 	}
 	contentBox := m.detailStyle.Width(detailWidth).Render(strings.Join(content, "\n"))
 
-	help := m.helpStyle.Render("r: random  m: memorable  p: passphrase  s: save password  esc/q: back")
+	help := m.helpStyle.Render("r: random/regenerate  m: memorable  p: passphrase  o: options  s: save password  esc/q: back")
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
@@ -1693,61 +1714,6 @@ func (m Model) loadEntryTags() tea.Cmd {
 	}
 }
 
-// PasswordGeneratedMsg represents a generated password result
-type PasswordGeneratedMsg struct {
-	Password string
-	Type     string
-	Error    error
-}
-
-// generatePassword generates a password of the specified type
-func (m Model) generatePassword(passwordType string) tea.Cmd {
-	return func() tea.Msg {
-		// Create options based on password type
-		var opts *generator.Options
-
-		switch passwordType {
-		case "strong":
-			// Generate strong random password
-			opts = generator.DefaultOptions()
-			opts.Type = generator.Strong
-		case "memorable":
-			// Generate memorable password
-			opts = generator.DefaultOptions()
-			opts.Type = generator.Memorable
-		case "passphrase":
-			// Generate passphrase
-			opts = generator.DefaultOptions()
-			opts.Type = generator.Passphrase
-		default:
-			return PasswordGeneratedMsg{
-				Error: fmt.Errorf("unknown password type: %s", passwordType),
-			}
-		}
-
-		// Create generator and generate password
-		gen := generator.New(opts)
-		passwords, err := gen.Generate()
-
-		if err != nil {
-			return PasswordGeneratedMsg{
-				Error: fmt.Errorf("failed to generate password: %w", err),
-			}
-		}
-
-		if len(passwords) == 0 {
-			return PasswordGeneratedMsg{
-				Error: fmt.Errorf("no passwords generated"),
-			}
-		}
-
-		return PasswordGeneratedMsg{
-			Password: passwords[0],
-			Type:     passwordType,
-		}
-	}
-}
-
 // listVisibleHeight returns the number of list rows that fit in the terminal.
 func (m Model) listVisibleHeight() int {
 	// overhead: title(1) + search(1) + list border+pad top(2) + list border+pad bottom(2)
@@ -1781,7 +1747,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		return m, nil
 	}
-	if m.screen != MainScreen {
+	if m.screen != MainScreen || m.showGenConfirm {
 		return m, nil
 	}
 	// List content starts at row 4 (title=0, blank=1, border=2, pad=3, item0=4).

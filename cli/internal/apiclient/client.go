@@ -175,13 +175,6 @@ func (c *Client) UpdateUserKeys(req UpdateKeysRequest) error {
 	return c.patch("/api/v1/auth/me/keys", req, nil)
 }
 
-// --- Generate ---
-
-func (c *Client) Generate(req GenerateRequest) (*GenerateResponse, error) {
-	var resp GenerateResponse
-	return &resp, c.post("/api/v1/generate", req, &resp)
-}
-
 // --- Folders ---
 
 func (c *Client) ListFolders() ([]FolderResponse, error) {

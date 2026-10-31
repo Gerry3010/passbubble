@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/Gerry3010/passbubble/cli/pkg/generator"
 	"github.com/spf13/viper"
 )
 
@@ -48,6 +50,10 @@ type Config struct {
 	// distinguishes "unset" (use the 10-minute default) from an explicit 0,
 	// which disables auto-lock entirely.
 	LogoutInterval *int `mapstructure:"logout_interval"`
+
+	// Generator holds this device's password generator defaults. nil means
+	// they were never changed, so the factory defaults apply.
+	Generator *GeneratorSettings `mapstructure:"generator"`
 
 	// ── PIN quick-unlock (all values local; the PIN itself is never stored) ──
 	// The PIN derives a wrap-key (Argon2id, own salt) that AES-GCM-encrypts a
@@ -90,6 +96,16 @@ func Load(path string) (*Config, error) {
 			return &Config{}, nil
 		}
 		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	// A hand-edited generator block may leave keys out; those keep their
+	// factory default instead of reading as false / empty.
+	if v.IsSet("generator") {
+		for key, def := range DefaultGeneratorSettings().values() {
+			if !v.IsSet("generator." + key) {
+				v.Set("generator."+key, def)
+			}
+		}
 	}
 
 	var cfg Config
@@ -137,6 +153,9 @@ func (c *Config) Save(path string) error {
 	if len(c.Keybindings) > 0 {
 		v.Set("keybindings", c.Keybindings)
 	}
+	if c.Generator != nil {
+		v.Set("generator", c.Generator.values())
+	}
 
 	if c.PINEnabled {
 		v.Set("pin_enabled", true)
@@ -181,4 +200,127 @@ func (c *Config) ClearPIN() {
 	c.PINFailCount = 0
 	c.PINPwIntervalDays = 0
 	c.PINLastMasterUnlock = 0
+}
+
+// GeneratorSettings are the password generator defaults (config block
+// `generator:`). They mirror the options of the generator spec shared with
+// the app and the extension.
+type GeneratorSettings struct {
+	Length         int    `mapstructure:"length"`
+	Lowercase      bool   `mapstructure:"lowercase"`
+	Uppercase      bool   `mapstructure:"uppercase"`
+	Digits         bool   `mapstructure:"digits"`
+	Symbols        bool   `mapstructure:"symbols"`
+	SymbolSet      string `mapstructure:"symbol_set"`
+	AvoidAmbiguous bool   `mapstructure:"avoid_ambiguous"`
+}
+
+// SymbolsOffKeyword, typed as the symbol set in an interactive prompt,
+// turns symbols off.
+const SymbolsOffKeyword = "none"
+
+// DefaultGeneratorSettings returns the factory defaults.
+func DefaultGeneratorSettings() GeneratorSettings {
+	return GeneratorSettingsFrom(generator.DefaultOptions())
+}
+
+// GeneratorSettingsFrom copies the strong-generator fields of opts.
+func GeneratorSettingsFrom(o *generator.Options) GeneratorSettings {
+	return GeneratorSettings{
+		Length:         o.Length,
+		Lowercase:      o.Lowercase,
+		Uppercase:      o.Uppercase,
+		Digits:         o.Digits,
+		Symbols:        o.Symbols,
+		SymbolSet:      o.SymbolSet,
+		AvoidAmbiguous: o.NoAmbiguous,
+	}
+}
+
+// GeneratorDefaults returns the saved generator defaults, or the factory
+// defaults when none are saved. Safe on a nil config.
+func (c *Config) GeneratorDefaults() GeneratorSettings {
+	if c == nil || c.Generator == nil {
+		return DefaultGeneratorSettings()
+	}
+	return *c.Generator
+}
+
+// Options returns strong-generator options for one password.
+func (g GeneratorSettings) Options() *generator.Options {
+	o := generator.DefaultOptions()
+	o.Length = g.Length
+	o.Lowercase = g.Lowercase
+	o.Uppercase = g.Uppercase
+	o.Digits = g.Digits
+	o.Symbols = g.Symbols
+	o.SymbolSet = g.SymbolSet
+	o.NoAmbiguous = g.AvoidAmbiguous
+	return o
+}
+
+// Validate reports whether a password can be generated with these
+// settings (see generator.Options.Validate).
+func (g GeneratorSettings) Validate() error {
+	return g.Options().Validate()
+}
+
+// SymbolSetInput is the symbol set as an interactive prompt shows it:
+// the set itself, or SymbolsOffKeyword while symbols are off.
+func (g GeneratorSettings) SymbolSetInput() string {
+	if !g.Symbols {
+		return SymbolsOffKeyword
+	}
+	return g.SymbolSet
+}
+
+// ApplySymbolSetInput is the reverse of SymbolSetInput: SymbolsOffKeyword
+// turns symbols off, anything else turns them on with that set.
+func (g *GeneratorSettings) ApplySymbolSetInput(in string) {
+	if strings.TrimSpace(in) == SymbolsOffKeyword {
+		g.Symbols = false
+		return
+	}
+	g.Symbols = true
+	g.SymbolSet = in
+}
+
+// Summary describes the settings in one line, e.g.
+// "20 chars · a-z A-Z 0-9 symbols · avoid ambiguous: off".
+func (g GeneratorSettings) Summary() string {
+	var classes []string
+	for _, c := range []struct {
+		on    bool
+		label string
+	}{
+		{g.Lowercase, "a-z"},
+		{g.Uppercase, "A-Z"},
+		{g.Digits, "0-9"},
+		{g.Symbols, "symbols"},
+	} {
+		if c.on {
+			classes = append(classes, c.label)
+		}
+	}
+	if len(classes) == 0 {
+		classes = []string{"no classes"}
+	}
+	ambiguous := "off"
+	if g.AvoidAmbiguous {
+		ambiguous = "on"
+	}
+	return fmt.Sprintf("%d chars · %s · avoid ambiguous: %s", g.Length, strings.Join(classes, " "), ambiguous)
+}
+
+// values maps the settings to their config keys.
+func (g GeneratorSettings) values() map[string]any {
+	return map[string]any{
+		"length":          g.Length,
+		"lowercase":       g.Lowercase,
+		"uppercase":       g.Uppercase,
+		"digits":          g.Digits,
+		"symbols":         g.Symbols,
+		"symbol_set":      g.SymbolSet,
+		"avoid_ambiguous": g.AvoidAmbiguous,
+	}
 }

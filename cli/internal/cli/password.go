@@ -16,7 +16,9 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -74,7 +76,11 @@ Examples:
 		url, _ := cmd.Flags().GetString("url")
 		notes, _ := cmd.Flags().GetString("notes")
 
-		data, err := collectEntryData(entryType, username, notes, name, v)
+		data, err := collectEntryData(entryType, username, notes, name)
+		if errors.Is(err, errCancelled) {
+			fmt.Println("Cancelled.")
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -356,7 +362,7 @@ var searchCmd = &cobra.Command{
 	},
 }
 
-func collectEntryData(entryType, username, notes, name string, v *vault.Vault) (*vault.EntryData, error) {
+func collectEntryData(entryType, username, notes, name string) (*vault.EntryData, error) {
 	data := &vault.EntryData{Username: username, Notes: notes}
 
 	switch entryType {
@@ -366,13 +372,9 @@ func collectEntryData(entryType, username, notes, name string, v *vault.Vault) (
 			return nil, err
 		}
 		if pw == "" {
-			resp, err := v.Client().Generate(generateDefaults())
+			pw, err = pickGeneratedPassword(bufio.NewReader(os.Stdin), os.Stdout, cfg.GeneratorDefaults())
 			if err != nil {
-				return nil, fmt.Errorf("generate password: %w", err)
-			}
-			if len(resp.Passwords) > 0 {
-				pw = resp.Passwords[0].Password
-				fmt.Printf("Generated: %s\n", pw)
+				return nil, err
 			}
 		}
 		data.Password = pw
