@@ -16,7 +16,9 @@
 package cli
 
 import (
+	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Gerry3010/passbubble/cli/internal/vault"
@@ -34,8 +36,13 @@ func init() {
 	addCmd.Flags().StringP("type", "t", "password", "Entry type (password, totp, note, api-key, ssh-key, credit-card, bank-account, identity, license)")
 	addCmd.Flags().StringP("url", "u", "", "URL / website")
 	addCmd.Flags().StringP("notes", "n", "", "Notes")
+	addCmd.Flags().StringArray("tag", nil, "Tag the entry (repeatable; comma-separated values also work)")
 	updateCmd.Flags().StringP("url", "u", "", "URL / website")
 	updateCmd.Flags().StringP("notes", "n", "", "Notes")
+	updateCmd.Flags().StringArray("add-tag", nil, "Add a tag (repeatable; comma-separated values also work)")
+	updateCmd.Flags().StringArray("remove-tag", nil, "Remove a tag, ignoring case (repeatable; comma-separated values also work)")
+	updateCmd.Flags().Bool("clear-tags", false, "Remove all tags (applied before --add-tag)")
+	listCmd.Flags().StringArray("tag", nil, "Only list entries with this tag (repeatable: all must match; asks for the master password)")
 }
 
 var addCmd = &cobra.Command{
@@ -45,10 +52,15 @@ var addCmd = &cobra.Command{
 
 Examples:
   pwmgr add gmail john@gmail.com
-  pwmgr add github -t password
-  pwmgr add my-note -t note`,
+  pwmgr add github -t password --tag work --tag dev
+  pwmgr add my-note -t note --tag "personal, ideas"`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		rawTags, _ := cmd.Flags().GetStringArray("tag")
+		tags, err := vault.NormalizeTags(splitTagArgs(rawTags))
+		if err != nil {
+			return err
+		}
 		if err := ensureUnlocked(); err != nil {
 			return err
 		}
@@ -66,6 +78,7 @@ Examples:
 		if err != nil {
 			return err
 		}
+		data.Tags = tags
 
 		entry, err := v.CreateEntry(name, entryType, url, data, nil, "", "", nil)
 		if err != nil {
@@ -116,7 +129,25 @@ var getCmd = &cobra.Command{
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all stored entries",
+	Long: `List all stored entries.
+
+Tags are end-to-end encrypted, so filtering by tag decrypts every entry and
+asks for the master password.
+
+Examples:
+  pwmgr list
+  pwmgr list --tag work
+  pwmgr list --tag work --tag finance   # entries with both tags`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		rawTags, _ := cmd.Flags().GetStringArray("tag")
+		filter, err := vault.NormalizeTags(splitTagArgs(rawTags))
+		if err != nil {
+			return err
+		}
+		if len(filter) > 0 {
+			return listTagged(filter)
+		}
+
 		if err := ensureAuthenticated(); err != nil {
 			return err
 		}
@@ -146,10 +177,36 @@ var listCmd = &cobra.Command{
 }
 
 var updateCmd = &cobra.Command{
-	Use:   "update <name>",
-	Short: "Update an existing entry",
-	Args:  cobra.ExactArgs(1),
+	Use:     "update <name>",
+	Aliases: []string{"edit"},
+	Short:   "Update an existing entry",
+	Long: `Update an existing entry.
+
+Without flags, the command asks for a new name and password. With any of
+--url, --notes or the tag flags it changes only what the flags say and does
+not prompt (apart from the master password).
+
+Tag flags apply in the order --clear-tags, --remove-tag, --add-tag.
+
+Examples:
+  pwmgr update github
+  pwmgr update github --add-tag work --add-tag dev
+  pwmgr update github --remove-tag old
+  pwmgr update github --clear-tags --add-tag "work, archive"`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		flags := cmd.Flags()
+		rawAdd, _ := flags.GetStringArray("add-tag")
+		rawRemove, _ := flags.GetStringArray("remove-tag")
+		clearTags, _ := flags.GetBool("clear-tags")
+		addTags, err := vault.NormalizeTags(splitTagArgs(rawAdd))
+		if err != nil {
+			return err
+		}
+		removeTags := splitTagArgs(rawRemove)
+		tagEdit := flags.Changed("add-tag") || flags.Changed("remove-tag") || clearTags
+		interactive := !tagEdit && !flags.Changed("url") && !flags.Changed("notes")
+
 		if err := ensureUnlocked(); err != nil {
 			return err
 		}
@@ -176,33 +233,45 @@ var updateCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Updating '%s' — leave fields empty to keep current values\n", entry.Name)
-
-		newName, _ := promptInput(fmt.Sprintf("Name [%s]: ", entry.Name))
-		if newName == "" {
-			newName = entry.Name
-		}
-		url, _ := cmd.Flags().GetString("url")
-		if url == "" {
-			url = entry.URL
-		}
-
 		data := entry.Data
 		if data == nil {
 			data = &vault.EntryData{}
 		}
 
-		newPass, err := promptPassword("New password (leave empty to keep current): ")
-		if err != nil {
-			return err
-		}
-		if newPass != "" {
-			data.Password = newPass
+		newName := entry.Name
+		if interactive {
+			fmt.Printf("Updating '%s' — leave fields empty to keep current values\n", entry.Name)
+			if n, _ := promptInput(fmt.Sprintf("Name [%s]: ", entry.Name)); n != "" {
+				newName = n
+			}
+			newPass, err := promptPassword("New password (leave empty to keep current): ")
+			if err != nil {
+				return err
+			}
+			if newPass != "" {
+				data.Password = newPass
+			}
 		}
 
-		notes, _ := cmd.Flags().GetString("notes")
+		url, _ := flags.GetString("url")
+		if url == "" {
+			url = entry.URL
+		}
+		notes, _ := flags.GetString("notes")
 		if notes != "" {
 			data.Notes = notes
+		}
+
+		if tagEdit {
+			for _, r := range removeTags {
+				if vault.NormalizeTag(r) != "" && !vault.HasTags(data.Tags, []string{r}) {
+					fmt.Fprintf(os.Stderr, "Warning: '%s' has no tag '%s'\n", entry.Name, vault.NormalizeTag(r))
+				}
+			}
+			data.Tags, err = vault.EditTags(data.Tags, clearTags, removeTags, addTags)
+			if err != nil {
+				return err
+			}
 		}
 
 		if err := v.UpdateEntry(id, newName, url, data, nil); err != nil {
@@ -210,6 +279,9 @@ var updateCmd = &cobra.Command{
 		}
 
 		fmt.Printf("✓ Entry '%s' updated\n", newName)
+		if tagEdit {
+			fmt.Printf("Tags: %s\n", formatTags(data.Tags))
+		}
 		return nil
 	},
 }
@@ -417,6 +489,9 @@ func printEntry(e *vault.Entry) {
 		return
 	}
 	d := e.Data
+	if len(d.Tags) > 0 {
+		fmt.Printf("Tags:   %s\n", formatTags(d.Tags))
+	}
 
 	printField := func(label, value string) {
 		if value != "" {
@@ -474,10 +549,35 @@ func printEntry(e *vault.Entry) {
 
 	// Custom fields
 	for _, cf := range d.CustomFields {
-		if cf.Label != "" {
-			printField(cf.Label, cf.Value)
+		if cf.Label == "" {
+			continue
 		}
+		if cf.Type == "file" {
+			printField(cf.Label, describeFileField(cf))
+			continue
+		}
+		printField(cf.Label, cf.Value)
 	}
+}
+
+// describeFileField summarises a file custom field instead of dumping its
+// base64 content to the terminal.
+func describeFileField(cf vault.CustomField) string {
+	name := cf.Filename
+	if name == "" {
+		name = cf.Label
+	}
+	var details []string
+	if cf.MimeType != "" {
+		details = append(details, cf.MimeType)
+	}
+	if b, err := base64.StdEncoding.DecodeString(cf.Value); err == nil {
+		details = append(details, fmt.Sprintf("%d bytes", len(b)))
+	}
+	if len(details) == 0 {
+		return "[file] " + name
+	}
+	return fmt.Sprintf("[file] %s (%s)", name, strings.Join(details, ", "))
 }
 
 func filterEmpty(vals ...string) []string {

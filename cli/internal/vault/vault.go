@@ -27,13 +27,25 @@ import (
 )
 
 // CustomField is a user-defined key/value pair available on any entry type.
+// Keys the CLI does not model survive a decode/encode round trip (see
+// entry_json.go).
 type CustomField struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
+	// Type is how the app renders the field: "text" (default when empty),
+	// "password", "ssh", "totp" or "file". A file field holds the base64
+	// file content in Value.
+	Type     string `json:"type,omitempty"`
+	Filename string `json:"filename,omitempty"`  // file fields only
+	MimeType string `json:"mime_type,omitempty"` // file fields only
+
+	extra map[string]json.RawMessage // unknown keys, re-emitted on encode
 }
 
 // EntryData is the plaintext JSON stored inside encrypted_data.
 // All fields are optional; only those relevant to the entry type are populated.
+// Keys written by other clients that the CLI does not model are kept and
+// written back unchanged (see entry_json.go).
 type EntryData struct {
 	// ── password / api-key / ssh-key / totp ─────────────────────────────────
 	Username   string `json:"username,omitempty"`
@@ -86,6 +98,10 @@ type EntryData struct {
 
 	// ── universal ────────────────────────────────────────────────────────────
 	CustomFields []CustomField `json:"custom_fields,omitempty"`
+	// Tags in the user's order, normalised on save (see NormalizeTags).
+	Tags []string `json:"tags,omitempty"`
+
+	extra map[string]json.RawMessage // unknown keys, re-emitted on encode
 }
 
 // Entry is a vault entry with decrypted fields.
@@ -351,11 +367,14 @@ func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folder
 	if err != nil {
 		return nil, err
 	}
+	// The server answers a create with {"id": ...} only, so the metadata comes
+	// from the request rather than the response.
 	return &Entry{
 		ID:         apiEntry.ID,
-		Name:       apiEntry.Name,
-		URL:        apiEntry.URL,
-		Type:       apiEntry.Type,
+		Name:       name,
+		URL:        url,
+		Type:       entryType,
+		FolderID:   folderID,
 		Permission: "owner",
 		Data:       data,
 	}, nil

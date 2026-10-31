@@ -46,6 +46,7 @@ Usage:
   pwmgr add       Add a new password
   pwmgr get       Retrieve a password
   pwmgr list      List all entries
+  pwmgr tags      List tags with entry counts
   pwmgr generate  Generate a secure password`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Launch the TUI directly; it handles login / unlock on its own.

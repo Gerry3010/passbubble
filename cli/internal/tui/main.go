@@ -185,6 +185,7 @@ type Model struct {
 	totpCode      string
 	totpRemaining int
 	password      string
+	detailTags    []string // decrypted on open; nil until EntryTagsMsg arrives
 
 	// List scroll state
 	listOffset int
@@ -335,6 +336,13 @@ type LoadEntriesMsg struct {
 	Entries []Entry
 	Folders []*vaultpkg.Folder
 	Err     error
+}
+
+// EntryTagsMsg carries the decrypted tags of the entry opened in the detail
+// screen.
+type EntryTagsMsg struct {
+	EntryID string
+	Tags    []string
 }
 
 // LoadBackupsMsg represents loaded backups
@@ -491,6 +499,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.password = msg.Password
+		return m, nil
+
+	case EntryTagsMsg:
+		// Ignore a late answer for an entry the user has already left.
+		if msg.EntryID == m.detailEntry.ID {
+			m.detailTags = msg.Tags
+		}
 		return m, nil
 
 	case ActionResultMsg:
@@ -711,10 +726,8 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailEntry = *item.entry
 		m.screen = DetailScreen
 		m.showSecrets = false
-		if m.detailEntry.Type == "password" {
-			return m, m.loadPasswordReal()
-		}
-		return m, m.loadSecretDetails()
+		m.detailTags = nil
+		return m, tea.Batch(m.loadPasswordReal(), m.loadEntryTags())
 	}
 
 	// Rebindable actions.
@@ -1278,6 +1291,10 @@ func (m Model) renderDetailScreen() string {
 
 	details = append(details, fmt.Sprintf("Type: %s %s", m.getTypeIcon(m.detailEntry.Type), m.detailEntry.Type))
 
+	if len(m.detailTags) > 0 {
+		details = append(details, fmt.Sprintf("Tags: %s", strings.Join(m.detailTags, ", ")))
+	}
+
 	// Always show password field for password entries
 	if m.detailEntry.Type == "password" {
 		details = append(details, "")
@@ -1659,12 +1676,20 @@ func (m Model) loadBackups() tea.Cmd {
 	}
 }
 
-// loadSecretDetails loads additional details for the selected entry
-func (m Model) loadSecretDetails() tea.Cmd {
+// loadEntryTags decrypts the detail entry to read its tags, which live inside
+// the encrypted data. Errors are dropped: the detail view then simply shows no
+// tags, and the password loader already reports a broken entry.
+func (m Model) loadEntryTags() tea.Cmd {
+	v, id := m.vault, m.detailEntry.ID
 	return func() tea.Msg {
-		// This would load additional secret details
-		// For now, we'll just return nil
-		return nil
+		if v == nil || id == "" {
+			return nil
+		}
+		e, err := v.GetEntry(id)
+		if err != nil || e.Data == nil {
+			return nil
+		}
+		return EntryTagsMsg{EntryID: id, Tags: e.Data.Tags}
 	}
 }
 
@@ -1782,10 +1807,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.screen = DetailScreen
 	m.showSecrets = false
 	m.password = ""
-	if m.detailEntry.Type == "password" {
-		return m, m.loadPasswordReal()
-	}
-	return m, m.loadSecretDetails()
+	m.detailTags = nil
+	return m, tea.Batch(m.loadPasswordReal(), m.loadEntryTags())
 }
 
 // clipboardClearDelay is how long a copied secret stays on the clipboard.
