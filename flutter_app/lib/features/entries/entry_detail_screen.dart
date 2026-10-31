@@ -51,6 +51,9 @@ class EntryDetailScreen extends ConsumerStatefulWidget {
 class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
   Map<String, dynamic>? _decrypted;
   bool _decrypting = false;
+  // id@updatedAt of the entry version auto-decrypt last ran for, so it runs
+  // once per loaded version (and again after an edit or restore).
+  String? _autoDecryptedFor;
   // Secret rows the user has revealed, by row id — each eye toggles only its
   // own row.
   final Set<String> _revealed = {};
@@ -101,7 +104,21 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     }
   }
 
+  /// Decrypts [entry] right after it loads, without a tap on DECRYPT, as long
+  /// as the vault is unlocked. DECRYPT stays as the fallback for a locked vault
+  /// or a failed attempt (which is not retried automatically).
+  void _maybeAutoDecrypt(EntryResponse entry) {
+    final version = '${entry.id}@${entry.updatedAt}';
+    if (_autoDecryptedFor == version || _decrypting) return;
+    if (ref.read(authServiceProvider).privX25519 == null) return;
+    _autoDecryptedFor = version;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _decrypt(entry);
+    });
+  }
+
   void _startTOTP(String secret) {
+    _totpTimer?.cancel();
     _updateTOTP(secret);
     _totpTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) _updateTOTP(secret);
@@ -234,6 +251,8 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_entryDetailProvider(widget.id));
+    // Rebuild on unlock, so a detail page opened while locked decrypts then.
+    ref.watch(vaultSessionProvider);
     return Scaffold(
       appBar: AppBar(
         title: async.when(
@@ -294,6 +313,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
   }
 
   Widget _buildDetail(EntryResponse entry) {
+    _maybeAutoDecrypt(entry);
     final d = _decrypted;
     // Tags live in the encrypted data, so they show once decrypted.
     final tags = d == null ? const <String>[] : tagsOf(d);

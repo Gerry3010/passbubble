@@ -104,6 +104,16 @@ class _FakeAuth extends AuthService {
   Future<void> refreshAutofill() async {}
 }
 
+/// A locked vault: no private keys in memory.
+class _LockedAuth extends _FakeAuth {
+  _LockedAuth(super.api, super.keys);
+
+  @override
+  Uint8List? get privX25519 => null;
+  @override
+  Uint8List? get privMLKEM => null;
+}
+
 class _FakeApi extends ApiClient {
   final EntryResponse entry;
 
@@ -131,7 +141,7 @@ class _LoggedInAuth extends AuthNotifier {
   }
 }
 
-Widget _app(_FakeApi api, _Keys keys, String location) {
+Widget _app(_FakeApi api, _Keys keys, String location, {bool locked = false}) {
   final router = GoRouter(
     initialLocation: location,
     routes: [
@@ -157,7 +167,8 @@ Widget _app(_FakeApi api, _Keys keys, String location) {
   return ProviderScope(
     overrides: [
       apiClientProvider.overrideWithValue(api),
-      authServiceProvider.overrideWithValue(_FakeAuth(api, keys)),
+      authServiceProvider
+          .overrideWithValue(locked ? _LockedAuth(api, keys) : _FakeAuth(api, keys)),
     ],
     child: MaterialApp.router(routerConfig: router),
   );
@@ -225,10 +236,20 @@ void main() {
     Future<void> openDecrypted(WidgetTester tester) async {
       _useTallView(tester);
       await tester.pumpWidget(_app(_FakeApi(entry), keys, '/entries/e1'));
+      // The unlocked vault decrypts on open, no tap on DECRYPT needed.
       await tester.pumpAndSettle();
-      await tester.tap(find.text('DECRYPT'));
-      await tester.pumpAndSettle();
+      expect(find.text('DECRYPT'), findsNothing);
     }
+
+    testWidgets('a locked vault does not decrypt on open and keeps DECRYPT',
+        (tester) async {
+      _useTallView(tester);
+      await tester.pumpWidget(_app(_FakeApi(entry), keys, '/entries/e1', locked: true));
+      await tester.pumpAndSettle();
+      expect(find.text('DECRYPT'), findsOneWidget);
+      expect(find.text('alice@example.com'), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+    });
 
     testWidgets('plaintext fields are selectable, masked secrets are not',
         (tester) async {
@@ -560,11 +581,8 @@ void main() {
       final entry = (await tester.runAsync(
           () => keys.encryptEntry({'password': 'pw', 'tags': ['Work', 'client a']})))!;
       await tester.pumpWidget(_app(_FakeApi(entry), keys, '/entries/e1'));
-      await tester.pumpAndSettle();
-      // Tags are part of the encrypted data.
-      expect(find.widgetWithText(ActionChip, 'Work'), findsNothing);
-
-      await tester.tap(find.text('DECRYPT'));
+      // Tags are part of the encrypted data; they show once the entry has
+      // decrypted itself on open.
       await tester.pumpAndSettle();
       expect(find.widgetWithText(ActionChip, 'Work'), findsOneWidget);
 
@@ -677,8 +695,6 @@ void main() {
         );
         await tester.pumpWidget(_loggedIn(_FakeApi(vault.first, vault: vault), keys,
             MaterialApp.router(routerConfig: router)));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('DECRYPT'));
         await tester.pumpAndSettle();
 
         await tester.tap(find.widgetWithText(ActionChip, 'client'));
