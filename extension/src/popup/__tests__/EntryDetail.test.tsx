@@ -84,6 +84,21 @@ describe('EntryDetail', () => {
     expect(screen.queryByText('4711')).toBeNull();
   });
 
+  it("shows the entry's tags, normalised", async () => {
+    sendMessage.mockResolvedValue({ data: { username: 'octocat', tags: ['#Work ', 'work', 'client', 42] } });
+    render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+    const list = await screen.findByRole('list', { name: 'Tags' });
+    expect(Array.from(list.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['#Work', '#client']);
+  });
+
+  it('shows no tag list for an entry without tags', async () => {
+    sendMessage.mockResolvedValue({ data: { username: 'octocat' } });
+    render(<EntryDetail entry={entry} onBack={() => {}} />);
+    await waitFor(() => expect(screen.getByText('octocat')).toBeDefined());
+    expect(screen.queryByRole('list', { name: 'Tags' })).toBeNull();
+  });
+
   it('shows a lock message when the vault is locked', async () => {
     sendMessage.mockResolvedValue({ locked: true });
     render(<EntryDetail entry={entry} onBack={() => {}} />);

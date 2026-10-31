@@ -261,4 +261,167 @@ describe('EntryList', () => {
       expect(screen.queryByText('No entries found')).toBeNull();
     });
   });
+
+  describe('tags', () => {
+    const entries = [
+      { ...makeEntry('1', 'GitHub', 'https://github.com'), match_patterns: ['github.com'] },
+      makeEntry('2', 'GitLab', 'https://gitlab.com'),
+      makeEntry('3', 'Bank'),
+      makeEntry('4', 'Untagged'),
+    ];
+    const entryTags = { '1': ['Work', 'client'], '2': ['work'], '3': ['private'] };
+
+    function search(value: string) {
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Search entries' }), { target: { value } });
+    }
+
+    function chip(tag: string) {
+      return screen.getByRole('button', { name: `#${tag}` });
+    }
+
+    it('lists the vault tags as chips, first spelling, sorted case-insensitively', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+      const group = screen.getByRole('group', { name: 'Filter by tag' });
+      const names = Array.from(group.querySelectorAll('button')).map((b) => b.textContent);
+      expect(names).toEqual(['#client', '#private', '#Work']);
+    });
+
+    it("shows an entry's tags in its row", () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+      expect(screen.getByText('#Work #client')).toBeDefined();
+    });
+
+    it('shows no tag chips when the vault has no tags', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries }));
+      render(<EntryList />);
+      expect(screen.queryByRole('group', { name: 'Filter by tag' })).toBeNull();
+    });
+
+    it('filters by a #tag token in the search box, case-insensitively', async () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+      search('#WORK');
+      await waitFor(() => {
+        expect(screen.getByText('GitHub')).toBeDefined();
+        expect(screen.getByText('GitLab')).toBeDefined();
+        expect(screen.queryByText('Bank')).toBeNull();
+        expect(screen.queryByText('Untagged')).toBeNull();
+      });
+      expect(chip('Work').getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('combines several #tags (AND) with the text search', async () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+
+      search('#work #client');
+      await waitFor(() => {
+        expect(screen.getByText('GitHub')).toBeDefined();
+        expect(screen.queryByText('GitLab')).toBeNull();
+      });
+
+      search('#work lab');
+      await waitFor(() => {
+        expect(screen.getByText('GitLab')).toBeDefined();
+        expect(screen.queryByText('GitHub')).toBeNull();
+      });
+    });
+
+    it('plain text search also finds tag text', async () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+      search('priv');
+      await waitFor(() => {
+        expect(screen.getByText('Bank')).toBeDefined();
+        expect(screen.queryByText('GitHub')).toBeNull();
+      });
+    });
+
+    it('finds nothing for a tag no entry has', async () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+      search('#nope');
+      await waitFor(() => expect(screen.getByText('No entries found')).toBeDefined());
+    });
+
+    it('a chip toggles its tag filter on and off', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+
+      fireEvent.click(chip('private'));
+      expect(chip('private').getAttribute('aria-pressed')).toBe('true');
+      expect(screen.getByText('Bank')).toBeDefined();
+      expect(screen.queryByText('GitHub')).toBeNull();
+
+      fireEvent.click(chip('private'));
+      expect(chip('private').getAttribute('aria-pressed')).toBe('false');
+      expect(screen.getByText('GitHub')).toBeDefined();
+      expect(screen.getByText('Untagged')).toBeDefined();
+    });
+
+    it('chips and #tokens add up (AND)', async () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+      fireEvent.click(chip('client'));
+      search('#work');
+      await waitFor(() => {
+        expect(screen.getByText('GitHub')).toBeDefined();
+        expect(screen.queryByText('GitLab')).toBeNull();
+      });
+    });
+
+    it('switching off a typed tag via its chip removes it from the search box', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+      search('git #work');
+
+      fireEvent.click(chip('Work'));
+      const box = screen.getByRole('searchbox', { name: 'Search entries' }) as HTMLInputElement;
+      expect(box.value).toBe('git');
+      expect(chip('Work').getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('"clear" drops every tag filter but keeps the text', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags }));
+      render(<EntryList />);
+      fireEvent.click(chip('client'));
+      search('hub #work');
+
+      fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+      const box = screen.getByRole('searchbox', { name: 'Search entries' }) as HTMLInputElement;
+      expect(box.value).toBe('hub');
+      expect(chip('client').getAttribute('aria-pressed')).toBe('false');
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+    });
+
+    it('a chip replaces the current-site placeholder filter', () => {
+      mockUseStore.mockReturnValue(defaultStore({ entries, entryTags, currentHost: 'github.com' }));
+      render(<EntryList />);
+      expect(screen.getByText(/matches for github\.com/)).toBeDefined();
+
+      fireEvent.click(chip('Work'));
+      expect(screen.queryByText(/matches for/)).toBeNull();
+      expect(screen.getByText('GitHub')).toBeDefined();
+      expect(screen.getByText('GitLab')).toBeDefined();
+      expect(screen.getByPlaceholderText(/grep entries/i)).toBeDefined();
+    });
+
+    it('collapses a long tag list behind "+N more", keeping active chips visible', () => {
+      const many = Array.from({ length: 11 }, (_, i) => `t${String(i).padStart(2, '0')}`);
+      mockUseStore.mockReturnValue(defaultStore({ entries: [makeEntry('1', 'A')], entryTags: { '1': many } }));
+      render(<EntryList />);
+
+      expect(screen.queryByRole('button', { name: '#t10' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '+3 more' }));
+      fireEvent.click(chip('t10'));
+      fireEvent.click(screen.getByRole('button', { name: 'less' }));
+
+      // Collapsed again: the first eight plus the active one.
+      expect(chip('t10').getAttribute('aria-pressed')).toBe('true');
+      expect(screen.queryByRole('button', { name: '#t09' })).toBeNull();
+      expect(screen.getByRole('button', { name: '+2 more' })).toBeDefined();
+    });
+  });
 });

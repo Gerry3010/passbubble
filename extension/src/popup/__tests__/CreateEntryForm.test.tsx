@@ -98,4 +98,65 @@ describe('CreateEntryForm', () => {
       expect((screen.getByPlaceholderText('Password') as HTMLInputElement).value).toBe('Gen3rated!'),
     );
   });
+
+  describe('tags', () => {
+    async function submitWithTags(value: string) {
+      fireEvent.change(screen.getByPlaceholderText('Name'), { target: { value: 'GitHub' } });
+      fireEvent.change(screen.getByRole('textbox', { name: 'Tags' }), { target: { value } });
+      await act(async () => {
+        fireEvent.submit(screen.getByRole('button', { name: /save entry/i }).closest('form')!);
+      });
+    }
+
+    it('sends the comma-separated tags normalised', async () => {
+      sendMessage.mockResolvedValue({ id: 'e1' });
+      render(<CreateEntryForm onCreated={() => {}} onCancel={() => {}} />);
+      await submitWithTags(' #Work, client,, work ,  my   team ');
+
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MessageType.CREATE_ENTRY,
+          payload: expect.objectContaining({ data: { tags: ['Work', 'client', 'my team'] } }),
+        }),
+      );
+    });
+
+    it('sends tags for non-login types too', async () => {
+      sendMessage.mockResolvedValue({ id: 'e1' });
+      render(<CreateEntryForm onCreated={() => {}} onCancel={() => {}} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Note' }));
+      fireEvent.change(screen.getByPlaceholderText('Notes'), { target: { value: 'hello' } });
+      await submitWithTags('private');
+
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ type: 'note', data: { notes: 'hello', tags: ['private'] } }),
+        }),
+      );
+    });
+
+    it('refuses a tag longer than 40 characters with a message instead of dropping it', async () => {
+      const onCreated = vi.fn();
+      render(<CreateEntryForm onCreated={onCreated} onCancel={() => {}} />);
+      await submitWithTags(`work, ${'x'.repeat(41)}`);
+
+      // Shown live under the input and again as the submit error.
+      expect(screen.getAllByText(/tags can be at most 40 characters/i).length).toBeGreaterThan(0);
+      expect(sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: MessageType.CREATE_ENTRY }));
+      expect(onCreated).not.toHaveBeenCalled();
+    });
+
+    it('offers vault tags matching the tag being typed and completes on click', () => {
+      render(
+        <CreateEntryForm onCreated={() => {}} onCancel={() => {}} vaultTags={['client', 'home', 'Work', 'workshop']} />,
+      );
+      const box = screen.getByRole('textbox', { name: 'Tags' }) as HTMLInputElement;
+
+      fireEvent.change(box, { target: { value: 'Work, wo' } });
+      // "Work" is already entered, so only "workshop" is offered.
+      expect(screen.queryByRole('button', { name: '#Work' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '#workshop' }));
+      expect(box.value).toBe('Work, workshop, ');
+    });
+  });
 });

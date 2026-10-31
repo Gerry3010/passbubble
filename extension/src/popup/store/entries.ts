@@ -25,6 +25,9 @@ interface EntriesState {
   /** Decrypted usernames keyed by entry id, so search can match usernames
    * (which are E2E-encrypted and not part of the metadata entry list). */
   usernames: Record<string, string>;
+  /** Decrypted tags keyed by entry id (entries without tags are absent), for
+   * the tag filter. Like usernames they live in the encrypted entry data. */
+  entryTags: Record<string, string[]>;
   /** Host of the active tab (sans leading "www."), used to pre-filter on open. */
   currentHost: string;
   isLoading: boolean;
@@ -83,6 +86,7 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
   entries: [],
   folders: [],
   usernames: {},
+  entryTags: {},
   currentHost: '',
   isLoading: false,
   error: null,
@@ -90,8 +94,9 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
   load: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [entriesResp, foldersResp, host, usernamesResp] = await Promise.all([
-        browser.runtime.sendMessage({ type: MessageType.SEARCH_ENTRIES, payload: { query: '' } }),
+      const entriesReq = browser.runtime.sendMessage({ type: MessageType.SEARCH_ENTRIES, payload: { query: '' } });
+      const [entriesResp, foldersResp, host, usernamesResp, tagsResp] = await Promise.all([
+        entriesReq,
         browser.runtime.sendMessage({ type: MessageType.LIST_FOLDERS, payload: {} }),
         activeTabHost(),
         // Best-effort: search-by-username works once these resolve; a failure
@@ -99,6 +104,11 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
         browser.runtime
           .sendMessage({ type: MessageType.GET_USERNAMES, payload: {} })
           .catch(() => ({ usernames: {} })),
+        // Same for tags. Asked only once the entry listing is in: the
+        // background checks its tags cache against that fresh listing.
+        entriesReq
+          .then(() => browser.runtime.sendMessage({ type: MessageType.LIST_ENTRY_TAGS, payload: {} }))
+          .catch(() => ({ tags: {} })),
       ]);
       // Locked / signed out in the background (auto-lock, rejected refresh
       // token): switch to the unlock or login screen instead of an empty list.
@@ -110,11 +120,16 @@ export const useEntriesStore = create<EntriesState>((set, get) => ({
         usernamesResp && typeof usernamesResp === 'object' && 'usernames' in usernamesResp
           ? ((usernamesResp as { usernames?: Record<string, string> }).usernames ?? {})
           : {};
+      const entryTags =
+        tagsResp && typeof tagsResp === 'object' && 'tags' in tagsResp
+          ? ((tagsResp as { tags?: Record<string, string[]> }).tags ?? {})
+          : {};
       set({
         entries: Array.isArray(entriesResp) ? (entriesResp as EntryResponse[]) : [],
         folders: Array.isArray(foldersResp) ? flattenFolders(foldersResp as FolderResponse[]) : [],
         currentHost: host,
         usernames,
+        entryTags,
         isLoading: false,
       });
     } catch (e) {

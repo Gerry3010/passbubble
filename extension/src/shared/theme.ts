@@ -69,6 +69,21 @@ export const buttonGhost: CSSProperties = {
   fontSize: '13px',
 };
 
+/** Small `#tag` chip (filter toggle, suggestion, read-only label). */
+export const tagChip: CSSProperties = {
+  ...buttonGhost,
+  padding: '1px 6px',
+  fontSize: '11px',
+  color: term.muted,
+};
+
+/** A tag chip that is switched on. */
+export const tagChipActive: CSSProperties = {
+  ...buttonPrimary,
+  padding: '1px 6px',
+  fontSize: '11px',
+};
+
 /** Bare text link (no border/background). */
 export const link: CSSProperties = {
   background: 'none',

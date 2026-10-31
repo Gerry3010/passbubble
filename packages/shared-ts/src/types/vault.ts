@@ -67,8 +67,13 @@ export interface EntryData {
   purchase_date?: string;
   expires_at?: string;
   // universal
-  // type as set by the app: 'text' (default), 'password', 'ssh', 'totp', 'file'
-  custom_fields?: Array<{ label: string; value: string; type?: string }>;
+  // type as set by the app: 'text' (default), 'password', 'ssh', 'totp', 'file';
+  // file fields also carry filename + mime_type. Writers must keep keys they
+  // do not know about.
+  custom_fields?: Array<{ label: string; value: string; type?: string; filename?: string; mime_type?: string }>;
+  // Free-form labels for filtering, normalised on save (see vault/tags.ts).
+  // The key is omitted when an entry has no tags.
+  tags?: string[];
 }
 
 // In-memory session state held in the background service worker.

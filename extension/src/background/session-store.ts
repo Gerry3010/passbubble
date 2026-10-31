@@ -31,6 +31,7 @@ import { b64Dec, b64Enc } from '../shared/utils.js';
 
 let session: UnlockedSession | null = null;
 let entriesCache: EntryResponse[] | null = null;
+let entryTagsCache: EntryTagsCache | null = null;
 
 // JSON-safe shape of an UnlockedSession in storage.session (byte arrays as base64).
 interface StoredSession {
@@ -114,10 +115,12 @@ export async function setSession(s: UnlockedSession): Promise<void> {
   }
 }
 
-/** Lock: drop the session from memory AND storage.session, plus the entries cache. */
+/** Lock: drop the session from memory AND storage.session, plus the entries
+ * and tags caches. */
 export async function clearSession(): Promise<void> {
   session = null;
   entriesCache = null;
+  entryTagsCache = null;
   try {
     await browser.storage.session.remove(STORAGE_KEYS.UNLOCKED_SESSION);
   } catch {
@@ -149,6 +152,28 @@ export function getEntriesCache(): EntryResponse[] | null {
 
 export function setEntriesCache(entries: EntryResponse[]): void {
   entriesCache = entries;
+}
+
+// Decrypted tags per entry id for the popup's tag filter (memory only, like
+// the entries cache). `stamp` fingerprints the entry listing the tags were
+// read for (ids + updated_at), so an entry added, removed or rewritten — here
+// or on another device — makes the cache stale on the next listing refresh.
+export interface EntryTagsCache {
+  stamp: string;
+  tags: Record<string, string[]>;
+}
+
+export function getEntryTagsCache(): EntryTagsCache | null {
+  return entryTagsCache;
+}
+
+export function setEntryTagsCache(cache: EntryTagsCache): void {
+  entryTagsCache = cache;
+}
+
+/** Drop the tags cache after an entry's encrypted data was written. */
+export function clearEntryTagsCache(): void {
+  entryTagsCache = null;
 }
 
 // Host of the frame that has a login form, per tab. The login form often lives

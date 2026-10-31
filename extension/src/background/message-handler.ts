@@ -32,6 +32,8 @@ import {
   generatePinSalt,
   clampPwIntervalDays,
   pwIntervalElapsed,
+  putTags,
+  tagsOf,
   PIN_KDF_TIME,
   PIN_KDF_MEMORY,
   DEFAULT_PIN_MAX_TRIES,
@@ -46,11 +48,14 @@ import {
 } from '../shared/constants.js';
 import {
   adoptSession,
+  clearEntryTagsCache,
+  getEntryTagsCache,
   getLastFilledEntry,
   getLoginFrameHost,
   getSession,
   readStoredSession,
   setEntriesCache,
+  setEntryTagsCache,
   setLastFilledEntry,
   setLoginFrameHost,
   setSession,
@@ -206,6 +211,16 @@ async function entriesForMatching(session: UnlockedSession): Promise<EntryRespon
     if (err instanceof VaultLockedError) throw err;
     return [];
   }
+}
+
+/** Fingerprint of an entry listing for the tags cache. It changes whenever an
+ * entry is added, removed or has its data rewritten (the server bumps
+ * updated_at), here or on another device. */
+function listingStamp(entries: EntryResponse[]): string {
+  return entries
+    .map((e) => `${e.id}@${e.updated_at}`)
+    .sort()
+    .join('|');
 }
 
 // Gets fresh tokens (persisting the rotated refresh token first), builds the
@@ -595,6 +610,31 @@ export function buildHandlers(): Record<string, Handler> {
       return { usernames };
     },
 
+    // Decrypt the tags of every entry for the popup's tag filter, in bulk like
+    // GET_USERNAMES. Cached until the entry listing changes (the popup refreshes
+    // it via SEARCH_ENTRIES right before asking), an entry is written here, or
+    // the vault locks. Entries without tags are left out of the map.
+    [MessageType.LIST_ENTRY_TAGS]: async () => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const stamp = listingStamp(await loadEntriesCache(session));
+      const cached = getEntryTagsCache();
+      if (cached?.stamp === stamp) return { tags: cached.tags };
+      const full = await vaultClient(session).listEntriesFull();
+      const tags: Record<string, string[]> = {};
+      for (const entry of full) {
+        try {
+          const entryTags = tagsOf(await decryptEntry(entry, session));
+          if (entryTags.length) tags[entry.id] = entryTags;
+        } catch {
+          // skip entries we cannot read
+        }
+      }
+      // A lock while decrypting already cleared the cache — don't refill it.
+      if (getSession()) setEntryTagsCache({ stamp, tags });
+      return { tags };
+    },
+
     [MessageType.FILL_ENTRY]: async (payload, sender) => {
       const session = getSession();
       if (!session) return { locked: true };
@@ -742,9 +782,12 @@ export function buildHandlers(): Record<string, Handler> {
         folderId?: string;
         matchPatterns?: string[];
       };
+      // Tags are normalised on save whoever sent them (popup form, import).
+      if (data && 'tags' in data) putTags(data, data.tags);
       const client = vaultClient(session);
       const result = await createEntry(client, name, type, url, data, session, folderId, matchPatterns);
       // Invalidate cache
+      clearEntryTagsCache();
       const entries = await client.listEntries();
       setEntriesCache(entries);
       return result;
@@ -936,6 +979,7 @@ export function buildHandlers(): Record<string, Handler> {
       const client = vaultClient(session);
       const data = { username: pending.username, password: pending.password } as EntryData;
       const result = await createEntry(client, pending.name || pending.url, 'password', pending.url, data, session);
+      clearEntryTagsCache();
       setEntriesCache(await client.listEntries());
       await browser.storage.session.remove(STORAGE_KEYS.PENDING_SAVE);
       await setSaveBadge(false);
@@ -960,17 +1004,24 @@ export function buildHandlers(): Record<string, Handler> {
 
       const client = vaultClient(session);
       // Merge into the entry's existing data — overwriting with just
-      // username+password would silently drop totp_secret, notes, sign_in_with….
+      // username+password would silently drop totp_secret, notes, tags and any
+      // key another client wrote. An entry that cannot be read is therefore
+      // left alone; the pending save stays, so it can still be saved as new.
+      let apiEntry: EntryResponse;
       let data: EntryData;
       try {
-        data = (await decryptEntry(await client.getEntry(entryId), session)) ?? {};
-      } catch {
-        data = {};
+        apiEntry = await client.getEntry(entryId);
+        data = (await decryptEntry(apiEntry, session)) ?? {};
+      } catch (err) {
+        if (err instanceof VaultLockedError) throw err;
+        return { ok: false, error: 'Could not read the existing entry — nothing was changed.' };
       }
       data.username = pending.username;
       data.password = pending.password;
       const encrypted = await encryptEntry(data, session);
-      await client.updateEntry(entryId, { ...encrypted });
+      // folder_id is echoed back because the backend always overwrites it.
+      await client.updateEntry(entryId, { ...encrypted, folder_id: apiEntry.folder_id });
+      clearEntryTagsCache();
       setEntriesCache(await client.listEntries());
       await browser.storage.session.remove(STORAGE_KEYS.PENDING_SAVE);
       await setSaveBadge(false);

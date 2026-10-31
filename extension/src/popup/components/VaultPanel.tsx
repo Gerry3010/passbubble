@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { collectTags } from '@passbubble/shared-ts';
 import type { EntryResponse } from '@passbubble/shared-ts';
 import { EntryList } from './EntryList.js';
 import { EntryDetail } from './EntryDetail.js';
@@ -27,6 +28,8 @@ type View = { kind: 'list' } | { kind: 'detail'; entry: EntryResponse } | { kind
 export function VaultPanel() {
   const [view, setView] = useState<View>({ kind: 'list' });
   const load = useEntriesStore((s) => s.load);
+  const entryTags = useEntriesStore((s) => s.entryTags);
+  const vaultTags = useMemo(() => collectTags(Object.values(entryTags)), [entryTags]);
 
   if (view.kind === 'detail') {
     return <EntryDetail entry={view.entry} onBack={() => setView({ kind: 'list' })} />;
@@ -34,6 +37,7 @@ export function VaultPanel() {
   if (view.kind === 'create') {
     return (
       <CreateEntryForm
+        vaultTags={vaultTags}
         onCancel={() => setView({ kind: 'list' })}
         onCreated={() => {
           void load();

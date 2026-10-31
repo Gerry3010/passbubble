@@ -33,6 +33,9 @@ export const MessageType = {
   // Bulk-decrypted usernames ({ [id]: username }) so the popup can search by
   // username without decrypting every entry's full data on demand.
   GET_USERNAMES: 'GET_USERNAMES',
+  // Bulk-decrypted tags ({ tags: { [id]: string[] } }) for the popup's tag
+  // filter. Cached in the background; entries without tags are left out.
+  LIST_ENTRY_TAGS: 'LIST_ENTRY_TAGS',
   CREATE_ENTRY: 'CREATE_ENTRY',
   UPDATE_ENTRY: 'UPDATE_ENTRY',
   DELETE_ENTRY: 'DELETE_ENTRY',

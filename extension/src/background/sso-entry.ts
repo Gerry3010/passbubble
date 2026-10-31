@@ -19,7 +19,7 @@
 // as a fallback for sites without a matching entry.
 
 import { decryptEntry, encryptEntry } from '@passbubble/shared-ts';
-import { getSession, setEntriesCache } from './session-store.js';
+import { clearEntryTagsCache, getSession, setEntriesCache } from './session-store.js';
 import { loadEntriesCache, vaultClient } from './vault-client.js';
 import { matchEntriesForUrl } from './autofill-service.js';
 import { isSsoProvider, type SsoProvider } from '../shared/sso.js';
@@ -68,7 +68,10 @@ export async function ssoFromEntries(
  * Write (provider) or clear (null) sign_in_with on every login entry matching
  * `host`. No-ops when locked or when nothing would change, so repeated calls
  * don't pile up entry versions. Best-effort per entry (read-only shares fail
- * server-side and are skipped).
+ * server-side and are skipped). Only sign_in_with changes: every other key of
+ * the decrypted data (tags, custom fields, keys this client does not know) is
+ * written back as read, and the folder is echoed back because the backend
+ * always overwrites folder_id.
  */
 export async function persistSsoToEntries(host: string, provider: SsoProvider | null): Promise<void> {
   const session = getSession();
@@ -77,18 +80,20 @@ export async function persistSsoToEntries(host: string, provider: SsoProvider | 
   let changed = false;
   for (const m of await loginMatchesFor(`https://${host}/`, session)) {
     try {
-      const data = await decryptEntry(await client.getEntry(m.id), session);
+      const apiEntry = await client.getEntry(m.id);
+      const data = await decryptEntry(apiEntry, session);
       if ((data.sign_in_with ?? null) === provider) continue;
       if (provider) data.sign_in_with = provider;
       else delete data.sign_in_with;
       const encrypted = await encryptEntry(data, session);
-      await client.updateEntry(m.id, { ...encrypted });
+      await client.updateEntry(m.id, { ...encrypted, folder_id: apiEntry.folder_id });
       changed = true;
     } catch {
       // read-only share / decryption failure — skip this entry
     }
   }
   if (changed) {
+    clearEntryTagsCache();
     try {
       setEntriesCache(await client.listEntries());
     } catch {

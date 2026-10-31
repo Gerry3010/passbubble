@@ -68,6 +68,7 @@ const getEntryMock = vi.hoisted(() => vi.fn(async (id: string) => ({ id })));
 const updateEntryMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const listEntriesMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const getEntriesCacheMock = vi.hoisted(() => vi.fn());
+const clearEntryTagsCacheMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../session-store.js', () => ({
   // Include valid-length public keys so assertCanEncrypt() passes (ML-KEM-768
@@ -84,6 +85,7 @@ vi.mock('../session-store.js', () => ({
   adoptSession: vi.fn(),
   getEntriesCache: getEntriesCacheMock,
   setEntriesCache: vi.fn(),
+  clearEntryTagsCache: clearEntryTagsCacheMock,
 }));
 
 vi.mock('@passbubble/shared-ts', () => ({
@@ -117,6 +119,7 @@ describe('credential save flow', () => {
     getEntryMock.mockClear();
     getEntriesCacheMock.mockReset();
     getEntriesCacheMock.mockReturnValue(undefined); // no existing entries by default
+    clearEntryTagsCacheMock.mockClear();
   });
 
   it('OFFER_SAVE stashes a pending save that GET_PENDING_SAVE returns', async () => {
@@ -248,5 +251,59 @@ describe('credential save flow', () => {
       entry_keys: [{ user_id: 'u', encrypted_key: 'ek' }],
     });
     expect(sessionStore[STORAGE_KEYS.PENDING_SAVE]).toBeUndefined();
+  });
+
+  it('UPDATE_SAVE keeps tags, custom-field keys and keys it does not know', async () => {
+    const handlers = buildHandlers();
+    const existing = {
+      username: 'alice',
+      password: 'oldpw',
+      tags: ['work', 'client'],
+      custom_fields: [
+        { label: 'Contract', value: 'Y29udHJhY3Q=', type: 'file', filename: 'contract.pdf', mime_type: 'application/pdf' },
+      ],
+      written_by_a_newer_app: { nested: true },
+    };
+    decryptEntryMock.mockResolvedValue(structuredClone(existing));
+    sessionStore[STORAGE_KEYS.PENDING_SAVE] = {
+      name: 'Example', url: 'https://example.com/login', username: 'alice', password: 'newpw',
+    };
+
+    const res = (await handlers[MessageType.UPDATE_SAVE]({ entryId: 'e1' }, {})) as { ok?: boolean };
+
+    expect(res.ok).toBe(true);
+    expect(encryptEntryMock.mock.calls[0][0]).toEqual({ ...existing, password: 'newpw' });
+    expect(clearEntryTagsCacheMock).toHaveBeenCalled();
+  });
+
+  it('UPDATE_SAVE leaves the entry in its folder', async () => {
+    const handlers = buildHandlers();
+    getEntryMock.mockResolvedValueOnce({ id: 'e1', folder_id: 'f-work' } as never);
+    decryptEntryMock.mockResolvedValue({ username: 'alice', password: 'oldpw' });
+    sessionStore[STORAGE_KEYS.PENDING_SAVE] = {
+      name: 'Example', url: 'https://example.com/login', username: 'alice', password: 'newpw',
+    };
+
+    await handlers[MessageType.UPDATE_SAVE]({ entryId: 'e1' }, {});
+
+    // The backend always overwrites folder_id, so it must be sent back.
+    expect(updateEntryMock).toHaveBeenCalledWith('e1', expect.objectContaining({ folder_id: 'f-work' }));
+  });
+
+  it('UPDATE_SAVE refuses to overwrite an entry it cannot read', async () => {
+    const handlers = buildHandlers();
+    decryptEntryMock.mockRejectedValue(new Error('OperationError'));
+    sessionStore[STORAGE_KEYS.PENDING_SAVE] = {
+      name: 'Example', url: 'https://example.com/login', username: 'alice', password: 'newpw',
+    };
+
+    const res = (await handlers[MessageType.UPDATE_SAVE]({ entryId: 'e1' }, {})) as { ok?: boolean; error?: string };
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/nothing was changed/);
+    expect(encryptEntryMock).not.toHaveBeenCalled();
+    expect(updateEntryMock).not.toHaveBeenCalled();
+    // The offer survives, so the user can still save it as a new entry.
+    expect(sessionStore[STORAGE_KEYS.PENDING_SAVE]).toBeDefined();
   });
 });

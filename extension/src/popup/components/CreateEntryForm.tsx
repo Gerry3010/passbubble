@@ -15,12 +15,19 @@
 
 import { useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
-import { base32Decode, parseOtpauthUri } from '@passbubble/shared-ts';
+import {
+  base32Decode,
+  normalizeTags,
+  parseOtpauthUri,
+  parseTagInput,
+  suggestTags,
+  tagInputError,
+} from '@passbubble/shared-ts';
 import type { EntryData } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
 import { handleLockedResponse } from '../store/session.js';
 import { SSO_PROVIDER_LABELS } from '../../shared/sso.js';
-import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled } from '../../shared/theme.js';
+import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled, tagChip } from '../../shared/theme.js';
 
 // Accepts a 2FA setup value as pasted by the user — either an otpauth:// URI
 // (the QR-code payload) or a bare base32 secret — and returns the EntryData
@@ -56,15 +63,38 @@ const ENTRY_TYPES = [
 
 type EntryType = (typeof ENTRY_TYPES)[number]['value'];
 
-export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
+export function CreateEntryForm({
+  onCreated,
+  onCancel,
+  vaultTags = [],
+}: {
+  onCreated: () => void;
+  onCancel: () => void;
+  /** Tags already used in the vault, offered as completions. */
+  vaultTags?: string[];
+}) {
   const [type, setType] = useState<EntryType>('password');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [totp, setTotp] = useState('');
+  // Comma-separated; normalised on save.
+  const [tagsText, setTagsText] = useState('');
   // All other per-type values, keyed by their EntryData field name.
   const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The tag being typed is the text after the last comma; vault tags that
+  // match it are offered as completions.
+  const tagParts = tagsText.split(',');
+  const typingTag = tagParts[tagParts.length - 1];
+  const enteredTags = normalizeTags(tagParts.slice(0, -1));
+  const tagError = tagParts.map(tagInputError).find((e) => e !== null) ?? null;
+  const tagSuggestions = suggestTags(vaultTags, typingTag, { exclude: enteredTags, limit: 6 });
+
+  function pickTag(tag: string) {
+    setTagsText([...enteredTags, tag].join(', ') + ', ');
+  }
 
   const f = (key: string) => fields[key] ?? '';
   const setF = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -147,6 +177,12 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
       setError('2FA secret is not a valid base32 string or otpauth:// URI');
       return;
     }
+    const { tags, error: tagsError } = parseTagInput(tagsText);
+    if (tagsError) {
+      setError(tagsError);
+      return;
+    }
+    if (tags.length > 0) data.tags = tags;
     setBusy(true);
     setError(null);
     try {
@@ -270,6 +306,24 @@ export function CreateEntryForm({ onCreated, onCancel }: { onCreated: () => void
           value={f('notes')}
           onChange={setF('notes')}
         />
+      )}
+
+      <input
+        style={input}
+        placeholder="Tags (comma-separated, optional)"
+        aria-label="Tags"
+        value={tagsText}
+        onChange={(e) => setTagsText(e.target.value)}
+      />
+      {tagError && <span style={{ ...errorText, fontSize: '11px' }}>{tagError}</span>}
+      {tagSuggestions.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+          {tagSuggestions.map((t) => (
+            <button key={t} type="button" onClick={() => pickTag(t)} style={tagChip}>
+              #{t}
+            </button>
+          ))}
+        </div>
       )}
 
       <button type="submit" disabled={busy} style={withDisabled(buttonPrimary, busy)}>

@@ -15,9 +15,33 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useEntriesStore } from '../store/entries.js';
+import {
+  cleanTag,
+  collectTags,
+  containsTag,
+  hasAllTags,
+  normalizeTags,
+  parseTagQuery,
+  sameTag,
+} from '@passbubble/shared-ts';
 import type { EntryResponse, FolderResponse } from '@passbubble/shared-ts';
 import { patternMatchesHost } from '../../shared/utils.js';
-import { term, input, buttonPrimary, buttonGhost, link, muted } from '../../shared/theme.js';
+import { term, input, buttonPrimary, buttonGhost, link, muted, tagChip, tagChipActive } from '../../shared/theme.js';
+
+const NO_TAGS: string[] = [];
+const NO_ENTRY_TAGS: Record<string, string[]> = {};
+
+// Tag chips shown before the "+N more" toggle; active chips always show.
+const TAG_CHIP_LIMIT = 8;
+
+/** `query` without its `#tag` tokens for `tag` (case-insensitive). */
+function removeTagTokens(query: string, tag: string): string {
+  return query
+    .split(/\s+/)
+    .filter((token) => !(token.startsWith('#') && sameTag(cleanTag(token), tag)))
+    .join(' ')
+    .trim();
+}
 
 interface CopyState {
   entryId: string;
@@ -35,6 +59,7 @@ export function EntryList({
     entries,
     folders,
     usernames,
+    entryTags = NO_ENTRY_TAGS,
     currentHost,
     isLoading,
     load,
@@ -47,35 +72,53 @@ export function EntryList({
   const [folderId, setFolderId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState<CopyState | null>(null);
+  // Tags switched on via the chips; `#tag` tokens in the query filter as well.
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [allTagsShown, setAllTagsShown] = useState(false);
 
   useEffect(() => {
     void load();
   }, []);
 
+  // `#tag` tokens in the query and the selected chips filter together (an
+  // entry needs all of them); the remaining words are the text search.
+  const parsed = useMemo(() => parseTagQuery(query), [query]);
+  const activeTags = useMemo(() => normalizeTags([...selectedTags, ...parsed.tags]), [selectedTags, parsed.tags]);
+  const vaultTags = useMemo(
+    () => collectTags(entries.map((e) => entryTags[e.id] ?? NO_TAGS)),
+    [entries, entryTags],
+  );
+
   // The active tab's host is only the placeholder, never the field's value: the
-  // popup opens on the current site's credentials, and typing replaces the host
-  // instead of appending to it. "show all" (or a host without matches) falls
-  // back to the folder browser.
-  const typed = query.trim().toLowerCase();
-  const hostQuery = !showAll && currentHost ? currentHost.toLowerCase() : '';
+  // popup opens on the current site's credentials, and typing (or picking a
+  // tag) replaces the host instead of adding to it. "show all" (or a host
+  // without matches) falls back to the folder browser.
+  const typed = parsed.text.toLowerCase();
+  const filtering = typed.length > 0 || activeTags.length > 0;
+  const hostQuery =
+    !showAll && !query.trim() && selectedTags.length === 0 && currentHost ? currentHost.toLowerCase() : '';
   const q = typed || hostQuery;
 
   const matches = useMemo(() => {
-    if (!q) return [];
+    if (!q && activeTags.length === 0) return [];
     return entries.filter(
       (e) =>
-        e.name.toLowerCase().includes(q) ||
-        (e.url ?? '').toLowerCase().includes(q) ||
-        (usernames[e.id] ?? '').toLowerCase().includes(q) ||
-        // Match patterns: substring (partial typing) OR wildcard host-match, so a
-        // query like "gist.github.com" also finds an entry whose pattern is
-        // "*.github.com". (Add/remove stay exact — only search expands wildcards.)
-        (e.match_patterns ?? []).some((p) => p.toLowerCase().includes(q) || patternMatchesHost(q, p)),
+        hasAllTags(entryTags[e.id] ?? NO_TAGS, activeTags) &&
+        (!q ||
+          e.name.toLowerCase().includes(q) ||
+          (e.url ?? '').toLowerCase().includes(q) ||
+          (usernames[e.id] ?? '').toLowerCase().includes(q) ||
+          // Typed text also finds tag text, like in the app (not the host prefill).
+          (!!typed && (entryTags[e.id] ?? NO_TAGS).some((t) => t.toLowerCase().includes(typed))) ||
+          // Match patterns: substring (partial typing) OR wildcard host-match, so a
+          // query like "gist.github.com" also finds an entry whose pattern is
+          // "*.github.com". (Add/remove stay exact — only search expands wildcards.)
+          (e.match_patterns ?? []).some((p) => p.toLowerCase().includes(q) || patternMatchesHost(q, p))),
     );
-  }, [entries, usernames, q]);
+  }, [entries, usernames, entryTags, q, typed, activeTags]);
 
-  const hostMode = !typed && hostQuery.length > 0 && matches.length > 0;
-  const searching = typed.length > 0 || hostMode;
+  const hostMode = !filtering && hostQuery.length > 0 && matches.length > 0;
+  const searching = filtering || hostMode;
   const results = searching ? matches : [];
 
   // Folder-browser view (empty search): folders + entries at the current level.
@@ -99,6 +142,23 @@ export function EntryList({
     await copyField(entryId, field);
     setCopied({ entryId, field });
     setTimeout(() => setCopied(null), 1500);
+  }
+
+  // A chip switches its tag on or off. A tag typed as `#tag` is switched off
+  // by removing the token from the query, so the field never disagrees with
+  // the chips.
+  function toggleTag(tag: string) {
+    if (containsTag(parsed.tags, tag)) {
+      setQuery(removeTagTokens(query, tag));
+      setSelectedTags((prev) => prev.filter((t) => !sameTag(t, tag)));
+      return;
+    }
+    setSelectedTags((prev) => (containsTag(prev, tag) ? prev.filter((t) => !sameTag(t, tag)) : [...prev, tag]));
+  }
+
+  function clearTags() {
+    setSelectedTags([]);
+    if (parsed.tags.length > 0) setQuery(parsed.text);
   }
 
   function countInFolder(id: string): number {
@@ -131,6 +191,17 @@ export function EntryList({
           </button>
         )}
       </div>
+
+      {vaultTags.length > 0 && (
+        <TagFilter
+          tags={vaultTags}
+          active={activeTags}
+          expanded={allTagsShown}
+          onToggle={toggleTag}
+          onToggleExpanded={() => setAllTagsShown((v) => !v)}
+          onClear={clearTags}
+        />
+      )}
 
       {/* Breadcrumb when browsing inside a folder */}
       {!searching && currentFolder && (
@@ -166,6 +237,7 @@ export function EntryList({
           <EntryItem
             key={entry.id}
             entry={entry}
+            tags={entryTags[entry.id] ?? NO_TAGS}
             copied={copied}
             currentHost={currentHost}
             onCopy={handleCopy}
@@ -176,6 +248,49 @@ export function EntryList({
           />
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** The vault's tags as toggle chips. Collapsed to TAG_CHIP_LIMIT chips (plus
+ * any active ones) until expanded. */
+function TagFilter({
+  tags,
+  active,
+  expanded,
+  onToggle,
+  onToggleExpanded,
+  onClear,
+}: {
+  tags: string[];
+  active: string[];
+  expanded: boolean;
+  onToggle: (tag: string) => void;
+  onToggleExpanded: () => void;
+  onClear: () => void;
+}) {
+  const visible = expanded ? tags : tags.filter((t, i) => i < TAG_CHIP_LIMIT || containsTag(active, t));
+  const hidden = tags.length - visible.length;
+  return (
+    <div role="group" aria-label="Filter by tag" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+      {visible.map((t) => {
+        const on = containsTag(active, t);
+        return (
+          <button key={t} aria-pressed={on} onClick={() => onToggle(t)} style={on ? tagChipActive : tagChip}>
+            #{t}
+          </button>
+        );
+      })}
+      {tags.length > TAG_CHIP_LIMIT && (hidden > 0 || expanded) && (
+        <button onClick={onToggleExpanded} style={{ ...link, fontSize: '11px' }}>
+          {expanded ? 'less' : `+${hidden} more`}
+        </button>
+      )}
+      {active.length > 0 && (
+        <button onClick={onClear} style={{ ...link, fontSize: '11px', color: term.muted }}>
+          clear
+        </button>
+      )}
     </div>
   );
 }
@@ -212,6 +327,7 @@ function FolderRow({
 
 function EntryItem({
   entry,
+  tags,
   copied,
   currentHost,
   onCopy,
@@ -221,6 +337,7 @@ function EntryItem({
   onToggleFavorite,
 }: {
   entry: EntryResponse;
+  tags: string[];
   copied: CopyState | null;
   currentHost: string;
   onCopy: (id: string, field: 'username' | 'password') => void;
@@ -299,6 +416,20 @@ function EntryItem({
           }}
         >
           {entry.url}
+        </span>
+      )}
+      {tags.length > 0 && (
+        <span
+          style={{
+            color: term.muted,
+            fontSize: '11px',
+            display: 'block',
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {tags.map((t) => `#${t}`).join(' ')}
         </span>
       )}
       <div style={{ display: 'flex', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>

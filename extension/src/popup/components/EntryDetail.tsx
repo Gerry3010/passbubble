@@ -15,12 +15,12 @@
 
 import { useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
-import { generateTotp } from '@passbubble/shared-ts';
+import { generateTotp, tagsOf } from '@passbubble/shared-ts';
 import type { EntryData, EntryResponse } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
 import { handleLockedResponse } from '../store/session.js';
 import { isSsoProvider, SSO_PROVIDER_LABELS } from '../../shared/sso.js';
-import { term, link, muted, errorText } from '../../shared/theme.js';
+import { term, link, muted, errorText, tagChip } from '../../shared/theme.js';
 
 export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: () => void }) {
   const [data, setData] = useState<EntryData | null>(null);
@@ -65,6 +65,8 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
     };
   }, [data?.totp_secret]);
 
+  const tags = tagsOf(data);
+
   function copy(value: string) {
     void navigator.clipboard.writeText(value);
   }
@@ -90,6 +92,15 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
       <button onClick={onBack} style={link}>‹ Back</button>
       <h3 style={{ margin: 0, fontSize: '15px', color: term.green }}>{entry.name}</h3>
       {entry.url && <div style={{ color: term.muted, fontSize: '11px' }}>{entry.url}</div>}
+      {tags.length > 0 && (
+        <ul aria-label="Tags" style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+          {tags.map((t) => (
+            <li key={t} style={{ ...tagChip, cursor: 'default' }}>
+              #{t}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {error && <p style={errorText}>{error}</p>}
       {!data && !error && <p style={muted}>Loading…</p>}
