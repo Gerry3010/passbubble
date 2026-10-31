@@ -32,7 +32,11 @@ const (
 	charsetAmb    = "0Ol1I"
 )
 
-// Generate handles POST /api/v1/generate
+// Generate handles POST /api/v1/generate.
+//
+// Legacy: the app, the extension and the CLI generate passwords locally now,
+// so the server never sees them. This endpoint stays only for older app
+// builds and can be removed once those are gone.
 func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	req, err := decode[models.GenerateRequest](r)
 	if err != nil {
