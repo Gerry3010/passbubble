@@ -24,6 +24,8 @@ import {
   encryptEntry,
   createEntry,
   computeHealthReport,
+  checkStrength,
+  generatePassword,
   generateTotp,
   deriveKey,
   aesGcmDecrypt,
@@ -73,6 +75,7 @@ import {
   revokeServerSession,
   vaultClient,
 } from './vault-client.js';
+import { mergeGeneratorOptions, readGeneratorDefaults } from '../shared/generator-defaults.js';
 import { matchEntriesForUrl } from './autofill-service.js';
 import { deleteSsoRecord, getSsoRecord, noteSsoCandidate } from './sso-memory.js';
 import { persistSsoToEntries, ssoFromEntries } from './sso-entry.js';
@@ -880,11 +883,23 @@ export function buildHandlers(): Record<string, Handler> {
       return { ok: true };
     },
 
+    // Generated locally from the stored defaults; any GeneratorOptions fields in
+    // the payload override them for this call. Needs neither an unlocked vault
+    // nor the server. Response: { passwords: [{ password, strength }] }, or
+    // { error } when the options cannot produce a password.
     [MessageType.GENERATE]: async (payload) => {
-      const session = getSession();
-      if (!session) return { locked: true };
-      const client = vaultClient(session);
-      return client.generate(payload as Parameters<typeof client.generate>[0]);
+      const options = mergeGeneratorOptions(await readGeneratorDefaults(), payload);
+      const requested = Number(payload.count ?? 1);
+      const count = Number.isFinite(requested) ? Math.min(20, Math.max(1, Math.round(requested))) : 1;
+      try {
+        const passwords = Array.from({ length: count }, () => {
+          const password = generatePassword(options);
+          return { password, strength: checkStrength(password).score };
+        });
+        return { passwords };
+      } catch (err) {
+        return { error: errorMessage(err) };
+      }
     },
 
     // Open the toolbar popup so the user can unlock / sign in — triggered by the

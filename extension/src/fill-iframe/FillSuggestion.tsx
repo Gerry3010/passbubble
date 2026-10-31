@@ -14,8 +14,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import type { EntryResponse } from '@passbubble/shared-ts';
-import { term } from '../shared/theme.js';
+import type { EntryResponse, GeneratorOptions } from '@passbubble/shared-ts';
+import { term, link, withDisabled } from '../shared/theme.js';
+import { GeneratorOptionsForm } from '../shared/GeneratorOptionsForm.js';
+import { GeneratorPreview } from '../shared/GeneratorPreview.js';
+import { useGenerator, useGeneratorDefaults } from '../shared/useGenerator.js';
 
 // The padlock glyph from the Passbubble brand icon (assets/svg/icon-extension.svg),
 // drawn in currentColor so it adopts the button's text colour. viewBox frames just
@@ -42,8 +45,76 @@ interface TypedInfo {
   items: { id: string; name: string; hint: string }[];
 }
 
+const primaryButton = {
+  background: term.green,
+  color: term.bg,
+  border: `1px solid ${term.green}`,
+  borderRadius: '4px',
+  padding: '6px 12px',
+  fontSize: '12px',
+  fontWeight: 700,
+  cursor: 'pointer',
+  fontFamily: term.font,
+} as const;
+
+// Generate mode on a signup form. This is an extension page, so the password is
+// generated right here (crypto.getRandomValues) from the stored defaults; only
+// the one the user picks goes back to the page, via FILL_USE_GENERATED.
+function FillGenerator({
+  initialPassword,
+  allowOptions,
+  onUse,
+}: {
+  initialPassword?: string;
+  allowOptions: boolean;
+  onUse: (password: string) => void;
+}) {
+  const defaults = useGeneratorDefaults();
+  if (!defaults) return <span style={{ color: term.muted, fontSize: '12px' }}>Generating…</span>;
+  return <FillGeneratorBody defaults={defaults} initialPassword={initialPassword} allowOptions={allowOptions} onUse={onUse} />;
+}
+
+function FillGeneratorBody({
+  defaults,
+  initialPassword,
+  allowOptions,
+  onUse,
+}: {
+  defaults: GeneratorOptions;
+  initialPassword?: string;
+  allowOptions: boolean;
+  onUse: (password: string) => void;
+}) {
+  const gen = useGenerator(defaults, initialPassword);
+  const [showOptions, setShowOptions] = useState(false);
+  const canUse = !!gen.password && !gen.error;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <GeneratorPreview password={gen.password} error={gen.error} onRegenerate={gen.regenerate} />
+      {allowOptions && (
+        <button
+          type="button"
+          onClick={() => setShowOptions((v) => !v)}
+          aria-expanded={showOptions}
+          style={{ ...link, alignSelf: 'flex-start', fontSize: '11px', color: term.muted }}
+        >
+          {showOptions ? '▾' : '▸'} options
+        </button>
+      )}
+      {showOptions && <GeneratorOptionsForm value={gen.options} onChange={gen.setOptions} />}
+      <button type="button" onClick={() => onUse(gen.password)} disabled={!canUse} style={withDisabled(primaryButton, !canUse)}>
+        Use password
+      </button>
+      <span style={{ color: term.muted, fontSize: '11px' }}>
+        Fills the password field. Passbubble offers to save the login when you submit the form.
+      </span>
+    </div>
+  );
+}
+
 export function FillSuggestion() {
   const [matches, setMatches] = useState<EntryResponse[]>([]);
+  const [generate, setGenerate] = useState(false);
   const [generatePassword, setGeneratePassword] = useState<string | undefined>(undefined);
   const [totp, setTotp] = useState<TotpInfo | undefined>(undefined);
   const [typed, setTyped] = useState<TypedInfo | undefined>(undefined);
@@ -67,10 +138,20 @@ export function FillSuggestion() {
 
   // Tell the embedding content script our real content height so it can size the
   // iframe exactly — otherwise the fixed-height iframe shows an empty area below.
-  useLayoutEffect(() => {
+  const reportHeight = () => {
     const h = rootRef.current?.getBoundingClientRect().height ?? 0;
     if (h > 0) window.parent.postMessage({ type: 'FILL_RESIZE', height: h }, '*');
-  }, [matches, generatePassword, totp, typed, sso, copiedCode, locked]);
+  };
+  useLayoutEffect(reportHeight, [matches, generate, generatePassword, totp, typed, sso, copiedCode, locked]);
+  // Content that changes size on its own (the generator's options, a longer
+  // password or an error) is caught by observing the card itself.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(reportHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // TOTP countdown. When it runs out, ask the embedder once for the next code
   // (FILL_TOTP_UPDATE arrives if the vault can still produce one).
@@ -96,6 +177,7 @@ export function FillSuggestion() {
       const msg = event.data as {
         type: string;
         matches?: EntryResponse[];
+        generate?: boolean;
         generatePassword?: string;
         totp?: TotpInfo;
         typed?: TypedInfo;
@@ -107,7 +189,8 @@ export function FillSuggestion() {
       };
       if (msg.type === 'FILL_INIT') {
         setMatches(Array.isArray(msg.matches) ? msg.matches : []);
-        setGeneratePassword(msg.generatePassword);
+        setGenerate(msg.generate === true || typeof msg.generatePassword === 'string');
+        setGeneratePassword(typeof msg.generatePassword === 'string' ? msg.generatePassword : undefined);
         setTotp(msg.totp);
         setTyped(msg.typed);
         setSso(msg.sso);
@@ -142,8 +225,8 @@ export function FillSuggestion() {
     window.parent.postMessage({ type: 'FILL_SELECTED', entryId }, '*');
   }
 
-  function useGenerated() {
-    if (generatePassword) window.parent.postMessage({ type: 'FILL_USE_GENERATED', password: generatePassword }, '*');
+  function fillGenerated(password: string) {
+    if (password) window.parent.postMessage({ type: 'FILL_USE_GENERATED', password }, '*');
   }
 
   function unlock() {
@@ -164,12 +247,11 @@ export function FillSuggestion() {
     window.parent.postMessage({ type: 'FILL_TYPED_SELECTED', entryId }, '*');
   }
 
-  const isGenerate = typeof generatePassword === 'string';
   const title = copiedCode
     ? '2fa'
     : locked
       ? 'locked'
-      : isGenerate
+      : generate
         ? 'generate'
         : totp
           ? '2fa'
@@ -248,39 +330,10 @@ export function FillSuggestion() {
             )}
           </button>
         </div>
-      ) : isGenerate ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div
-            style={{
-              border: `1px solid ${term.border}`,
-              background: term.surface,
-              borderRadius: '4px',
-              padding: '6px 8px',
-              color: term.green,
-              fontSize: '13px',
-              wordBreak: 'break-all',
-            }}
-          >
-            {generatePassword}
-          </div>
-          <button
-            onClick={useGenerated}
-            style={{
-              background: term.green,
-              color: term.bg,
-              border: `1px solid ${term.green}`,
-              borderRadius: '4px',
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              fontFamily: term.font,
-            }}
-          >
-            Use &amp; save
-          </button>
-          <span style={{ color: term.muted, fontSize: '11px' }}>Fills the password and saves a new entry.</span>
-        </div>
+      ) : generate ? (
+        // Flutter web (keepFocus): presses here never take the focus, so the
+        // options' text fields could not be typed into — offer regenerate only.
+        <FillGenerator initialPassword={generatePassword} allowOptions={!keepFocus} onUse={fillGenerated} />
       ) : totp ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {totp.entryName && (

@@ -18,17 +18,19 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 
 const sendMessage = vi.hoisted(() => vi.fn());
 const tabsQuery = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+const syncGet = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('webextension-polyfill', () => ({
-  default: { runtime: { sendMessage }, tabs: { query: tabsQuery } },
+  default: { runtime: { sendMessage }, tabs: { query: tabsQuery }, storage: { sync: { get: syncGet } } },
 }));
 
 import { CreateEntryForm } from '../components/CreateEntryForm.js';
-import { MessageType } from '../../shared/constants.js';
+import { MessageType, STORAGE_KEYS } from '../../shared/constants.js';
 
 describe('CreateEntryForm', () => {
   beforeEach(() => {
     sendMessage.mockReset();
     tabsQuery.mockReset().mockResolvedValue([]);
+    syncGet.mockReset().mockResolvedValue({});
   });
 
   it('requires a name', async () => {
@@ -88,15 +90,67 @@ describe('CreateEntryForm', () => {
     expect((screen.getByPlaceholderText('Name') as HTMLInputElement).value).toBe('');
   });
 
-  it('fills the password from the generator', async () => {
-    sendMessage.mockResolvedValue({ passwords: [{ password: 'Gen3rated!', strength: 90 }] });
-    render(<CreateEntryForm onCreated={() => {}} onCancel={() => {}} />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /generate/i }));
+  describe('generator dialog', () => {
+    const passwordField = () => screen.getByPlaceholderText('Password') as HTMLInputElement;
+    const shownPassword = () => screen.getByRole('status', { name: 'Generated password' }).textContent ?? '';
+
+    async function openGenerator() {
+      render(<CreateEntryForm onCreated={() => {}} onCancel={() => {}} />);
+      fireEvent.change(passwordField(), { target: { value: 'typed-before' } });
+      fireEvent.click(screen.getByRole('button', { name: /^generate$/i }));
+      await screen.findByRole('status', { name: 'Generated password' });
+    }
+
+    it('opens with the stored defaults and leaves the field alone until OK', async () => {
+      syncGet.mockResolvedValue({ [STORAGE_KEYS.GENERATOR_DEFAULTS]: { length: 24, symbols: false } });
+      await openGenerator();
+      expect(screen.getByRole('dialog', { name: /generate password/i })).toBeDefined();
+      expect(shownPassword()).toMatch(/^[a-zA-Z0-9]{24}$/);
+      expect(passwordField().value).toBe('typed-before');
+      // Generated locally — no GENERATE round-trip to the background.
+      expect(sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: MessageType.GENERATE }));
     });
-    await waitFor(() =>
-      expect((screen.getByPlaceholderText('Password') as HTMLInputElement).value).toBe('Gen3rated!'),
-    );
+
+    it('OK writes the password shown after Regenerate and option changes', async () => {
+      await openGenerator();
+      fireEvent.click(screen.getByRole('button', { name: /regenerate/i }));
+      fireEvent.change(screen.getByRole('slider', { name: 'Length' }), { target: { value: '30' } });
+      const chosen = shownPassword();
+      expect(Array.from(chosen)).toHaveLength(30);
+
+      fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+      expect(passwordField().value).toBe(chosen);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('Cancel closes the dialog and leaves the field unchanged', async () => {
+      await openGenerator();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(passwordField().value).toBe('typed-before');
+    });
+
+    it('Escape cancels too', async () => {
+      await openGenerator();
+      fireEvent.keyDown(screen.getByRole('button', { name: 'OK' }), { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(passwordField().value).toBe('typed-before');
+    });
+
+    it('OK is disabled while the options cannot produce a password', async () => {
+      await openGenerator();
+      fireEvent.change(screen.getByRole('textbox', { name: 'Symbol set' }), { target: { value: '' } });
+      expect(shownPassword()).toMatch(/symbol set is empty/i);
+      expect((screen.getByRole('button', { name: 'OK' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('Enter in the dialog does not submit the entry', async () => {
+      await openGenerator();
+      const symbolSet = screen.getByRole('textbox', { name: 'Symbol set' });
+      fireEvent.keyDown(symbolSet, { key: 'Enter' });
+      expect(symbolSet.closest('form')).toBeNull();
+      expect(sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: MessageType.CREATE_ENTRY }));
+    });
   });
 
   describe('tags', () => {

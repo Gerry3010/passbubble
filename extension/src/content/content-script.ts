@@ -156,13 +156,13 @@ function autofillConfirmField(form: DetectedForm, password: string): void {
   setTimeout(() => obs.disconnect(), 5000);
 }
 
-// A generated password is cached per origin so re-showing the box on the same
-// site (e.g. when the confirm field is focused) reuses it instead of generating
-// a fresh — otherwise the confirm field would never match.
+// The generated password the user picked is cached per origin so re-showing the
+// box on the same site (e.g. when the confirm field is focused) offers it again
+// instead of a fresh one — otherwise the confirm field would never match.
 let cachedGenerated: { origin: string; password: string } | null = null;
 
 // Show the fill suggestion for a focused login/signup field. Login forms get the
-// match list; signup forms get a generated password that is auto-saved on use.
+// match list; signup forms get the password generator box.
 async function showFillFor(form: DetectedForm): Promise<void> {
   const { usernameField, passwordField } = form;
   const anchor = anchorFor(form);
@@ -192,28 +192,20 @@ async function showFillFor(form: DetectedForm): Promise<void> {
   }
 
   if (form.isSignup) {
-    // Register form → offer a generated password (cached per origin so the
-    // confirm field reuses the same one) that we auto-save once.
-    const origin = location.origin;
-    let password = cachedGenerated?.origin === origin ? cachedGenerated.password : undefined;
-    if (!password) {
-      const gen = await safeSend<{ passwords?: { password: string }[] }>({
-        type: MessageType.GENERATE,
-        payload: { length: 20, include_symbols: true, count: 1 },
-      });
-      password = gen?.passwords?.[0]?.password;
-      if (!password) return;
-      cachedGenerated = { origin, password };
-    }
+    // Register form → the box generates a password itself (extension page,
+    // stored defaults, regenerate/options) and hands back the one the user
+    // picked. A password already used on this origin is offered again, so the
+    // confirm field gets the same value.
     if (!stillFocused()) return;
-
-    const pw = password;
+    const origin = location.origin;
+    const previous = cachedGenerated?.origin === origin ? cachedGenerated.password : undefined;
     injectFillIframe(
       anchor,
-      { generatePassword: pw },
+      { generate: true, generatePassword: previous },
       {
         onFillMatch: () => {},
-        onUseGenerated: () => {
+        onUseGenerated: (pw) => {
+          cachedGenerated = { origin, password: pw };
           // Only fill — never create an entry here. The username/email field is
           // often still empty at generation time, so saving is deferred to the
           // submit-time save-detector, which offers an in-page "save?" bar (and

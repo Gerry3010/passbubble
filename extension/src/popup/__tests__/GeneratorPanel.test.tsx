@@ -15,109 +15,104 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { GeneratorPanel } from '../components/GeneratorPanel.js';
 
+const syncGet = vi.hoisted(() => vi.fn());
+const syncSet = vi.hoisted(() => vi.fn());
+const sendMessage = vi.hoisted(() => vi.fn());
 vi.mock('webextension-polyfill', () => ({
   default: {
-    runtime: { sendMessage: vi.fn() },
+    runtime: { sendMessage, openOptionsPage: vi.fn() },
+    storage: { sync: { get: syncGet, set: syncSet } },
   },
 }));
 
-import browser from 'webextension-polyfill';
+import { GeneratorPanel } from '../components/GeneratorPanel.js';
+import { STORAGE_KEYS } from '../../shared/constants.js';
 
-const mockSendMessage = browser.runtime.sendMessage as ReturnType<typeof vi.fn>;
+const codePoints = (s: string) => Array.from(s);
+
+async function renderPanel() {
+  render(<GeneratorPanel />);
+  return screen.findByRole('status', { name: 'Generated password' });
+}
+
+function shownPassword(): string {
+  return screen.getByRole('status', { name: 'Generated password' }).textContent ?? '';
+}
 
 describe('GeneratorPanel', () => {
   beforeEach(() => {
-    mockSendMessage.mockResolvedValue({
-      passwords: [{ password: 'Xk!2@mN9#p', strength: 88 }],
-    });
+    syncGet.mockResolvedValue({});
+    sendMessage.mockRejectedValue(new Error('the generator must not ask the background'));
   });
 
-  it('renders the Generate button', () => {
-    render(<GeneratorPanel />);
-    expect(screen.getByRole('button', { name: /generate/i })).toBeDefined();
+  it('generates locally on open, with the factory defaults', async () => {
+    await renderPanel();
+    const pw = shownPassword();
+    expect(codePoints(pw)).toHaveLength(20);
+    expect(pw).toMatch(/[a-z]/);
+    expect(pw).toMatch(/[A-Z]/);
+    expect(pw).toMatch(/[0-9]/);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.getByText(/strong|weak|moderate/i)).toBeDefined();
   });
 
-  it('sends a GENERATE message to the SW when Generate is clicked', async () => {
-    render(<GeneratorPanel />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /generate/i }));
+  it('starts from the stored defaults', async () => {
+    syncGet.mockResolvedValue({
+      [STORAGE_KEYS.GENERATOR_DEFAULTS]: { length: 32, uppercase: false, symbols: false },
     });
-
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'GENERATE' }),
-    );
+    await renderPanel();
+    const pw = shownPassword();
+    expect(pw).toMatch(/^[a-z0-9]{32}$/);
+    expect((screen.getByRole('slider', { name: 'Length' }) as HTMLInputElement).value).toBe('32');
+    expect((screen.getByRole('checkbox', { name: /uppercase/i }) as HTMLInputElement).checked).toBe(false);
   });
 
-  it('displays the generated password after clicking Generate', async () => {
-    render(<GeneratorPanel />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /generate/i }));
-    });
-    expect(screen.getByText('Xk!2@mN9#p')).toBeDefined();
+  it('Regenerate makes a new password', async () => {
+    await renderPanel();
+    const first = shownPassword();
+    fireEvent.click(screen.getByRole('button', { name: /regenerate/i }));
+    expect(shownPassword()).not.toBe(first);
   });
 
-  it('renders a strength meter with the returned strength value', async () => {
-    render(<GeneratorPanel />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /generate/i }));
-    });
-    expect(screen.getByText('88/100')).toBeDefined();
+  it('regenerates on every option change and follows the options', async () => {
+    await renderPanel();
+    fireEvent.change(screen.getByRole('slider', { name: 'Length' }), { target: { value: '40' } });
+    expect(codePoints(shownPassword())).toHaveLength(40);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /symbols/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /uppercase/i }));
+    expect(shownPassword()).toMatch(/^[a-z0-9]{40}$/);
   });
 
-  it('copies the generated password to clipboard when Copy is clicked', async () => {
-    render(<GeneratorPanel />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /generate/i }));
-    });
+  it('uses only the symbols from the symbol set', async () => {
+    await renderPanel();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Symbol set' }), { target: { value: '-_' } });
+    const symbols = codePoints(shownPassword()).filter((ch) => !/[a-zA-Z0-9]/.test(ch));
+    expect(symbols.length).toBeGreaterThan(0);
+    for (const ch of symbols) expect('-_').toContain(ch);
+  });
+
+  it('says so when the symbol set is empty, and offers nothing to copy', async () => {
+    await renderPanel();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Symbol set' }), { target: { value: '  ' } });
+    expect(shownPassword()).toMatch(/symbol set is empty/i);
+    expect((screen.getByRole('button', { name: /copy to clipboard/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('does not save option changes as defaults', async () => {
+    await renderPanel();
+    fireEvent.change(screen.getByRole('slider', { name: 'Length' }), { target: { value: '64' } });
+    expect(syncSet).not.toHaveBeenCalled();
+  });
+
+  it('copies the shown password and confirms', async () => {
+    await renderPanel();
+    const pw = shownPassword();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /copy to clipboard/i }));
     });
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('Xk!2@mN9#p');
-  });
-
-  it('shows Copied! text briefly after copying', async () => {
-    render(<GeneratorPanel />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /generate/i }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /copy to clipboard/i }));
-    });
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(pw);
     expect(screen.getByRole('button', { name: /copied!/i })).toBeDefined();
-  });
-
-  it('disables the Generate button and shows loading text while waiting', async () => {
-    let resolve: (v: unknown) => void;
-    mockSendMessage.mockReturnValue(new Promise((r) => { resolve = r; }));
-
-    render(<GeneratorPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /generate/i }));
-
-    const btn = screen.getByRole('button') as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    expect(btn.textContent).toMatch(/generating/i);
-
-    await act(async () => {
-      resolve!({ passwords: [{ password: 'abc', strength: 60 }] });
-    });
-  });
-
-  it('includes the length and symbols settings in the GENERATE payload', async () => {
-    render(<GeneratorPanel />);
-
-    // Change length slider to 32
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '32' } });
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /generate/i }));
-    });
-
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload: expect.objectContaining({ length: 32 }),
-      }),
-    );
   });
 });

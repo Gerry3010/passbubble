@@ -19,6 +19,7 @@ import { ImportSection } from './components/ImportSection.js';
 import { BlocklistSection } from './components/BlocklistSection.js';
 import { PinSection } from './components/PinSection.js';
 import { AutoLockSection } from './components/AutoLockSection.js';
+import { GeneratorSection } from './components/GeneratorSection.js';
 import { term } from '../shared/theme.js';
 
 export function App() {
@@ -31,6 +32,7 @@ export function App() {
       <ServerUrlForm />
       <PinSection />
       <AutoLockSection />
+      <GeneratorSection />
       <ImportSection />
       <BlocklistSection />
       <section style={{ color: term.muted, fontSize: '13px' }}>

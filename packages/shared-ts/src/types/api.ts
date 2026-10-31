@@ -144,28 +144,6 @@ export interface UserSearchResult {
   created_at: string;
 }
 
-export interface GenerateRequest {
-  type?: string;
-  length?: number;
-  count?: number;
-  exclude_ambiguous?: boolean;
-  include_symbols?: boolean;
-  include_numbers?: boolean;
-  include_uppercase?: boolean;
-  include_lowercase?: boolean;
-  words?: number;
-  separator?: string;
-}
-
-export interface GeneratedPassword {
-  password: string;
-  strength: number;
-}
-
-export interface GenerateResponse {
-  passwords: GeneratedPassword[];
-}
-
 export interface ApiErrorBody {
   error: string;
 }

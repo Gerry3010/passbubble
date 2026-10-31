@@ -91,6 +91,10 @@ export const STORAGE_KEYS = {
   // browser closes, since the unlocked session lives in storage.session). Default
   // applied by readers is AUTO_LOCK_DEFAULT_MINUTES.
   AUTO_LOCK_MINUTES: 'auto_lock_minutes',
+  // Password generator defaults (a GeneratorOptions object), edited on the
+  // options page. Readers fall back to DEFAULT_GENERATOR_OPTIONS per field
+  // (see shared/generator-defaults.ts).
+  GENERATOR_DEFAULTS: 'generator_defaults',
   // chrome.storage.local — device-local, persists across browser restarts
   SAVE_BLOCKLIST: 'save_blocklist',
   // Per-host "signs in with <provider>" records ({ [host]: { provider,

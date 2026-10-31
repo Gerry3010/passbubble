@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Must be hoisted before importing the module under test
 vi.mock('webextension-polyfill', () => ({
@@ -37,36 +37,42 @@ vi.mock('../session-store.js', () => ({
   setEntriesCache: vi.fn(),
 }));
 
-vi.mock('@passbubble/shared-ts', () => ({
-  PassbubbleClient: vi.fn().mockImplementation(() => ({
-    setTokens: vi.fn(),
-    generate: vi.fn().mockResolvedValue({
-      passwords: [{ password: 'P@ssw0rd!', strength: 85 }],
-    }),
-    listEntries: vi.fn().mockResolvedValue([]),
-    searchEntries: vi.fn().mockResolvedValue([]),
-    getEntry: vi.fn().mockResolvedValue({ id: '1', name: 'Test', type: 'password', owner_id: 'u1', created_at: '', updated_at: '' }),
-    refresh: vi.fn().mockResolvedValue({ access_token: 'at', refresh_token: 'rt', expires_in: 900 }),
-  })),
-  unlock: vi.fn(),
-  decryptEntry: vi.fn().mockResolvedValue({ username: 'alice', password: 'secret' }),
-  encryptEntry: vi.fn(),
-  createEntry: vi.fn(),
-  // PIN crypto: control-flow helpers use real logic; the heavy crypto is mocked
-  // (its round-trip is covered by shared-ts pin.test.ts).
-  deriveKey: vi.fn().mockResolvedValue(new Uint8Array(32)),
-  aesGcmDecrypt: vi.fn().mockResolvedValue(new Uint8Array(32)),
-  wrapMasterKeyWithPin: vi.fn().mockResolvedValue(new Uint8Array(48)),
-  unlockWithPin: vi.fn(),
-  generatePinSalt: vi.fn(() => new Uint8Array(16)),
-  clampPwIntervalDays: (d: number) => Math.min(60, Math.max(1, Math.round(d || 14))),
-  pwIntervalElapsed: (last: number, days: number, now: number = Date.now()) =>
-    now - last >= Math.min(60, Math.max(1, days || 14)) * 86400000,
-  PIN_KDF_TIME: 3,
-  PIN_KDF_MEMORY: 65536,
-  DEFAULT_PIN_MAX_TRIES: 5,
-  DEFAULT_PIN_PW_INTERVAL_DAYS: 14,
-}));
+vi.mock('@passbubble/shared-ts', async (importOriginal) => {
+  // The password generator is pure local code — use the real one.
+  const actual = await importOriginal<typeof import('@passbubble/shared-ts')>();
+  return {
+    generatePassword: actual.generatePassword,
+    checkStrength: actual.checkStrength,
+    DEFAULT_GENERATOR_OPTIONS: actual.DEFAULT_GENERATOR_OPTIONS,
+    GENERATOR_MIN_LENGTH: actual.GENERATOR_MIN_LENGTH,
+    GENERATOR_MAX_LENGTH: actual.GENERATOR_MAX_LENGTH,
+    PassbubbleClient: vi.fn().mockImplementation(() => ({
+      setTokens: vi.fn(),
+      listEntries: vi.fn().mockResolvedValue([]),
+      searchEntries: vi.fn().mockResolvedValue([]),
+      getEntry: vi.fn().mockResolvedValue({ id: '1', name: 'Test', type: 'password', owner_id: 'u1', created_at: '', updated_at: '' }),
+      refresh: vi.fn().mockResolvedValue({ access_token: 'at', refresh_token: 'rt', expires_in: 900 }),
+    })),
+    unlock: vi.fn(),
+    decryptEntry: vi.fn().mockResolvedValue({ username: 'alice', password: 'secret' }),
+    encryptEntry: vi.fn(),
+    createEntry: vi.fn(),
+    // PIN crypto: control-flow helpers use real logic; the heavy crypto is mocked
+    // (its round-trip is covered by shared-ts pin.test.ts).
+    deriveKey: vi.fn().mockResolvedValue(new Uint8Array(32)),
+    aesGcmDecrypt: vi.fn().mockResolvedValue(new Uint8Array(32)),
+    wrapMasterKeyWithPin: vi.fn().mockResolvedValue(new Uint8Array(48)),
+    unlockWithPin: vi.fn(),
+    generatePinSalt: vi.fn(() => new Uint8Array(16)),
+    clampPwIntervalDays: (d: number) => Math.min(60, Math.max(1, Math.round(d || 14))),
+    pwIntervalElapsed: (last: number, days: number, now: number = Date.now()) =>
+      now - last >= Math.min(60, Math.max(1, days || 14)) * 86400000,
+    PIN_KDF_TIME: 3,
+    PIN_KDF_MEMORY: 65536,
+    DEFAULT_PIN_MAX_TRIES: 5,
+    DEFAULT_PIN_PW_INTERVAL_DAYS: 14,
+  };
+});
 
 import browser from 'webextension-polyfill';
 import { unlockWithPin, PassbubbleClient } from '@passbubble/shared-ts';
@@ -212,18 +218,47 @@ describe('buildHandlers', () => {
     });
   });
 
-  describe('GENERATE when session is active', () => {
-    it('proxies the request to the API client and returns the response', async () => {
-      mockGetSession.mockReturnValue(makeSession());
-      const result = await handlers['GENERATE']({ length: 20, include_symbols: true, count: 1 }) as Record<string, unknown>;
-      expect(result).toHaveProperty('passwords');
-      expect((result.passwords as unknown[]).length).toBeGreaterThan(0);
+  describe('GENERATE', () => {
+    type Generated = { passwords: { password: string; strength: number }[] };
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('generates locally with the factory defaults, without a session or the server', async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+      const clientsBefore = mockClient.mock.calls.length;
+      mockGetSession.mockReturnValue(null);
+      mockBrowser.storage.sync.get.mockResolvedValue({});
+
+      const result = (await handlers['GENERATE']({}, {})) as Generated;
+
+      expect(result.passwords).toHaveLength(1);
+      const [{ password, strength }] = result.passwords;
+      expect(Array.from(password)).toHaveLength(20);
+      expect(password).toMatch(/[a-z]/);
+      expect(password).toMatch(/[A-Z]/);
+      expect(password).toMatch(/[0-9]/);
+      expect(strength).toBeGreaterThan(0);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(mockClient.mock.calls.length).toBe(clientsBefore);
     });
 
-    it('returns { locked: true } when session is null', async () => {
-      mockGetSession.mockReturnValue(null);
-      const result = await handlers['GENERATE']({ length: 20 });
-      expect(result).toEqual({ locked: true });
+    it('starts from the stored defaults and applies payload overrides', async () => {
+      mockBrowser.storage.sync.get.mockResolvedValue({
+        [STORAGE_KEYS.GENERATOR_DEFAULTS]: { length: 30, symbols: false, uppercase: false },
+      });
+      const stored = (await handlers['GENERATE']({}, {})) as Generated;
+      expect(stored.passwords[0].password).toMatch(/^[a-z0-9]{30}$/);
+
+      const overridden = (await handlers['GENERATE']({ length: 12, uppercase: true, count: 3 }, {})) as Generated;
+      expect(overridden.passwords).toHaveLength(3);
+      for (const { password } of overridden.passwords) expect(password).toMatch(/^[a-zA-Z0-9]{12}$/);
+    });
+
+    it('returns an error instead of throwing for unusable options', async () => {
+      mockBrowser.storage.sync.get.mockResolvedValue({});
+      const result = await handlers['GENERATE']({ symbolSet: ' ' }, {});
+      expect(result).toEqual({ error: expect.stringMatching(/symbol set is empty/i) });
     });
   });
 

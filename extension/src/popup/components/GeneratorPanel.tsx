@@ -15,118 +15,58 @@
 
 import { useState } from 'react';
 import browser from 'webextension-polyfill';
-import { MessageType } from '../../shared/constants.js';
-import { handleLockedResponse } from '../store/session.js';
-import type { GenerateResponse } from '@passbubble/shared-ts';
-import { term, buttonPrimary, buttonGhost, withDisabled } from '../../shared/theme.js';
+import type { GeneratorOptions } from '@passbubble/shared-ts';
+import { GeneratorOptionsForm } from '../../shared/GeneratorOptionsForm.js';
+import { GeneratorPreview } from '../../shared/GeneratorPreview.js';
+import { useGenerator, useGeneratorDefaults } from '../../shared/useGenerator.js';
+import { term, buttonPrimary, buttonGhost, link, muted, withDisabled } from '../../shared/theme.js';
 
+// Generates locally (no server, no unlocked vault needed), starting from the
+// stored defaults. Option changes here are not saved — the defaults are edited
+// on the options page.
 export function GeneratorPanel() {
-  const [length, setLength] = useState(20);
-  const [symbols, setSymbols] = useState(true);
-  const [generated, setGenerated] = useState('');
-  const [strength, setStrength] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const defaults = useGeneratorDefaults();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0, color: term.green }}># password generator</h3>
+      {defaults ? <GeneratorPanelBody defaults={defaults} /> : <p style={muted}>Loading…</p>}
+    </div>
+  );
+}
 
-  async function generate() {
-    setIsLoading(true);
-    const resp = await browser.runtime.sendMessage({
-      type: MessageType.GENERATE,
-      payload: { length, include_symbols: symbols, count: 1 },
-    }) as GenerateResponse | { locked: boolean };
-    setIsLoading(false);
-    if ('locked' in resp) {
-      handleLockedResponse(resp);
-      return;
-    }
-    const first = resp.passwords[0];
-    if (first) {
-      setGenerated(first.password);
-      setStrength(first.strength);
-    }
-  }
+function GeneratorPanelBody({ defaults }: { defaults: GeneratorOptions }) {
+  const gen = useGenerator(defaults);
+  const [copied, setCopied] = useState(false);
 
   async function copy() {
-    if (!generated) return;
-    await navigator.clipboard.writeText(generated);
+    if (!gen.password) return;
+    await navigator.clipboard.writeText(gen.password);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
 
-  const strengthColor = strength >= 80 ? term.green : strength >= 50 ? term.amber : term.red;
-
+  const canCopy = !!gen.password && !gen.error;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0, color: term.green }}># password generator</h3>
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <label style={{ fontSize: '12px', color: term.muted }}>Length: {length}</label>
-        <input
-          type="range"
-          min={8}
-          max={64}
-          value={length}
-          onChange={(e) => setLength(Number(e.target.value))}
-          style={{ flex: 1 }}
-        />
-      </div>
-      <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', color: term.muted }}>
-        <input type="checkbox" checked={symbols} onChange={(e) => setSymbols(e.target.checked)} />
-        Include symbols
-      </label>
+    <>
+      <GeneratorPreview password={gen.password} error={gen.error} onRegenerate={gen.regenerate} />
       <button
-        onClick={generate}
-        disabled={isLoading}
-        style={withDisabled(buttonPrimary, isLoading)}
+        type="button"
+        onClick={() => void copy()}
+        disabled={!canCopy}
+        style={withDisabled(
+          copied ? { ...buttonPrimary, padding: '6px', fontSize: '12px' } : { ...buttonGhost, padding: '6px', fontSize: '12px' },
+          !canCopy,
+        )}
       >
-        {isLoading ? 'Generating…' : 'Generate'}
+        {copied ? 'Copied!' : 'Copy to clipboard'}
       </button>
-      {generated && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div
-            style={{
-              fontFamily: term.font,
-              fontSize: '12px',
-              padding: '8px',
-              background: term.bg,
-              border: `1px solid ${term.border}`,
-              borderRadius: '2px',
-              wordBreak: 'break-all',
-              color: term.green,
-            }}
-          >
-            {generated}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div
-              style={{
-                flex: 1,
-                height: '4px',
-                background: term.border,
-                borderRadius: '2px',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  width: `${strength}%`,
-                  height: '100%',
-                  background: strengthColor,
-                  transition: 'width 0.3s',
-                }}
-              />
-            </div>
-            <span style={{ fontSize: '11px', color: strengthColor, fontWeight: 700 }}>
-              {strength}/100
-            </span>
-          </div>
-          <button
-            onClick={copy}
-            style={copied ? { ...buttonPrimary, padding: '6px', fontSize: '12px' } : { ...buttonGhost, padding: '6px', fontSize: '12px' }}
-          >
-            {copied ? 'Copied!' : 'Copy to clipboard'}
-          </button>
-        </div>
-      )}
-    </div>
+      <GeneratorOptionsForm value={gen.options} onChange={gen.setOptions} />
+      <p style={{ ...muted, fontSize: '11px' }}>
+        Changes here apply only to this password.{' '}
+        <button type="button" onClick={() => void browser.runtime.openOptionsPage()} style={{ ...link, fontSize: '11px' }}>
+          Change the defaults
+        </button>
+      </p>
+    </>
   );
 }

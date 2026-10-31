@@ -104,15 +104,4 @@ describe('PassbubbleClient', () => {
     client.setTokens('tok', 'rt', 900); // expires in 15min
     expect(client.isTokenExpiringSoon()).toBe(false);
   });
-
-  it('generate sends POST /api/v1/generate with request body', async () => {
-    vi.stubGlobal('fetch', mockFetch(200, { passwords: [{ password: 'abc', strength: 80 }] }));
-    client.setTokens('tok', 'rt', 900);
-    const result = await client.generate({ length: 20, include_symbols: true });
-    expect(result.passwords[0].password).toBe('abc');
-    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(call[0]).toBe(`${BASE}/api/v1/generate`);
-    expect(call[1].method).toBe('POST');
-    expect(JSON.parse(call[1].body)).toMatchObject({ length: 20, include_symbols: true });
-  });
 });

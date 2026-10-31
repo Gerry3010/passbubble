@@ -52,7 +52,11 @@ export type TypedFillData = Record<string, string>;
 export interface FillPayload {
   // Match mode: existing entries to offer for a login form.
   matches?: EntryResponse[];
-  // Generate mode: a fresh password to offer on a signup/register form.
+  // Generate mode: the iframe generates a password itself (from the stored
+  // generator defaults) to offer on a signup/register form.
+  generate?: boolean;
+  // In generate mode, a password already used on this page to show instead of
+  // a fresh one, so a "confirm password" field gets the same value.
   generatePassword?: string;
   // TOTP mode: the current one-time code to offer on a 2FA field.
   totp?: TotpSuggestion;
@@ -70,7 +74,8 @@ export interface FillPayload {
 export interface FillHandlers {
   // A matching entry was chosen (resolved to credentials via the background).
   onFillMatch: (username: string, password: string) => void;
-  // The generated password was accepted on a signup form.
+  // The generated password (as finally chosen in the box) was accepted on a
+  // signup form.
   onUseGenerated: (password: string) => void;
   // The offered TOTP code was accepted on a 2FA field.
   onFillTotp?: (code: string) => void;
@@ -126,6 +131,7 @@ export function injectFillIframe(
         type: 'FILL_INIT',
         keepFocus,
         matches: payload.matches ?? [],
+        generate: payload.generate ?? false,
         generatePassword: payload.generatePassword,
         totp: payload.totp,
         typed: payload.typed,

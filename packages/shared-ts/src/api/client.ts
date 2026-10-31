@@ -19,8 +19,6 @@ import type {
   EntryResponse,
   EntryVersionResponse,
   FolderResponse,
-  GenerateRequest,
-  GenerateResponse,
   LoginRequest,
   LoginResponse,
   MeResponse,
@@ -211,10 +209,6 @@ export class PassbubbleClient {
       'GET',
       `/api/v1/users/search?q=${encodeURIComponent(q)}`,
     );
-  }
-
-  async generate(req: GenerateRequest): Promise<GenerateResponse> {
-    return this.request<GenerateResponse>('POST', '/api/v1/generate', req);
   }
 
   async healthCheck(): Promise<boolean> {
