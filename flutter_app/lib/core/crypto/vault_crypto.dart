@@ -117,19 +117,35 @@ class VaultCrypto {
 
   // ── Entry encryption ───────────────────────────────────────────────────────
 
-  /// Encrypts entry data (JSON-encoded map) with a random data key.
+  /// Encrypts the data of a NEW entry (JSON-encoded map) with a random data key.
+  /// An existing entry keeps its data key: see [encryptEntryDataWithKey].
   /// Returns (encryptedData, dataKey) as base64 strings.
   static Future<({String encryptedData, String dataNonce, Uint8List dataKey})>
       encryptEntryData(Map<String, dynamic> data) async {
     final dataKey = randomKey();
-    final secretKey = SecretKey(dataKey);
+    final enc = await encryptEntryDataWithKey(data, dataKey);
+    return (
+      encryptedData: enc.encryptedData,
+      dataNonce: enc.dataNonce,
+      dataKey: dataKey,
+    );
+  }
+
+  /// Encrypts entry data (JSON-encoded map) with an existing data key. Every
+  /// recipient holds their own wrapped copy of that key, so an update must keep
+  /// it for them to still be able to decrypt. [encrypt] draws a fresh nonce per
+  /// call, which makes reusing the key safe.
+  static Future<({String encryptedData, String dataNonce})>
+      encryptEntryDataWithKey(
+    Map<String, dynamic> data,
+    Uint8List dataKey,
+  ) async {
     final plaintext = Uint8List.fromList(utf8.encode(jsonEncode(data)));
-    final encrypted = await encrypt(secretKey, plaintext);
+    final encrypted = await encrypt(SecretKey(dataKey), plaintext);
     final placeholder = Uint8List(12);
     return (
       encryptedData: base64.encode(encrypted),
       dataNonce: base64.encode(placeholder),
-      dataKey: dataKey,
     );
   }
 

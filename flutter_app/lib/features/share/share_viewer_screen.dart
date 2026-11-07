@@ -24,6 +24,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/util/entry_totp.dart';
 import '../../shared/widgets/prompt_title.dart';
 
 /// Public, unauthenticated viewer for a share link. The decryption key [k] comes
@@ -232,14 +233,15 @@ class _ShareViewerScreenState extends ConsumerState<ShareViewerScreen> {
   List<Widget> _entryFieldTiles(Map<String, dynamic> e) {
     final url = e['url'] as String? ?? '';
     final data = (e['data'] as Map<String, dynamic>?) ?? const {};
+    final totpSecret = totpSecretOf(data);
     final fields = <({String label, String value, bool secret})>[
       if (url.isNotEmpty) (label: 'URL', value: url, secret: false),
       if ((data['username'] as String?)?.isNotEmpty ?? false)
         (label: 'Username', value: data['username'] as String, secret: false),
       if ((data['password'] as String?)?.isNotEmpty ?? false)
         (label: 'Password', value: data['password'] as String, secret: true),
-      if ((data['totp_secret'] as String?)?.isNotEmpty ?? false)
-        (label: 'TOTP secret', value: data['totp_secret'] as String, secret: true),
+      if (totpSecret != null)
+        (label: 'TOTP secret', value: totpSecret, secret: true),
       if ((data['notes'] as String?)?.isNotEmpty ?? false)
         (label: 'Notes', value: data['notes'] as String, secret: false),
     ];

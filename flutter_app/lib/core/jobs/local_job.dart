@@ -34,6 +34,16 @@ enum ExportFormat { csv, bitwarden, onepasswordCsv, onepassword1pux }
 /// Duplicate handling strategy for imports.
 enum DupStrategy { skip, overwrite }
 
+/// What [DupStrategy.overwrite] does to an existing entry's data. The data key,
+/// folder, match patterns and favourite stay in both modes.
+enum OverwriteMode {
+  /// Values in the file replace existing ones; the rest of the entry stays.
+  merge,
+
+  /// The entry's data becomes exactly what the file holds.
+  complete,
+}
+
 extension ImportFormatX on ImportFormat {
   String get label => switch (this) {
         ImportFormat.csvGeneric => 'CSV (Generic)',

@@ -27,6 +27,7 @@ import '../autofill/autofill_service.dart';
 import '../crypto/vault_crypto.dart';
 import '../crypto/ml_kem.dart';
 import '../crypto/pin_crypto.dart';
+import '../util/entry_totp.dart';
 
 const _kUserIdKey = 'user_id';
 const _kEmailKey = 'email';
@@ -345,7 +346,7 @@ class AuthService {
           final username =
               (data['username'] ?? data['account'] ?? '').toString();
           final password = (data['password'] ?? '').toString();
-          final totp = (data['totp_secret'] ?? '').toString();
+          final totp = totpSecretOf(data) ?? '';
           // Only credential-bearing entries are useful to system autofill —
           // a password alone is enough (some logins have no username).
           if (password.isEmpty && totp.isEmpty) continue;

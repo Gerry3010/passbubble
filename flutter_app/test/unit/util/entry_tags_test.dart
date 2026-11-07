@@ -44,6 +44,25 @@ void main() {
     });
   });
 
+  group('joinTags / splitTags', () {
+    test('join with a comma and a space, normalised', () {
+      expect(joinTags(['Work', ' #client  a', 'WORK']), 'Work, client a');
+      expect(joinTags(const []), '');
+    });
+
+    test('split on commas like the tag input, normalised', () {
+      expect(splitTags('Work, client   a,#home,,work'), ['Work', 'client a', 'home']);
+      expect(splitTags(''), isEmpty);
+      expect(splitTags(' , '), isEmpty);
+      expect(splitTags('a;b'), ['a;b'], reason: 'only the comma separates');
+    });
+
+    test('a joined list splits back into itself', () {
+      const tags = ['Work', 'client a', 'c#'];
+      expect(splitTags(joinTags(tags)), tags);
+    });
+  });
+
   group('normalizeTags', () {
     test('cleans, drops empty and over-long, de-dupes keeping the first spelling', () {
       expect(

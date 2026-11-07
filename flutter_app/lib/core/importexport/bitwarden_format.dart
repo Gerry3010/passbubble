@@ -15,7 +15,15 @@
 
 import 'dart:convert';
 
+import '../util/entry_tags.dart';
+import '../util/entry_totp.dart';
 import 'entry_record.dart';
+
+/// Bitwarden has no tags, so they travel in a text custom field of this name.
+const bitwardenTagsField = 'passbubble_tags';
+
+const _fieldText = 0;
+const _fieldHidden = 1;
 
 /// Parses a Bitwarden unencrypted JSON export.
 /// Mirrors backend/pkg/importers/bitwarden.go.
@@ -39,17 +47,16 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
   final created = normalizeImportDate(m['creationDate'] as String? ?? '');
   final updated = normalizeImportDate(m['revisionDate'] as String? ?? '');
 
-  final fieldsList = (m['fields'] as List? ?? [])
+  final rawFields = (m['fields'] as List? ?? [])
       .whereType<Map<String, dynamic>>()
       .where((f) => (f['name'] as String? ?? '').isNotEmpty)
-      .map((f) {
-        final bwType = f['type'] as int? ?? 0;
-        return CustomFieldRecord(
-          label: f['name'] as String? ?? '',
-          value: f['value'] as String? ?? '',
-          type: bwType == 1 ? CustomFieldType.password : CustomFieldType.text,
-        );
-      })
+      .toList();
+  final tags = normalizeTags(rawFields
+      .where((f) => f['name'] == bitwardenTagsField)
+      .expand((f) => splitTags(f['value'] as String? ?? '')));
+  final fieldsList = rawFields
+      .where((f) => f['name'] != bitwardenTagsField)
+      .map(_customField)
       .toList();
 
   switch (type) {
@@ -57,16 +64,18 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
       final login = m['login'] as Map<String, dynamic>?;
       final uris = login?['uris'] as List? ?? [];
       final url = uris.isNotEmpty ? (uris[0] as Map)['uri'] as String? ?? '' : '';
+      final password = login?['password'] as String? ?? '';
       final totp = login?['totp'] as String? ?? '';
       return EntryRecord(
         name: name.isNotEmpty ? name : (login?['username'] as String? ?? ''),
         url: url,
-        type: totp.isNotEmpty ? 'totp' : 'password',
+        type: loginType(password, totp),
         username: login?['username'] as String? ?? '',
-        password: login?['password'] as String? ?? '',
+        password: password,
         totpSecret: totp,
         notes: notes,
         customFields: fieldsList,
+        tags: tags,
         createdAt: created,
         updatedAt: updated,
       );
@@ -77,6 +86,7 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
           type: 'note',
           notes: notes,
           customFields: fieldsList,
+          tags: tags,
           createdAt: created,
           updatedAt: updated);
 
@@ -92,6 +102,7 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
         expiryYear: card?['expYear'] as String? ?? '',
         cvv: card?['code'] as String? ?? '',
         customFields: fieldsList,
+        tags: tags,
         createdAt: created,
         updatedAt: updated,
       );
@@ -102,6 +113,7 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
         name: name,
         type: 'identity',
         notes: notes,
+        title: id?['title'] as String? ?? '',
         firstName: id?['firstName'] as String? ?? '',
         lastName: id?['lastName'] as String? ?? '',
         company: id?['company'] as String? ?? '',
@@ -113,6 +125,7 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
         postalCode: id?['postalCode'] as String? ?? '',
         country: id?['country'] as String? ?? '',
         customFields: fieldsList,
+        tags: tags,
         createdAt: created,
         updatedAt: updated,
       );
@@ -121,6 +134,126 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
       return null;
   }
 }
+
+/// Maps a field to its kind, as far as the format tells it: a hidden field is a
+/// password, or a file when it holds a base64 data: URI (how the exporter writes
+/// files). Other field types are plain text.
+/// Mirrors bitwardenCustomField in backend/pkg/importers/bitwarden.go.
+CustomFieldRecord _customField(Map<String, dynamic> f) {
+  final label = f['name'] as String? ?? '';
+  final value = f['value'] as String? ?? '';
+  if (f['type'] != _fieldHidden) return CustomFieldRecord(label: label, value: value);
+  final file = _splitBase64DataUri(value);
+  if (file == null) {
+    return CustomFieldRecord(label: label, value: value, type: CustomFieldType.password);
+  }
+  return CustomFieldRecord(
+    label: label,
+    value: file.content,
+    type: CustomFieldType.file,
+    filename: label,
+    mimeType: file.mime.isEmpty ? null : file.mime,
+  );
+}
+
+/// Splits `data:<mime>;base64,<content>`, or returns null for anything else.
+({String mime, String content})? _splitBase64DataUri(String value) {
+  const marker = ';base64,';
+  if (!value.startsWith('data:')) return null;
+  final at = value.indexOf(marker);
+  if (at < 0) return null;
+  // Line breaks are allowed, as in Go, but the app's decoder would trip on them.
+  final content = value.substring(at + marker.length).replaceAll(RegExp(r'[\r\n]'), '');
+  // Dart's decoder also takes the URL-safe alphabet, which is not this format.
+  if (!RegExp(r'^[A-Za-z0-9+/]*={0,2}$').hasMatch(content)) return null;
+  try {
+    base64.decode(content);
+  } on FormatException {
+    return null;
+  }
+  return (mime: value.substring('data:'.length, at), content: content);
+}
+
+/// JSON keys of the entry data that each item type has a place for. Everything
+/// else an entry holds goes into custom fields, see [_knownFields] and
+/// [_unknownFields].
+const _loginKeys = {'username', 'password', totpSecretKey, 'url'};
+const _cardKeys = {'card_number', 'holder_name', 'expiry_month', 'expiry_year', 'cvv'};
+const _identityKeys = {
+  'title',
+  'first_name',
+  'last_name',
+  'company',
+  'email',
+  'phone',
+  'street',
+  'city',
+  'state',
+  'postal_code',
+  'country',
+};
+
+/// JSON keys of the entry data this client knows, in the order the exports write
+/// them, with whether the value is secret. Same list as `keyedFields` in
+/// backend/pkg/exporters/fields.go.
+const _knownKeys = <String, bool>{
+  'url': false,
+  'username': false,
+  'password': true,
+  totpSecretKey: true,
+  'sign_in_with': false,
+  'issuer': false,
+  'period': false,
+  'digits': false,
+  'algorithm': false,
+  'card_number': true,
+  'holder_name': false,
+  'expiry_month': false,
+  'expiry_year': false,
+  'cvv': true,
+  'bank_name': false,
+  'iban': true,
+  'bic': false,
+  'account_number': true,
+  'account_type': false,
+  'title': false,
+  'first_name': false,
+  'last_name': false,
+  'company': false,
+  'email': false,
+  'phone': false,
+  'street': false,
+  'city': false,
+  'state': false,
+  'postal_code': false,
+  'country': false,
+  'product_name': false,
+  'license_key': true,
+  'purchase_email': false,
+  'purchase_date': false,
+  'expires_at': false,
+};
+
+Map<String, dynamic> _field(String name, Object? value, {required bool hidden}) => {
+      'name': name,
+      'value': value is String ? value : jsonEncode(value),
+      'type': hidden ? _fieldHidden : _fieldText,
+    };
+
+/// Custom fields, named after their JSON key, for the [values] of known keys that
+/// the item has no place for. The item itself holds the keys in [held].
+List<Map<String, dynamic>> _knownFields(Map<String, Object?> values, Set<String> held) => [
+      for (final MapEntry(key: name, value: secret) in _knownKeys.entries)
+        if (!held.contains(name) && values.containsKey(name))
+          _field(name, values[name], hidden: secret),
+    ];
+
+/// Custom fields for the [values] of keys nobody here can vouch for, so they count
+/// as secret. The notes are no such key: every item has a place for them.
+List<Map<String, dynamic>> _unknownFields(Map<String, Object?> values) => [
+      for (final MapEntry(key: name, :value) in values.entries)
+        if (name != 'notes' && !_knownKeys.containsKey(name)) _field(name, value, hidden: true),
+    ];
 
 class BitwardenExportOptions {
   final bool includeFiles;
@@ -136,9 +269,38 @@ String exportBitwarden(List<EntryRecord> records, [BitwardenExportOptions opts =
       'notes': r.notes.isNotEmpty ? r.notes : null,
     };
 
+    final Set<String> held;
     switch (r.type) {
-      case 'totp':
-      case 'password':
+      case 'note':
+        item['type'] = 2;
+        held = const {};
+      case 'credit-card':
+        item['type'] = 3;
+        item['card'] = {
+          'cardholderName': r.holderName,
+          'number': r.cardNumber,
+          'expMonth': r.expiryMonth,
+          'expYear': r.expiryYear,
+          'code': r.cvv,
+        };
+        held = _cardKeys;
+      case 'identity':
+        item['type'] = 4;
+        item['identity'] = {
+          'title': r.title,
+          'firstName': r.firstName,
+          'lastName': r.lastName,
+          'company': r.company,
+          'email': r.email,
+          'phone': r.phone,
+          'address1': r.street,
+          'city': r.city,
+          'state': r.state,
+          'postalCode': r.postalCode,
+          'country': r.country,
+        };
+        held = _identityKeys;
+      default: // password, totp, api-key, ssh-key, license, bank-account, ...
         item['type'] = 1;
         item['login'] = {
           'username': r.username,
@@ -149,20 +311,7 @@ String exportBitwarden(List<EntryRecord> records, [BitwardenExportOptions opts =
               {'uri': r.url}
             ],
         };
-      case 'note':
-        item['type'] = 2;
-      case 'credit-card':
-        item['type'] = 3;
-        item['card'] = {
-          'cardholderName': r.holderName,
-          'number': r.cardNumber,
-          'expMonth': r.expiryMonth,
-          'expYear': r.expiryYear,
-          'code': r.cvv,
-        };
-      default:
-        item['type'] = 1;
-        item['login'] = {'username': r.username, 'password': r.password};
+        held = _loginKeys;
     }
 
     final exportedFields = <Map<String, dynamic>>[];
@@ -174,7 +323,7 @@ String exportBitwarden(List<EntryRecord> records, [BitwardenExportOptions opts =
           exportedFields.add({
             'name': f.filename ?? f.label,
             'value': 'data:$mime;base64,${f.value}',
-            'type': 1,
+            'type': _fieldHidden,
           });
         }
         continue;
@@ -182,9 +331,25 @@ String exportBitwarden(List<EntryRecord> records, [BitwardenExportOptions opts =
       final bwType = (f.type == CustomFieldType.password ||
               f.type == CustomFieldType.ssh ||
               f.type == CustomFieldType.totp)
-          ? 1
-          : 0;
+          ? _fieldHidden
+          : _fieldText;
       exportedFields.add({'name': f.label, 'value': f.value, 'type': bwType});
+    }
+    final values = <String, Object?>{
+      if (r.url.isNotEmpty) 'url': r.url,
+      ...r.dataValues,
+      ...r.extraData,
+    };
+    exportedFields.addAll(_knownFields(values, held));
+    // A login is what the format makes of the types it does not know, so the file
+    // says what the entry really was.
+    if (item['type'] == 1 && !const {'', 'password', 'totp'}.contains(r.type)) {
+      exportedFields.add(_field('type', r.type, hidden: false));
+    }
+    exportedFields.addAll(_unknownFields(values));
+    final tags = joinTags(r.tags);
+    if (tags.isNotEmpty) {
+      exportedFields.add({'name': bitwardenTagsField, 'value': tags, 'type': _fieldText});
     }
     if (exportedFields.isNotEmpty) {
       item['fields'] = exportedFields;

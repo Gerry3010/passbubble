@@ -20,7 +20,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:otp/otp.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/api/api_client.dart';
@@ -29,6 +28,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/util/entry_tags.dart';
+import '../../core/util/entry_totp.dart';
 import '../../shared/widgets/prompt_title.dart';
 import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
@@ -89,9 +89,11 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         Uint8List.fromList(dataKey),
       );
       setState(() => _decrypted = data);
-      final totpSecret = data['totp_secret'];
-      if (totpSecret is String && totpSecret.isNotEmpty) {
-        _startTOTP(totpSecret);
+      final totpSecret = totpSecretOf(data);
+      if (totpSecret != null) {
+        _startTOTP(totpSecret, TotpOptions.stored(data));
+      } else {
+        _stopTOTP(); // a restored version may have none any more
       }
     } catch (e) {
       if (mounted) {
@@ -117,27 +119,30 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
     });
   }
 
-  void _startTOTP(String secret) {
+  void _startTOTP(String secret, TotpOptions options) {
     _totpTimer?.cancel();
-    _updateTOTP(secret);
+    _totpTimer = null;
+    // A secret that yields no code gets no widget and no timer.
+    if (!_updateTOTP(secret, options)) return;
     _totpTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) _updateTOTP(secret);
+      if (mounted) _updateTOTP(secret, options);
     });
   }
 
-  void _updateTOTP(String secret) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final code = OTP.generateTOTPCodeString(
-      secret,
-      now,
-      algorithm: Algorithm.SHA1,
-      isGoogle: true,
-    );
-    final remaining = 30 - (now ~/ 1000 % 30);
+  void _stopTOTP() {
+    _totpTimer?.cancel();
+    _totpTimer = null;
+    setState(() => _totpCode = null);
+  }
+
+  /// Refreshes the code; returns whether [secret] produced one.
+  bool _updateTOTP(String secret, TotpOptions options) {
+    final totp = totpCodeAt(secret, options, DateTime.now().millisecondsSinceEpoch);
     setState(() {
-      _totpCode = code;
-      _totpRemaining = remaining;
+      _totpCode = totp?.code;
+      if (totp != null) _totpRemaining = totp.remaining;
     });
+    return totp != null;
   }
 
   void _copy(String value, String label) {
@@ -399,6 +404,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       return null;
     }
 
+    final totpSecret = totpSecretOf(d);
     final customFieldWidgets = <Widget>[];
     final rawCf = d['custom_fields'];
     if (rawCf is List && rawCf.isNotEmpty) {
@@ -418,8 +424,10 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
             case 'ssh':
               customFieldWidgets.add(_secretRow(label, value, id: 'cf:$i'));
             case 'totp':
-              if (value.isNotEmpty && _totpCode == null) _startTOTP(value);
-              customFieldWidgets.add(_copyRow(label, value));
+              if (value.isNotEmpty && _totpCode == null) {
+                _startTOTP(value, TotpOptions.stored(d));
+              }
+              customFieldWidgets.add(_secretRow(label, value, id: 'cf:$i'));
             case 'file':
               final filename = cf['filename'] as String? ?? label;
               final mime = cf['mime_type'] as String? ?? 'application/octet-stream';
@@ -440,14 +448,15 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       'password' || 'api-key' => [
           if (str('username') != null) _copyRow('Username', str('username')!),
           if (str('password') != null) _secretRow('Password', str('password')!, id: 'password'),
-          if (str('totp_secret') != null) _secretRow('TOTP Secret', str('totp_secret')!, id: 'totp_secret'),
+          if (totpSecret != null) _secretRow('TOTP Secret', totpSecret, id: 'totp_secret'),
           if (str('sign_in_with') != null)
             _infoRow('Sign in with', _ssoLabel(str('sign_in_with')!)),
           ...common,
         ],
       'totp' => [
           if (str('username') != null) _copyRow('Account', str('username')!),
-          if (str('totp_secret') != null) _secretRow('TOTP Secret', str('totp_secret')!, id: 'totp_secret'),
+          if (str('password') != null) _secretRow('Password', str('password')!, id: 'password'),
+          if (totpSecret != null) _secretRow('TOTP Secret', totpSecret, id: 'totp_secret'),
           ...common,
         ],
       'note' => [
@@ -456,7 +465,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         ],
       'ssh-key' => [
           if (str('username') != null) _copyRow('User', str('username')!),
-          if (str('password') != null) _infoRow('Private Key', str('password')!),
+          if (str('password') != null) _secretRow('Private Key', str('password')!, id: 'password'),
           ...common,
         ],
       'credit-card' => [
@@ -592,6 +601,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
 
   String _formatTOTP(String code) {
     if (code.length == 6) return '${code.substring(0, 3)} ${code.substring(3)}';
+    if (code.length == 8) return '${code.substring(0, 4)} ${code.substring(4)}';
     return code;
   }
 

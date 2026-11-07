@@ -24,10 +24,12 @@ import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
+import '../../core/crypto/entry_update.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/importexport/entry_record.dart' show CustomFieldType, CustomFieldTypeX;
 import '../../core/theme/app_theme.dart';
 import '../../core/util/entry_tags.dart';
+import '../../core/util/entry_totp.dart';
 import '../../shared/widgets/generator_dialog.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/pb_text_field.dart';
@@ -139,6 +141,14 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   /// silently drops them.
   Map<String, dynamic> _extraData = {};
 
+  /// Whether the entry being edited came with a password. A `totp` entry shows
+  /// its password field only then.
+  bool _hasStoredPassword = false;
+
+  /// Whether the entry being edited was decrypted into this form. Saving
+  /// requires it (see [_save]).
+  bool _entryLoaded = false;
+
   /// The folder the entry lives in. On create this seeds from the folder the
   /// user is currently browsing; on edit it is loaded from the entry and can be
   /// changed via the folder picker to move the entry.
@@ -167,6 +177,16 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     'street', 'city', 'state', 'postal_code', 'country',
     'product_name', 'license_key', 'purchase_email', 'purchase_date', 'expires_at',
   ];
+
+  /// Fields of [_allFields] the entry's metadata holds. Their copies in the
+  /// encrypted data are only written, for older clients: the metadata is the
+  /// truth, and merge import, `pwmgr update --url` and a TUI rename change only
+  /// that.
+  static const _metadataFields = {'name', 'url'};
+
+  /// Fields of [_allFields] saved exactly as typed: a password may have outer
+  /// whitespace, and an SSH private key (in `password` too) ends in a newline.
+  static const _verbatimFields = {'password'};
 
   @override
   void dispose() {
@@ -203,10 +223,13 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         );
         // Fill all controllers from decrypted data
         for (final key in _allFields) {
-          if (data.containsKey(key)) {
+          if (data.containsKey(key) && !_metadataFields.contains(key)) {
             _ctrl[key]!.text = (data[key] as String?) ?? '';
           }
         }
+        _hasStoredPassword = _ctrl['password']!.text.isNotEmpty;
+        // Not a 2FA secret: left empty, it also goes on save.
+        if (isStrayTotpSecret(data)) _ctrl[totpSecretKey]!.clear();
         if (data.containsKey('account_type')) {
           setState(() => _accountType = (data['account_type'] as String?) ?? 'checking');
         }
@@ -218,8 +241,11 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         }
         _tags.addAll(tagsOf(data));
         // Keep everything this form doesn't manage (see _extraData).
-        const managed = {
-          ..._allFields, 'account_type', 'sign_in_with', 'custom_fields', tagsKey,
+        final managed = {
+          ..._allFields, 'custom_fields', tagsKey,
+          // Only these types' forms save them.
+          if (_type == 'bank-account') 'account_type',
+          if (_type == 'password') 'sign_in_with',
         };
         _extraData = {
           for (final e in data.entries)
@@ -245,6 +271,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
             }
           }
         }
+        _entryLoaded = true;
       }
     } catch (e) {
       setState(() => _error = e.toString());
@@ -258,7 +285,8 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   Map<String, dynamic> _collectData() {
     final Map<String, dynamic> data = Map.of(_extraData);
     for (final key in _allFields) {
-      final val = _ctrl[key]!.text.trim();
+      final text = _ctrl[key]!.text;
+      final val = _verbatimFields.contains(key) ? text : text.trim();
       if (val.isNotEmpty) data[key] = val;
     }
     if (_type == 'bank-account' && _accountType.isNotEmpty) {
@@ -296,10 +324,12 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         }
         continue;
       }
+      // Secrets stay exactly as typed, see [_verbatimFields].
+      final secret = cf.type == CustomFieldType.password || cf.type == CustomFieldType.ssh;
       cfList.add({
         ...cf.extra,
         'label': lbl,
-        'value': cf.value.text.trim(),
+        'value': secret ? cf.value.text : cf.value.text.trim(),
         'type': cf.type.apiValue,
       });
     }
@@ -327,33 +357,51 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       setState(() => _error = 'Vault is locked');
       return;
     }
+    // The form only holds what could be decrypted; saving it over an entry that
+    // could not be would replace the entry's data with a blank form.
+    if (isEdit && !_entryLoaded) {
+      setState(() => _error =
+          'This entry could not be decrypted, so it was not changed. '
+          'Open it again to retry.');
+      return;
+    }
     setState(() { _loading = true; _error = null; });
 
     try {
-      final (:encryptedData, :dataNonce, :dataKey) =
-          await VaultCrypto.encryptEntryData(_collectData());
-
-      final myPubX25519 = await authSvc.getPubX25519();
-      final myPubMlkem = await authSvc.getPubMlkem768();
-      if (myPubX25519 == null || myPubMlkem == null) {
-        throw Exception('Public key not found');
-      }
-      final myUserId = await authSvc.getUserId();
-      final encKey = await VaultCrypto.encryptDataKey(dataKey, myPubX25519, myPubMlkem);
-
       if (isEdit) {
-        await ref.read(apiClientProvider).updateEntry(
+        // Keep the entry's data key, so everyone it is shared with can still
+        // decrypt. Read the entry again for the current key and blob.
+        final api = ref.read(apiClientProvider);
+        final current = await api.getEntry(widget.editId!);
+        final opened = await openEntryForUpdate(
+          current,
+          privX25519: authSvc.privX25519,
+          privMlkem: authSvc.privMLKEM,
+        );
+        final enc = await VaultCrypto.encryptEntryDataWithKey(
+            _collectData(), opened.dataKey);
+        await api.updateEntry(
           widget.editId!,
           UpdateEntryRequest(
             folderId: _selectedFolderId,
             name: _ctrl['name']!.text.trim(),
             url: _ctrl['url']!.text.trim(),
-            encryptedData: encryptedData,
-            dataNonce: dataNonce,
-            entryKeys: [EntryKey(userId: myUserId ?? '', encryptedKey: encKey)],
+            encryptedData: enc.encryptedData,
+            dataNonce: enc.dataNonce,
           ),
         );
       } else {
+        final (:encryptedData, :dataNonce, :dataKey) =
+            await VaultCrypto.encryptEntryData(_collectData());
+
+        final myPubX25519 = await authSvc.getPubX25519();
+        final myPubMlkem = await authSvc.getPubMlkem768();
+        if (myPubX25519 == null || myPubMlkem == null) {
+          throw Exception('Public key not found');
+        }
+        final myUserId = await authSvc.getUserId();
+        final encKey = await VaultCrypto.encryptDataKey(dataKey, myPubX25519, myPubMlkem);
+
         await ref.read(apiClientProvider).createEntry(
           CreateEntryRequest(
             type: _type,
@@ -590,8 +638,14 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
 
   List<Widget> _totpFields() => [
     _field('username', 'Account / Username', Icons.person_outline),
+    if (_hasStoredPassword)
+      _obscuredField('password', 'Password', Icons.lock_outline,
+          ctrl: 'password', obscure: _obscurePassword,
+          onToggle: () => setState(() => _obscurePassword = !_obscurePassword),
+          showGenerate: true),
+    // A login stored as `totp` may have no real secret, and stays editable.
     _field('totp_secret', 'TOTP Secret (base32)', Icons.schedule,
-        validator: (v) => v!.isEmpty ? 'Required' : null),
+        validator: (v) => v!.isEmpty && !_hasStoredPassword ? 'Required' : null),
     _field('notes', 'Notes', Icons.notes, maxLines: 3),
   ];
 
@@ -668,17 +722,18 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         child: DropdownButtonFormField<String>(
           key: ValueKey(_titleValue),
           initialValue: _titleValue,
+          isExpanded: true,
           decoration: const InputDecoration(
             labelText: 'Title',
             border: OutlineInputBorder(),
             contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           ),
-          items: const [
-            DropdownMenuItem(value: '', child: Text('—')),
-            DropdownMenuItem(value: 'Mr', child: Text('Mr')),
-            DropdownMenuItem(value: 'Ms', child: Text('Ms')),
-            DropdownMenuItem(value: 'Mrs', child: Text('Mrs')),
-            DropdownMenuItem(value: 'Dr', child: Text('Dr')),
+          items: [
+            for (final title in {'', 'Mr', 'Ms', 'Mrs', 'Dr', _titleValue})
+              DropdownMenuItem(
+                value: title,
+                child: Text(title.isEmpty ? '—' : title, overflow: TextOverflow.ellipsis),
+              ),
           ],
           onChanged: (v) => setState(() {
             _titleValue = v ?? '';

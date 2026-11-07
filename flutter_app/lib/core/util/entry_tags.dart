@@ -97,6 +97,12 @@ void putTags(Map<String, dynamic> data, Iterable<String> tags) {
   }
 }
 
+/// The tags in text form, for formats that keep them in one cell or field.
+String joinTags(Iterable<String> tags) => normalizeTags(tags).join(', ');
+
+/// The tags in a text cell or field, split on commas like the app's tag input.
+List<String> splitTags(String text) => normalizeTags(text.split(','));
+
 /// Whether two tags are the same tag (cleaned, case-insensitive).
 bool sameTag(String a, String b) => _matchKey(a) == _matchKey(b);
 

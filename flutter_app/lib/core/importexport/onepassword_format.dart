@@ -19,6 +19,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:uuid/uuid.dart';
 
+import '../util/entry_tags.dart';
 import 'entry_record.dart';
 
 const _uuid = Uuid();
@@ -77,7 +78,7 @@ Map<String, dynamic> _buildItem(EntryRecord rec, int now, Map<String, Uint8List>
   final id = _uuid.v4();
   final overview = <String, dynamic>{
     'title': rec.name,
-    'tags': <String>[],
+    'tags': normalizeTags(rec.tags),
     if (rec.url.isNotEmpty)
       'urls': [
         {'label': 'website', 'url': rec.url}
@@ -309,6 +310,8 @@ dynamic _convertItem(Map<String, dynamic> item, Map<String, Uint8List> fileBlobs
   final rec = _RecordBuilder(name: name, url: url, notes: notes);
   rec.createdAt = _unixToRfc3339(item['createdAt']);
   rec.updatedAt = _unixToRfc3339(item['updatedAt']);
+  final rawTags = overview['tags'];
+  if (rawTags is List) rec.tags = normalizeTags(rawTags);
 
   switch (categoryUuid) {
     case '003':
@@ -370,11 +373,11 @@ dynamic _convertItem(Map<String, dynamic> item, Map<String, Uint8List> fileBlobs
   // Detect TOTP from custom fields
   for (final cf in rec.customFields) {
     if (cf.type == CustomFieldType.totp && cf.value.isNotEmpty) {
-      rec.type = 'totp';
       rec.totpSecret = cf.value;
       break;
     }
   }
+  if (rec.type == 'password') rec.type = loginType(rec.password, rec.totpSecret);
 
   if (rec.name.isEmpty) return 'item has no title';
   return rec.build();
@@ -389,7 +392,7 @@ bool _mapStructuredField(_RecordBuilder rec, String id, Map<String, dynamic> v) 
       rec.password = str('concealed');
     case 'totp':
       final t = str('totp');
-      if (t.isNotEmpty) { rec.totpSecret = t; rec.type = 'totp'; }
+      if (t.isNotEmpty) rec.totpSecret = t;
     case 'card_number' || 'ccnum':
       rec.cardNumber = str('creditCardNumber').isNotEmpty ? str('creditCardNumber') : str('string');
     case 'holder_name' || 'cardholder':
@@ -468,6 +471,7 @@ class _RecordBuilder {
   String createdAt = '';
   String updatedAt = '';
   List<CustomFieldRecord> customFields = [];
+  List<String> tags = const [];
 
   _RecordBuilder({required this.name, required this.url, required this.notes});
 
@@ -499,5 +503,6 @@ class _RecordBuilder {
         licenseKey: licenseKey,
         productName: productName,
         customFields: customFields,
+        tags: tags,
       );
 }

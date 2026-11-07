@@ -89,7 +89,7 @@ void _convertItem(
       final totp = s('website_password_totp_code');
       rec = EntryRecord(
         name: title,
-        type: totp.isNotEmpty ? 'totp' : 'password',
+        type: loginType(s('website_password_password'), totp),
         url: url,
         username: s('website_password_username'),
         password: s('website_password_password'),

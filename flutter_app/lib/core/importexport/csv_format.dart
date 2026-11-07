@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import '../util/entry_tags.dart';
 import 'entry_record.dart';
 
 enum CsvImportFormat { generic, chrome, lastpass, onePassword }
@@ -23,17 +24,22 @@ List<EntryRecord> parseCsv(String content, CsvImportFormat format) {
   final lines = _splitCsv(content);
   if (lines.length < 2) return [];
 
+  // Found by name, unlike the other columns: a CSV from another tool can have
+  // anything after the columns this parser knows.
+  final tagsColumn = lines.first.indexWhere((h) => h.trim().toLowerCase() == 'tags');
+
   final records = <EntryRecord>[];
   for (final row in lines.skip(1)) {
     if (row.isEmpty) continue;
-    final rec = _convertRow(row, format);
+    final rec = _convertRow(row, format, tagsColumn);
     if (rec != null) records.add(rec);
   }
   return records;
 }
 
-EntryRecord? _convertRow(List<String> row, CsvImportFormat format) {
+EntryRecord? _convertRow(List<String> row, CsvImportFormat format, int tagsColumn) {
   String col(int i) => i < row.length ? row[i].trim() : '';
+  List<String> tags() => tagsColumn < 0 ? const [] : splitTags(col(tagsColumn));
 
   switch (format) {
     case CsvImportFormat.chrome:
@@ -54,11 +60,11 @@ EntryRecord? _convertRow(List<String> row, CsvImportFormat format) {
         password: col(2),
         totpSecret: totp,
         notes: col(4),
-        type: totp.isNotEmpty ? 'totp' : 'password',
+        type: loginType(col(2), totp),
       );
 
     case CsvImportFormat.onePassword:
-      // Title, Username, Password, URL, Notes, Type
+      // Title, Username, Password, URL, Notes, Type, Tags
       final name = col(0).isNotEmpty ? col(0) : col(3);
       if (name.isEmpty) return null;
       return EntryRecord(
@@ -68,10 +74,11 @@ EntryRecord? _convertRow(List<String> row, CsvImportFormat format) {
         url: col(3),
         notes: col(4),
         type: _map1PasswordType(col(5)),
+        tags: tags(),
       );
 
     case CsvImportFormat.generic:
-    // name, url, username, password, notes
+    // name, url, username, password, notes, tags
       final name = col(0).isNotEmpty ? col(0) : col(1);
       if (name.isEmpty) return null;
       return EntryRecord(
@@ -80,6 +87,7 @@ EntryRecord? _convertRow(List<String> row, CsvImportFormat format) {
         username: col(2),
         password: col(3),
         notes: col(4),
+        tags: tags(),
       );
   }
 }
@@ -100,30 +108,40 @@ String _map1PasswordType(String t) {
   }
 }
 
-/// Exports entries to generic CSV (name, url, username, password, notes).
+/// Exports entries to generic CSV (name, url, username, password, notes, tags).
 String exportCsv(List<EntryRecord> records) {
   final buf = StringBuffer();
-  buf.writeln('name,url,username,password,notes');
+  buf.writeln('name,url,username,password,notes,tags');
   for (final r in records) {
-    buf.writeln([r.name, r.url, r.username, r.password, r.notes]
+    buf.writeln([r.name, r.url, r.username, r.password, r.notes, joinTags(r.tags)]
         .map(_csvEscape)
         .join(','));
   }
   return buf.toString();
 }
 
-/// Exports entries to 1Password CSV format (Title, Username, Password, URL, Notes, Type).
+/// Exports entries to 1Password CSV format (Title, Username, Password, URL, Notes, Type, Tags).
 /// File attachments are skipped; CSV cannot carry binary data.
 String export1PasswordCsv(List<EntryRecord> records) {
   final buf = StringBuffer();
-  buf.writeln('Title,Username,Password,URL,Notes,Type');
+  buf.writeln('Title,Username,Password,URL,Notes,Type,Tags');
   for (final r in records) {
-    buf.writeln([r.name, r.username, r.password, r.url, r.notes, _to1PType(r.type)]
-        .map(_csvEscape)
-        .join(','));
+    buf.writeln(
+        [r.name, r.username, r.password, r.url, r.notes, _to1PType(r.type), joinTags(r.tags)]
+            .map(_csvEscape)
+            .join(','));
   }
   return buf.toString();
 }
+
+/// JSON keys of the entry data that have a column in the CSV exports.
+const _csvDataColumns = {'username', 'password', 'notes'};
+
+/// How many fields of [r] a CSV export leaves out: everything without a column.
+int csvLeftOutFields(EntryRecord r) =>
+    r.dataValues.keys.where((k) => !_csvDataColumns.contains(k)).length +
+    r.customFields.length +
+    r.extraData.length;
 
 String _to1PType(String t) => switch (t) {
       'note' => 'Secure Note',

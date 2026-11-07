@@ -37,6 +37,13 @@ class ImportTab extends ConsumerStatefulWidget {
 class _ImportTabState extends ConsumerState<ImportTab> {
   ImportFormat _format = ImportFormat.csvGeneric;
   DupStrategy _dupStrategy = DupStrategy.skip;
+  bool _overwriteCompletely = false;
+
+  void _setDupStrategy(DupStrategy strategy) => setState(() {
+        _dupStrategy = strategy;
+        // Removes data, so it never comes back switched on by itself.
+        if (strategy != DupStrategy.overwrite) _overwriteCompletely = false;
+      });
 
   Future<void> _pickAndImport() async {
     final result = await FilePicker.platform.pickFiles(withData: true);
@@ -57,6 +64,8 @@ class _ImportTabState extends ConsumerState<ImportTab> {
           bytes: bytes,
           format: _format,
           dup: _dupStrategy,
+          overwriteMode:
+              _overwriteCompletely ? OverwriteMode.complete : OverwriteMode.merge,
         ));
 
     if (!mounted) return;
@@ -93,13 +102,28 @@ class _ImportTabState extends ConsumerState<ImportTab> {
                   // ignore: deprecated_member_use
                   groupValue: _dupStrategy,
                   // ignore: deprecated_member_use
-                  onChanged: (v) => setState(() => _dupStrategy = v!),
+                  onChanged: (v) => _setDupStrategy(v!),
                   activeColor: AppTheme.green,
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
           ],
         ),
+        if (_dupStrategy == DupStrategy.overwrite)
+          CheckboxListTile(
+            key: const ValueKey('overwrite-completely'),
+            title: const Text('Overwrite completely', style: TextStyle(fontSize: 14)),
+            subtitle: const Text(
+              'Fields missing from the file are removed from the entry. '
+              'Off: only values in the file replace existing ones.',
+              style: TextStyle(fontSize: 12, color: AppTheme.onBgDim),
+            ),
+            value: _overwriteCompletely,
+            onChanged: (v) => setState(() => _overwriteCompletely = v ?? false),
+            activeColor: AppTheme.green,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+          ),
         const SizedBox(height: 16),
 
         const Text(

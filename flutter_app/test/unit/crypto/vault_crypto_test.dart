@@ -150,6 +150,20 @@ void main() {
         // Different random keys → different ciphertexts
         expect(r1.encryptedData, isNot(equals(r2.encryptedData)));
       });
+
+      test('an existing data key decrypts, and each use gets a fresh nonce', () async {
+        final data = {'username': 'test', 'password': 'pass'};
+        final dataKey = VaultCrypto.randomKey();
+        final r1 = await VaultCrypto.encryptEntryDataWithKey(data, dataKey);
+        final r2 = await VaultCrypto.encryptEntryDataWithKey(data, dataKey);
+
+        expect(await VaultCrypto.decryptEntryData(r1.encryptedData, dataKey), equals(data));
+        expect(await VaultCrypto.decryptEntryData(r2.encryptedData, dataKey), equals(data));
+        const nonceLen = 12;
+        expect(base64.decode(r1.encryptedData).sublist(0, nonceLen),
+            isNot(equals(base64.decode(r2.encryptedData).sublist(0, nonceLen))));
+        expect(base64.decode(r1.dataNonce).every((b) => b == 0), isTrue);
+      });
     });
 
     group('encryptDataKey / decryptDataKey roundtrip (hybrid KEM)', () {

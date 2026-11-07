@@ -34,12 +34,15 @@ import '../api/models.dart'
         UpdateEntryRequest,
         UpdateJobRequest;
 import '../auth/auth_service.dart';
+import '../crypto/entry_update.dart';
 import '../crypto/vault_crypto.dart';
 import '../importexport/bitwarden_format.dart';
 import '../importexport/csv_format.dart';
 import '../importexport/entry_record.dart';
 import '../importexport/onepassword_format.dart';
 import '../importexport/psono_format.dart';
+import '../util/entry_tags.dart';
+import '../util/entry_totp.dart';
 import '../../features/entries/entries_list_screen.dart'
     show entriesProvider, foldersProvider;
 import 'job_messenger.dart';
@@ -58,6 +61,16 @@ final jobRunnerProvider =
 /// Number of jobs currently running — drives the tab/nav badges.
 final activeJobCountProvider =
     Provider<int>((ref) => ref.watch(jobRunnerProvider).where((j) => j.isRunning).length);
+
+/// A vault entry as duplicate detection sees it.
+typedef _ExistingEntry = ({String id, String name, String username, String type});
+
+/// An update cannot change an entry's type, so only entries of one family can be
+/// duplicates: the login types are one, every other type stands alone.
+String _typeFamily(String type) => switch (type) {
+      '' || 'password' || 'totp' => 'login',
+      _ => type,
+    };
 
 class JobRunner extends Notifier<List<LocalJob>> {
   static const _uuid = Uuid();
@@ -92,6 +105,7 @@ class JobRunner extends Notifier<List<LocalJob>> {
     required Uint8List bytes,
     required ImportFormat format,
     required DupStrategy dup,
+    OverwriteMode overwriteMode = OverwriteMode.merge,
   }) async {
     final localId = _uuid.v4();
     _add(LocalJob(
@@ -106,7 +120,7 @@ class JobRunner extends Notifier<List<LocalJob>> {
     String jobId = localId; // replaced with the server id once the ledger POSTs
     try {
       final parsed = _parse(bytes, format);
-      final records = parsed.records;
+      final records = dropStrayTotpSecrets(parsed.records);
       _update(localId, (j) => j.copyWith(warnings: parsed.warnings));
       for (final w in parsed.warnings) {
         _log(localId, 'warning: $w');
@@ -124,6 +138,9 @@ class JobRunner extends Notifier<List<LocalJob>> {
             statusText: 'Found ${records.length} entries — importing…',
           ));
       _log(localId, 'Parsed ${records.length} record(s).');
+      if (dup == DupStrategy.overwrite) {
+        _log(localId, 'Overwrite mode: ${overwriteMode.name}');
+      }
       final startBanner = _byId(localId);
       if (startBanner != null) showJobStartedBanner(ref, startBanner);
 
@@ -135,10 +152,12 @@ class JobRunner extends Notifier<List<LocalJob>> {
       _folderIdCache.clear();
       _buildFolderCache(await api.listFolders(), '');
 
-      // Decrypt existing entries for duplicate detection.
+      // Decrypt existing entries for duplicate detection. Matching runs on this
+      // copy: records in one file must not match each other, so what this import
+      // creates goes into the cache alone.
       _log(localId, 'Loading existing vault…');
       _existingCache = [];
-      final existing = await _loadExisting(api, auth);
+      final existing = List.of(await _loadExisting(api, auth));
 
       // Record the import in the server ledger (best-effort — keep the local
       // job under [localId] if the POST fails so it still shows and finishes).
@@ -163,11 +182,15 @@ class JobRunner extends Notifier<List<LocalJob>> {
               statusText: '$i/${records.length}: ${rec.name}',
             ));
 
-        final dupId = _findDuplicate(rec, existing);
-        if (dupId != null) {
-          if (dup == DupStrategy.overwrite) {
+        final dupIds = _findDuplicates(rec, existing);
+        if (dupIds.isNotEmpty) {
+          if (dup == DupStrategy.overwrite && dupIds.length > 1) {
+            // Which one the file means is anyone's guess, so none gets overwritten.
+            failed++;
+            _log(localId, 'failed (update): ${rec.name} — ${dupIds.length} entries match, none was changed');
+          } else if (dup == DupStrategy.overwrite) {
             try {
-              await _updateEntry(api, auth, dupId, rec);
+              await _updateEntry(api, auth, dupIds.single, rec, overwriteMode);
               updated++;
               _log(localId, 'updated: ${rec.name}');
             } catch (e) {
@@ -182,7 +205,8 @@ class JobRunner extends Notifier<List<LocalJob>> {
           try {
             final folderId = await _resolveFolder(api, rec.folderPath);
             final entryId = await _createEntry(api, auth, rec, folderId: folderId);
-            existing.add((id: entryId, name: rec.name, username: rec.username));
+            _existingCache.add(
+                (id: entryId, name: rec.name, username: rec.username, type: rec.type));
             created++;
             _log(localId, 'created: ${rec.name}');
           } catch (e) {
@@ -298,6 +322,9 @@ class JobRunner extends Notifier<List<LocalJob>> {
 
       _update(localId, (j) => j.copyWith(statusText: 'Generating file…'));
       final fileBytes = _generate(format, records, options);
+      if (format == ExportFormat.csv || format == ExportFormat.onepasswordCsv) {
+        _logCsvLeftOut(localId, records);
+      }
 
       // Finalize ledger.
       if (jobId != localId) {
@@ -340,6 +367,21 @@ class JobRunner extends Notifier<List<LocalJob>> {
       _finish(localId, JobState.failed,
           statusText: 'Export failed: $e', errorMessage: '$e');
     }
+  }
+
+  /// A CSV has no place for most of an entry, and the job log is where the user
+  /// learns how much stayed behind.
+  void _logCsvLeftOut(String id, List<EntryRecord> records) {
+    final counts = records.map(csvLeftOutFields).where((n) => n > 0).toList();
+    if (counts.isEmpty) return;
+    final fields = counts.reduce((a, b) => a + b);
+    final entries = counts.length;
+    _log(
+        id,
+        'CSV has no column for $fields ${fields == 1 ? 'field' : 'fields'} of '
+        '$entries ${entries == 1 ? 'entry' : 'entries'} (TOTP secrets, card and bank '
+        'data, custom fields and the like), so they are not in the file. The '
+        'Bitwarden JSON export keeps them.');
   }
 
   // ── Finalization + notification ────────────────────────────────────────────
@@ -399,8 +441,8 @@ class JobRunner extends Notifier<List<LocalJob>> {
     }
   }
 
-  // In-process dedupe list of (id, name, username); rebuilt per import.
-  List<({String id, String name, String username})> _existingCache = [];
+  // In-process dedupe list; rebuilt per import.
+  List<_ExistingEntry> _existingCache = [];
 
   // Folder path → id cache built at import start from the existing tree.
   final Map<String, String> _folderIdCache = {};
@@ -434,13 +476,13 @@ class JobRunner extends Notifier<List<LocalJob>> {
     return parentId;
   }
 
-  Future<List<({String id, String name, String username})>> _loadExisting(
+  Future<List<_ExistingEntry>> _loadExisting(
     ApiClient api,
     AuthService auth,
   ) async {
     if (_existingCache.isNotEmpty) return _existingCache;
     final entries = await api.listEntries();
-    final result = <({String id, String name, String username})>[];
+    final result = <_ExistingEntry>[];
     for (final e in entries) {
       try {
         final full = await api.getEntry(e.id);
@@ -454,6 +496,7 @@ class JobRunner extends Notifier<List<LocalJob>> {
           id: e.id,
           name: e.name,
           username: data['username'] as String? ?? '',
+          type: e.type,
         ));
       } catch (_) {}
     }
@@ -461,51 +504,29 @@ class JobRunner extends Notifier<List<LocalJob>> {
     return result;
   }
 
-  String? _findDuplicate(
+  List<String> _findDuplicates(
     EntryRecord rec,
-    List<({String id, String name, String username})> existing,
+    List<_ExistingEntry> existing,
   ) {
     String norm(String s) => s.trim().toLowerCase();
-    for (final e in existing) {
-      if (norm(e.name) == norm(rec.name) && norm(e.username) == norm(rec.username)) {
-        return e.id;
-      }
-    }
-    return null;
+    final family = _typeFamily(rec.type);
+    return [
+      for (final e in existing)
+        if (norm(e.name) == norm(rec.name) &&
+            norm(e.username) == norm(rec.username) &&
+            _typeFamily(e.type) == family)
+          e.id,
+    ];
   }
 
-  /// The decrypted entry JSON for an imported record. Writes only keys from
-  /// [importManagedKeys] — keep the two in step.
+  /// The decrypted entry JSON for an imported record: what the file holds, with
+  /// empty values left out.
   Map<String, dynamic> _recordToPayload(EntryRecord rec) {
-    final m = <String, dynamic>{};
-    void set(String k, String v) {
-      if (v.isNotEmpty) m[k] = v;
-    }
-
-    set('username', rec.username);
-    set('password', rec.password);
-    set('totp_secret', rec.totpSecret);
-    set('notes', rec.notes);
-    set('card_number', rec.cardNumber);
-    set('holder_name', rec.holderName);
-    set('expiry_month', rec.expiryMonth);
-    set('expiry_year', rec.expiryYear);
-    set('cvv', rec.cvv);
-    set('first_name', rec.firstName);
-    set('last_name', rec.lastName);
-    set('company', rec.company);
-    set('email', rec.email);
-    set('phone', rec.phone);
-    set('street', rec.street);
-    set('city', rec.city);
-    set('state', rec.state);
-    set('postal_code', rec.postalCode);
-    set('country', rec.country);
-    set('license_key', rec.licenseKey);
-    set('product_name', rec.productName);
+    final m = <String, dynamic>{...rec.dataValues};
     if (rec.customFields.isNotEmpty) {
       m['custom_fields'] = rec.customFields.map((cf) => cf.toJson()).toList();
     }
+    putTags(m, rec.tags);
     return m;
   }
 
@@ -534,26 +555,30 @@ class JobRunner extends Notifier<List<LocalJob>> {
     ));
   }
 
-  Future<void> _updateEntry(
-      ApiClient api, AuthService auth, String id, EntryRecord rec) async {
+  Future<void> _updateEntry(ApiClient api, AuthService auth, String id,
+      EntryRecord rec, OverwriteMode mode) async {
     final full = await api.getEntry(id);
-    if (full.entryKey == null) return;
-    final dataKey = await VaultCrypto.decryptDataKey(
-        full.entryKey!.encryptedKey, auth.privX25519!, auth.privMLKEM!);
-    // Overwrite what the import manages, keep the rest (tags, other clients'
-    // keys) — see [mergeImportedData].
-    final existing = await VaultCrypto.decryptEntryData(full.encryptedData, dataKey);
-    final plaintext =
-        utf8.encode(jsonEncode(mergeImportedData(existing, _recordToPayload(rec))));
-    final ciphertext =
-        await VaultCrypto.encrypt(SecretKey(dataKey), Uint8List.fromList(plaintext));
+    // Same data key, so everyone the entry is shared with can still decrypt.
+    final opened = await openEntryForUpdate(
+      full,
+      privX25519: auth.privX25519,
+      privMlkem: auth.privMLKEM,
+    );
+    final payload = _recordToPayload(rec);
+    final complete = mode == OverwriteMode.complete;
+    final enc = await VaultCrypto.encryptEntryDataWithKey(
+        complete ? payload : mergeImportedData(opened.data, payload), opened.dataKey);
     await api.updateEntry(
         id,
         UpdateEntryRequest(
+          // The server overwrites folder_id on every update, so without this
+          // the entry would move to the root.
+          folderId: full.folderId,
           name: rec.name,
-          url: rec.url.isNotEmpty ? rec.url : null,
-          encryptedData: base64.encode(ciphertext),
-          dataNonce: base64.encode(Uint8List(12)),
+          // An empty url clears the entry's, a missing one keeps it.
+          url: complete || rec.url.isNotEmpty ? rec.url : null,
+          encryptedData: enc.encryptedData,
+          dataNonce: enc.dataNonce,
         ));
   }
 
@@ -585,13 +610,14 @@ class JobRunner extends Notifier<List<LocalJob>> {
       type: e.type,
       username: s('username'),
       password: s('password'),
-      totpSecret: s('totp_secret'),
+      totpSecret: totpSecretOf(data) ?? '',
       notes: s('notes'),
       cardNumber: s('card_number'),
       holderName: s('holder_name'),
       expiryMonth: s('expiry_month'),
       expiryYear: s('expiry_year'),
       cvv: s('cvv'),
+      title: s('title'),
       firstName: s('first_name'),
       lastName: s('last_name'),
       company: s('company'),
@@ -605,30 +631,94 @@ class JobRunner extends Notifier<List<LocalJob>> {
       licenseKey: s('license_key'),
       productName: s('product_name'),
       customFields: customFields,
+      extraData: extraEntryData(data),
+      tags: tagsOf(data),
     );
   }
 }
 
-/// Keys of the decrypted entry JSON an import writes (see
-/// `JobRunner._recordToPayload`).
-const importManagedKeys = {
-  'username', 'password', 'totp_secret', 'notes',
-  'card_number', 'holder_name', 'expiry_month', 'expiry_year', 'cvv',
-  'first_name', 'last_name', 'company', 'email', 'phone',
-  'street', 'city', 'state', 'postal_code', 'country',
-  'license_key', 'product_name', 'custom_fields',
-};
-
-/// The data an "overwrite" import saves over an existing entry: the imported
-/// [payload] replaces every key the import manages (also clearing those the
-/// record leaves empty), while keys it knows nothing about — tags, the SSO
-/// provider, bank fields, other clients' data — are kept from [existing].
+/// The data an "overwrite" import in [OverwriteMode.merge] saves over an existing
+/// entry. [payload] holds only non-empty values, and each of them replaces the
+/// existing one; anything the file does not hold stays, which covers
+/// `totp_secret`, other clients' keys, and the tags unless the record has some.
+/// Custom fields merge by label, see [_mergeCustomFields].
+///
+/// A stray `totp_secret` (see [isStrayTotpSecret]) goes: next to a new password
+/// it would no longer be recognised and turn into a 2FA secret.
+///
+/// The stored TOTP options go when a different secret comes in without any, as
+/// they belong to the old one. They stay as long as a custom `totp` field with
+/// another key is left, which reads the same options ([TotpOptions.stored]).
 Map<String, dynamic> mergeImportedData(
   Map<String, dynamic> existing,
   Map<String, dynamic> payload,
-) =>
-    {
-      for (final e in existing.entries)
-        if (!importManagedKeys.contains(e.key)) e.key: e.value,
-      ...payload,
-    };
+) {
+  final merged = {...existing, ...payload};
+  if (isStrayTotpSecret(existing) && !payload.containsKey(totpSecretKey)) {
+    merged.remove(totpSecretKey);
+  }
+  final imported = payload['custom_fields'];
+  if (imported is List) {
+    merged['custom_fields'] = _mergeCustomFields(existing['custom_fields'], imported);
+  }
+  if (_bringsNewTotpKey(existing, payload) && !_hasOtherCustomTotpKey(merged)) {
+    for (final key in totpOptionKeys) {
+      if (!payload.containsKey(key)) merged.remove(key);
+    }
+  }
+  return merged;
+}
+
+bool _bringsNewTotpKey(Map<String, dynamic> existing, Map<String, dynamic> payload) {
+  final incoming = payload[totpSecretKey];
+  if (incoming is! String || incoming.isEmpty) return false;
+  final old = existing[totpSecretKey];
+  return old is! String || !isSameTotpKey(old, incoming);
+}
+
+bool _hasOtherCustomTotpKey(Map<String, dynamic> data) {
+  final fields = data['custom_fields'];
+  final secret = data[totpSecretKey] as String;
+  if (fields is! List) return false;
+  return fields.any((f) {
+    if (f is! Map || f['type'] != CustomFieldType.totp.apiValue) return false;
+    final value = f['value'];
+    return value is String && value.isNotEmpty && !isSameTotpKey(value, secret);
+  });
+}
+
+/// The existing custom fields with the [imported] ones merged in: a field with
+/// the same label gets the imported value and type and keeps its place and its
+/// other keys, a new label is appended, and every other field stays, including
+/// file fields. An imported field with an empty value changes nothing, like any
+/// other empty value in the file. Each existing field is matched once, so a file
+/// with a label twice loses neither.
+List<dynamic> _mergeCustomFields(Object? existing, List<dynamic> imported) {
+  final merged = existing is List ? List<dynamic>.of(existing) : <dynamic>[];
+  final matched = <int>{};
+  for (final field in imported.whereType<Map<String, dynamic>>()) {
+    final slot = _indexOfLabel(merged, field['label'], skip: matched);
+    if (slot < 0) {
+      merged.add(field);
+      matched.add(merged.length - 1);
+      continue;
+    }
+    matched.add(slot);
+    if ((field['value'] as String? ?? '').isEmpty) continue;
+    final old = (merged[slot] as Map).cast<String, dynamic>();
+    merged[slot] = {...old}
+      // Belong to the old value; a file field in [field] brings its own.
+      ..remove('filename')
+      ..remove('mime_type')
+      ..addAll(field);
+  }
+  return merged;
+}
+
+int _indexOfLabel(List<dynamic> fields, Object? label, {required Set<int> skip}) {
+  for (var i = 0; i < fields.length; i++) {
+    final f = fields[i];
+    if (!skip.contains(i) && f is Map && f['label'] == label) return i;
+  }
+  return -1;
+}
