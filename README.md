@@ -149,12 +149,13 @@ curl -fsSL https://raw.githubusercontent.com/Gerry3010/passbubble/main/deploy.sh
 | `pwmgr logout` / `pwmgr whoami` | Session management |
 | `pwmgr register` | Register a new account using an invitation token |
 | `pwmgr add <name> [username]` | Add a password entry |
-| `pwmgr get <name>` | Retrieve and decrypt an entry |
-| `pwmgr update <name>` / `pwmgr delete <name>` | Edit/remove an entry |
+| `pwmgr get <name\|id>` | Retrieve and decrypt an entry |
+| `pwmgr update <name\|id>` / `pwmgr delete <name\|id>` | Edit/remove an entry; if a name matches several entries, the command lists them and changes nothing |
 | `pwmgr list` / `pwmgr search <pattern>` | List or search entries (no master password required — metadata only) |
-| `pwmgr totp-add <name> [username]` / `pwmgr totp-code <name>` / `pwmgr totp-list` / `pwmgr totp-delete <name>` | Manage TOTP/2FA entries |
-| `pwmgr generate [length]` | Generate a secure password |
-| `pwmgr backup` / `pwmgr restore <backup-file>` / `pwmgr list-backups` | Encrypted backup/restore |
+| `pwmgr totp-add <name> [username]` / `pwmgr totp-code <name\|id>` / `pwmgr totp-list` / `pwmgr totp-delete <name\|id>` | Manage TOTP/2FA entries |
+| `pwmgr import <file> --on-duplicate overwrite [--replace-all]` | Import; overwriting only replaces the values in the file, `--replace-all` makes an entry exactly what the file holds |
+| `pwmgr generate [length]` | Generate a secure password locally (no login or server needed); `--symbol-set` picks the special characters |
+| `pwmgr backup` / `pwmgr restore <backup-file>` / `pwmgr list-backups` | Backup/restore to a local JSON file. It is **not encrypted** and holds your secrets in the clear (file mode 0600), so keep it somewhere safe |
 | `pwmgr tui` | Interactive terminal UI (also the default with no subcommand) |
 | `pwmgr version` | Build/version info |
 

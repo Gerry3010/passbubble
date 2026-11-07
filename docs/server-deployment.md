@@ -99,17 +99,20 @@ Update the CLI binary separately from GitHub Releases when a new version ships.
 ## Backup & restore
 
 ```bash
-# Trigger a backup (creates an encrypted archive in the backups volume)
+# Write your entries to a local JSON file in ~/Documents/pwmgr-backups.
+# The file is not encrypted and holds your secrets in the clear (mode 0600).
 ./pwmgr backup
 
 # List existing backups
 ./pwmgr list-backups
 
-# Restore from a backup
+# Add the entries of a backup to your vault
 ./pwmgr restore <backup-file>
 ```
 
 ### Copy backups off the server
+
+Backups created through the server's API (`POST /api/v1/backup`) live in the `backups` volume:
 
 ```bash
 docker compose cp backend:/data/backups/. ./backups-export/
@@ -121,11 +124,8 @@ If you need to restore from scratch on a new server:
 
 1. Follow steps 1–4 above (same domain, same `.env`).
 2. Wait for the backend to be healthy.
-3. Copy a backup file into the container:
-   ```bash
-   docker compose cp my-backup.enc backend:/data/backups/
-   ```
-4. Run `./pwmgr restore my-backup.enc --server https://pwmgr.example.com`.
+3. Log in with `./pwmgr login --server https://pwmgr.example.com`.
+4. Run `./pwmgr restore my-backup.json`.
 
 ---
 
