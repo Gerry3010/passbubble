@@ -15,45 +15,14 @@
 
 import { useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
-import {
-  base32Decode,
-  normalizeTags,
-  parseOtpauthUri,
-  parseTagInput,
-  suggestTags,
-  tagInputError,
-} from '@passbubble/shared-ts';
+import { parseTagInput } from '@passbubble/shared-ts';
 import type { EntryData } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
 import { handleLockedResponse } from '../store/session.js';
 import { SSO_PROVIDER_LABELS } from '../../shared/sso.js';
 import { GeneratorDialog } from './GeneratorDialog.js';
-import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled, tagChip } from '../../shared/theme.js';
-
-// Accepts a 2FA setup value as pasted by the user — either an otpauth:// URI
-// (the QR-code payload) or a bare base32 secret — and returns the EntryData
-// TOTP fields, or null when the value is not usable.
-function parseTotpInput(raw: string): Partial<EntryData> | null {
-  const value = raw.trim();
-  if (!value) return {};
-  const parsed = parseOtpauthUri(value);
-  if (parsed) {
-    return {
-      totp_secret: parsed.secret,
-      issuer: parsed.issuer,
-      period: parsed.period,
-      digits: parsed.digits,
-      algorithm: parsed.algorithm,
-    };
-  }
-  const secret = value.replace(/[\s-]/g, '').toUpperCase();
-  try {
-    base32Decode(secret);
-  } catch {
-    return null;
-  }
-  return { totp_secret: secret };
-}
+import { parseTotpInput, TagsInput } from './EntryFormParts.js';
+import { term, input, buttonPrimary, buttonGhost, link, errorText, withDisabled } from '../../shared/theme.js';
 
 const ENTRY_TYPES = [
   { value: 'password', label: 'Login' },
@@ -85,18 +54,6 @@ export function CreateEntryForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatorOpen, setGeneratorOpen] = useState(false);
-
-  // The tag being typed is the text after the last comma; vault tags that
-  // match it are offered as completions.
-  const tagParts = tagsText.split(',');
-  const typingTag = tagParts[tagParts.length - 1];
-  const enteredTags = normalizeTags(tagParts.slice(0, -1));
-  const tagError = tagParts.map(tagInputError).find((e) => e !== null) ?? null;
-  const tagSuggestions = suggestTags(vaultTags, typingTag, { exclude: enteredTags, limit: 6 });
-
-  function pickTag(tag: string) {
-    setTagsText([...enteredTags, tag].join(', ') + ', ');
-  }
 
   const f = (key: string) => fields[key] ?? '';
   const setF = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -298,23 +255,7 @@ export function CreateEntryForm({
           />
         )}
 
-        <input
-          style={input}
-          placeholder="Tags (comma-separated, optional)"
-          aria-label="Tags"
-          value={tagsText}
-          onChange={(e) => setTagsText(e.target.value)}
-        />
-        {tagError && <span style={{ ...errorText, fontSize: '11px' }}>{tagError}</span>}
-        {tagSuggestions.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-            {tagSuggestions.map((t) => (
-              <button key={t} type="button" onClick={() => pickTag(t)} style={tagChip}>
-                #{t}
-              </button>
-            ))}
-          </div>
-        )}
+        <TagsInput value={tagsText} onChange={setTagsText} vaultTags={vaultTags} />
 
         <button type="submit" disabled={busy} style={withDisabled(buttonPrimary, busy)}>
           {busy ? 'Saving…' : 'Save entry'}

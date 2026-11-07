@@ -15,6 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { generateTotp } from '@passbubble/shared-ts';
 import type { EntryResponse } from '@passbubble/shared-ts';
 
 const sendMessage = vi.hoisted(() => vi.fn());
@@ -82,6 +83,124 @@ describe('EntryDetail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
     expect(screen.queryByText('4711')).toBeNull();
+  });
+
+  it('masks a custom TOTP field until revealed and still copies its value', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    sendMessage.mockResolvedValue({
+      data: { custom_fields: [{ label: 'Backup 2FA', value: 'JBSWY3DPEHPK3PXP', type: 'totp' }] },
+    });
+    render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+    await screen.findByText('Backup 2FA');
+    expect(screen.queryByText('JBSWY3DPEHPK3PXP')).toBeNull();
+
+    // Copying does not need the field to be revealed.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Copy' })[0]);
+    expect(writeText).toHaveBeenCalledWith('JBSWY3DPEHPK3PXP');
+    expect(screen.queryByText('JBSWY3DPEHPK3PXP')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(screen.getByText('JBSWY3DPEHPK3PXP')).toBeDefined();
+  });
+
+  it('masks the private key of an ssh-key entry with a reveal toggle', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const key = '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----\n';
+    sendMessage.mockResolvedValue({ data: { username: 'deploy', password: key } });
+    render(<EntryDetail entry={{ ...entry, type: 'ssh-key' }} onBack={() => {}} />);
+
+    await screen.findByText('Private key');
+    expect(screen.queryByText('Password')).toBeNull();
+    expect(screen.getByText('••••••••')).toBeDefined();
+    expect(document.body.textContent).not.toContain('BEGIN OPENSSH');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Copy' })[1]);
+    expect(writeText).toHaveBeenCalledWith(key);
+    expect(document.body.textContent).not.toContain('BEGIN OPENSSH');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(document.body.textContent).toContain('BEGIN OPENSSH');
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(document.body.textContent).not.toContain('BEGIN OPENSSH');
+  });
+
+  describe('TOTP codes', () => {
+    const SECRET = 'JBSWY3DPEHPK3PXP';
+    // An hour-long period, so the expected code stays valid during the test.
+    const STORED = { period: 3600, digits: 8, algorithm: 'SHA256' };
+
+    it("uses the entry's stored period, digits and algorithm", async () => {
+      sendMessage.mockResolvedValue({ data: { username: 'octocat', totp_secret: SECRET, ...STORED } });
+      render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+      const { code } = await generateTotp(SECRET, STORED);
+      expect(code).toHaveLength(8);
+      expect(await screen.findByText(code)).toBeDefined();
+      expect(await screen.findByText(/^TOTP \(\d+s\)$/)).toBeDefined();
+    });
+
+    it('shows a code for a custom totp field, with the entry parameters', async () => {
+      sendMessage.mockResolvedValue({
+        data: { ...STORED, custom_fields: [{ label: 'Backup', value: SECRET, type: 'totp' }] },
+      });
+      render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+      const { code } = await generateTotp(SECRET, STORED);
+      expect(await screen.findByText(code)).toBeDefined();
+      expect(screen.getByText(/^Backup code \(\d+s\)$/)).toBeDefined();
+      // The secret itself stays masked.
+      expect(screen.queryByText(SECRET)).toBeNull();
+    });
+
+    it('takes the parameters of an otpauth URI in a custom totp field', async () => {
+      const uri = `otpauth://totp/x?secret=${SECRET}&period=3600&digits=7`;
+      sendMessage.mockResolvedValue({ data: { custom_fields: [{ label: 'Backup', value: uri, type: 'totp' }] } });
+      render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+      const { code } = await generateTotp(SECRET, { period: 3600, digits: 7 });
+      expect(await screen.findByText(code)).toBeDefined();
+    });
+
+    it('shows no code for a custom field it cannot read', async () => {
+      sendMessage.mockResolvedValue({
+        data: { username: 'octocat', custom_fields: [{ label: 'Odd', value: 'not base32 !!', type: 'totp' }] },
+      });
+      render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+      await screen.findByText('Odd');
+      await new Promise((r) => setTimeout(r, 30));
+      expect(screen.queryByText(/code \(\d+s\)/)).toBeNull();
+    });
+
+    it('shows no code for a copy of the password in totp_secret', async () => {
+      // Valid base32, so it would produce a bogus code.
+      sendMessage.mockResolvedValue({ data: { username: 'octocat', password: SECRET, totp_secret: SECRET } });
+      render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+      await screen.findByText('octocat');
+      await new Promise((r) => setTimeout(r, 30));
+      expect(screen.queryByText(/^TOTP/)).toBeNull();
+    });
+
+    it('still shows the code of a real secret next to a password', async () => {
+      sendMessage.mockResolvedValue({ data: { password: 'hunter2', totp_secret: SECRET } });
+      render(<EntryDetail entry={entry} onBack={() => {}} />);
+
+      expect(await screen.findByText(/^TOTP \(\d+s\)$/)).toBeDefined();
+    });
+  });
+
+  it('offers Edit once the entry has loaded', async () => {
+    const onEdit = vi.fn();
+    sendMessage.mockResolvedValue({ data: { username: 'octocat' } });
+    render(<EntryDetail entry={entry} onBack={() => {}} onEdit={onEdit} />);
+
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    expect(onEdit).toHaveBeenCalledTimes(1);
   });
 
   it("shows the entry's tags, normalised", async () => {

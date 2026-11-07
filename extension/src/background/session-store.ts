@@ -28,6 +28,7 @@ import type { UnlockedSession } from '@passbubble/shared-ts';
 import type { EntryResponse } from '@passbubble/shared-ts';
 import { STORAGE_KEYS } from '../shared/constants.js';
 import { b64Dec, b64Enc } from '../shared/utils.js';
+import { recordPersistFailure } from './lock-log.js';
 
 let session: UnlockedSession | null = null;
 let entriesCache: EntryResponse[] | null = null;
@@ -112,6 +113,7 @@ export async function setSession(s: UnlockedSession): Promise<void> {
     await browser.storage.session.set({ [STORAGE_KEYS.UNLOCKED_SESSION]: serialize(s) });
   } catch {
     /* storage.session unavailable — memory-only session */
+    await recordPersistFailure();
   }
 }
 

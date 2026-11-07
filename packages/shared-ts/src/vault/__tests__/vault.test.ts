@@ -17,11 +17,12 @@ import { describe, expect, it } from 'vitest';
 import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { unlock, decryptEntry, encryptEntry, b64Dec, b64Enc } from '../vault.js';
+import { unlock, decryptEntry, encryptEntry, reencryptEntry, b64Dec, b64Enc } from '../vault.js';
 import { generateX25519 } from '../../crypto/x25519.js';
 import { generateMLKEM768 } from '../../crypto/mlkem.js';
 import { deriveKey } from '../../crypto/argon2.js';
-import { aesGcmEncrypt } from '../../crypto/aes-gcm.js';
+import { aesGcmDecrypt, aesGcmEncrypt } from '../../crypto/aes-gcm.js';
+import { decryptDataKey, encryptDataKey } from '../../crypto/hybrid-kem.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -129,6 +130,76 @@ describe('vault', () => {
     await expect(
       decryptEntry(apiEntry, { privX25519: privX, privMLKEM: privM }),
     ).rejects.toThrow('entry missing entry_key');
+  });
+
+  describe('reencryptEntry', () => {
+    async function makeUser() {
+      const x = generateX25519();
+      const m = await generateMLKEM768();
+      return { privX25519: x.priv, privMLKEM: m.priv, pubX25519: x.pub, pubMLKEM: m.pub };
+    }
+
+    // An entry shared between `owner` and `friend`: one data key, wrapped twice.
+    async function sharedEntry() {
+      const owner = await makeUser();
+      const friend = await makeUser();
+      const dataKey = crypto.getRandomValues(new Uint8Array(32));
+      const blob = await aesGcmEncrypt(dataKey, new TextEncoder().encode(JSON.stringify({ password: 'old' })));
+      const meta = { id: 'e1', owner_id: 'owner', type: 'password', name: 'T', created_at: '', updated_at: '' };
+      const wrappedFor = async (u: typeof owner, id: string) => ({
+        user_id: id,
+        encrypted_key: b64Enc(await encryptDataKey(dataKey, u.pubX25519, u.pubMLKEM)),
+      });
+      const ownerKey = await wrappedFor(owner, 'owner');
+      const friendKey = await wrappedFor(friend, 'friend');
+      return { owner, friend, dataKey, meta, ownerKey, friendKey, blob: b64Enc(blob) };
+    }
+
+    it('keeps the data key and sends no entry_keys', async () => {
+      const { owner, dataKey, meta, ownerKey, blob } = await sharedEntry();
+      const updated = await reencryptEntry(
+        { password: 'new' },
+        { ...meta, encrypted_data: blob, entry_key: ownerKey },
+        owner,
+      );
+
+      expect(updated).not.toHaveProperty('entry_keys');
+      expect(b64Dec(updated.data_nonce)).toEqual(new Uint8Array(12));
+      // The new blob opens with the original data key itself.
+      const plain = await aesGcmDecrypt(dataKey, b64Dec(updated.encrypted_data));
+      expect(JSON.parse(new TextDecoder().decode(plain))).toEqual({ password: 'new' });
+      expect(updated.encrypted_data).not.toBe(blob);
+    });
+
+    it('lets a second recipient read the update with their existing wrapped key', async () => {
+      const { owner, friend, dataKey, meta, ownerKey, friendKey, blob } = await sharedEntry();
+      const updated = await reencryptEntry(
+        { password: 'new', notes: 'edited by owner' },
+        { ...meta, encrypted_data: blob, entry_key: ownerKey },
+        owner,
+      );
+
+      const asFriend = { ...meta, encrypted_data: updated.encrypted_data, entry_key: friendKey };
+      expect(await decryptEntry(asFriend, friend)).toEqual({ password: 'new', notes: 'edited by owner' });
+      const friendWrapped = b64Dec(friendKey.encrypted_key);
+      expect(await decryptDataKey(friendWrapped, friend.privX25519, friend.privMLKEM)).toEqual(dataKey);
+    });
+
+    it('fails when the wrapped key is missing or belongs to someone else', async () => {
+      const { friend, meta, ownerKey, blob } = await sharedEntry();
+      await expect(reencryptEntry({ password: 'new' }, { ...meta, encrypted_data: blob }, friend)).rejects.toThrow(
+        'entry missing entry_key',
+      );
+      await expect(
+        reencryptEntry({ password: 'new' }, { ...meta, encrypted_data: blob, entry_key: ownerKey }, friend),
+      ).rejects.toThrow();
+    });
+  });
+
+  it('b64Enc copes with attachment-sized data', () => {
+    const big = new Uint8Array(3 * 1024 * 1024).map((_, i) => i % 251);
+    expect(b64Dec(b64Enc(big))).toEqual(big);
+    expect(b64Enc(new Uint8Array(0))).toBe('');
   });
 
   it('interop: decrypt entry created by Go', async () => {

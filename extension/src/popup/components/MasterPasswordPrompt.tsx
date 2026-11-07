@@ -15,10 +15,11 @@
 
 import { useState } from 'react';
 import { useSessionStore } from '../store/session.js';
+import { describeLock, formatLockTime } from '../../shared/lock-info.js';
 import { term, input, buttonPrimary, muted, errorText, withDisabled } from '../../shared/theme.js';
 
 export function MasterPasswordPrompt() {
-  const { unlock, unlockWithPin, logout, isLoading, error, pinAvailable } = useSessionStore();
+  const { unlock, unlockWithPin, logout, isLoading, error, pinAvailable, lastLock } = useSessionStore();
   // Prefer the PIN when it is available; the user can switch to the master password.
   const [usePin, setUsePin] = useState(pinAvailable);
   const [masterPassword, setMasterPassword] = useState('');
@@ -41,6 +42,11 @@ export function MasterPasswordPrompt() {
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: term.green }}>$ unlock vault</h2>
       <p style={muted}>{pinMode ? 'Enter your PIN to unlock' : 'Enter your master password to unlock'}</p>
+      {lastLock && (
+        <p style={{ ...muted, fontSize: '11px' }}>
+          locked {formatLockTime(lastLock.at)}: {describeLock(lastLock)}
+        </p>
+      )}
       {error && <p style={errorText}>{error}</p>}
       {pinMode ? (
         <input

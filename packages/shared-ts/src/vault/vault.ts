@@ -25,8 +25,16 @@ import type { EntryData, KDFParams, UnlockedSession } from '../types/vault.js';
 
 export type { EntryData } from '../types/vault.js';
 
+// Chunked: spreading a large array into one fromCharCode call overflows the
+// stack, and entries carrying file attachments run into the megabytes.
+const B64_CHUNK_SIZE = 0x8000;
+
 export function b64Enc(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += B64_CHUNK_SIZE) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + B64_CHUNK_SIZE));
+  }
+  return btoa(binary);
 }
 
 export function b64Dec(s: string): Uint8Array {
@@ -79,7 +87,32 @@ export async function decryptEntry(
   return JSON.parse(new TextDecoder().decode(plaintext)) as EntryData;
 }
 
-// Encrypt entry data and produce CreateEntryRequest fields.
+// Encrypt the data of an existing entry with the data key it already has. Every
+// recipient of the entry holds that key wrapped for them and the backend only
+// upserts the entry_keys it receives, so a fresh key would lock them all out.
+// Hence no entry_keys in the result. Rejects, with nothing written, when the
+// caller's wrapped key is missing or cannot be unwrapped. Mirrors
+// Vault.UpdateEntry in cli/internal/vault/vault.go.
+export async function reencryptEntry(
+  data: EntryData,
+  apiEntry: Pick<EntryResponse, 'entry_key'>,
+  session: Pick<UnlockedSession, 'privX25519' | 'privMLKEM'>,
+): Promise<{ encrypted_data: string; data_nonce: string }> {
+  if (!apiEntry.entry_key) {
+    throw new Error('vault: entry missing entry_key');
+  }
+  const encKey = b64Dec(apiEntry.entry_key.encrypted_key);
+  const dataKey = await decryptDataKey(encKey, session.privX25519, session.privMLKEM);
+  const plaintext = new TextEncoder().encode(JSON.stringify(data));
+  const ciphertext = await aesGcmEncrypt(dataKey, plaintext);
+  return {
+    encrypted_data: b64Enc(ciphertext),
+    data_nonce: b64Enc(new Uint8Array(12)), // unused; 12 zero bytes like encryptEntry
+  };
+}
+
+// Encrypt the data of a NEW entry under a fresh data key and produce the
+// CreateEntryRequest fields. Existing entries go through reencryptEntry.
 export async function encryptEntry(
   data: EntryData,
   session: Pick<UnlockedSession, 'privX25519' | 'privMLKEM' | 'pubX25519' | 'pubMLKEM' | 'userId'>,

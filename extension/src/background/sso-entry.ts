@@ -18,7 +18,7 @@
 // like any other vault field. The device-local record in sso-memory.ts remains
 // as a fallback for sites without a matching entry.
 
-import { decryptEntry, encryptEntry } from '@passbubble/shared-ts';
+import { decryptEntry, reencryptEntry } from '@passbubble/shared-ts';
 import { clearEntryTagsCache, getSession, setEntriesCache } from './session-store.js';
 import { loadEntriesCache, vaultClient } from './vault-client.js';
 import { matchEntriesForUrl } from './autofill-service.js';
@@ -70,7 +70,8 @@ export async function ssoFromEntries(
  * don't pile up entry versions. Best-effort per entry (read-only shares fail
  * server-side and are skipped). Only sign_in_with changes: every other key of
  * the decrypted data (tags, custom fields, keys this client does not know) is
- * written back as read, and the folder is echoed back because the backend
+ * written back as read under the entry's existing data key (other recipients
+ * stay able to read it), and the folder is echoed back because the backend
  * always overwrites folder_id.
  */
 export async function persistSsoToEntries(host: string, provider: SsoProvider | null): Promise<void> {
@@ -85,7 +86,7 @@ export async function persistSsoToEntries(host: string, provider: SsoProvider | 
       if ((data.sign_in_with ?? null) === provider) continue;
       if (provider) data.sign_in_with = provider;
       else delete data.sign_in_with;
-      const encrypted = await encryptEntry(data, session);
+      const encrypted = await reencryptEntry(data, apiEntry, session);
       await client.updateEntry(m.id, { ...encrypted, folder_id: apiEntry.folder_id });
       changed = true;
     } catch {

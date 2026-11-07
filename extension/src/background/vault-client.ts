@@ -26,6 +26,8 @@ import { STORAGE_KEYS, AUTO_LOCK_ALARM, TOKEN_REFRESH_ALARM } from '../shared/co
 import { clearSession, getEntriesCache, getSession, setEntriesCache, setSession } from './session-store.js';
 import { clearAccount, loadAccount, saveRefreshToken } from './account-store.js';
 import { clearPin } from './pin-store.js';
+import { recordLock } from './lock-log.js';
+import type { LockEvent, LockReason } from '../shared/lock-info.js';
 
 /** The vault is locked — or, with `loggedOut`, the device was signed out because
  * the server rejected the refresh token. Handlers turn it into `{ locked: true }`. */
@@ -49,7 +51,11 @@ export async function getServerUrl(): Promise<string> {
 
 /** Lock the vault: drop the unlocked session (memory + storage.session) and the
  * alarms that only make sense while unlocked. The login state is kept. */
-export async function lockVault(): Promise<void> {
+export async function lockVault(
+  reason: LockReason,
+  details?: Pick<LockEvent, 'idleMinutes' | 'settingSource'>,
+): Promise<void> {
+  await recordLock(reason, details);
   await clearSession();
   await browser.alarms.clear(TOKEN_REFRESH_ALARM);
   await browser.alarms.clear(AUTO_LOCK_ALARM);
@@ -63,7 +69,7 @@ export async function lockVault(): Promise<void> {
 /** Sign this device out locally: lock, forget the login state and the PIN (a
  * signed-out device must never keep a PIN-unlockable master key around). */
 export async function endLogin(): Promise<void> {
-  await lockVault();
+  await lockVault('signed-out');
   await clearAccount();
   await clearPin();
 }

@@ -38,6 +38,8 @@ export const MessageType = {
   LIST_ENTRY_TAGS: 'LIST_ENTRY_TAGS',
   CREATE_ENTRY: 'CREATE_ENTRY',
   UPDATE_ENTRY: 'UPDATE_ENTRY',
+  // Edit form: apply the user's changes to the entry's data and metadata.
+  EDIT_ENTRY: 'EDIT_ENTRY',
   DELETE_ENTRY: 'DELETE_ENTRY',
   TOGGLE_FAVORITE: 'TOGGLE_FAVORITE',
   // Autofill
@@ -97,6 +99,12 @@ export const STORAGE_KEYS = {
   GENERATOR_DEFAULTS: 'generator_defaults',
   // chrome.storage.local — device-local, persists across browser restarts
   SAVE_BLOCKLIST: 'save_blocklist',
+  // Last AUTO_LOCK_MINUTES seen, read when storage.sync has no usable value: a
+  // storage.sync hiccup must not turn "never" into the default timeout.
+  AUTO_LOCK_MIRROR: 'auto_lock_minutes_mirror',
+  // Recent locks and the "vault should be unlocked" marker (lock-log.ts).
+  LOCK_LOG: 'lock_log',
+  SESSION_EXPECTED: 'session_expected',
   // Per-host "signs in with <provider>" records ({ [host]: { provider,
   // lastUsed, hits } }). Deliberately not synced — browsing metadata.
   SSO_MEMORY: 'sso_memory',

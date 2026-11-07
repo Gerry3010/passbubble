@@ -56,11 +56,10 @@ vi.mock('webextension-polyfill', () => ({
 }));
 
 const createEntryMock = vi.hoisted(() => vi.fn().mockResolvedValue({ id: 'e1' }));
-const encryptEntryMock = vi.hoisted(() =>
+const reencryptEntryMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
     encrypted_data: 'ed',
     data_nonce: 'dn',
-    entry_keys: [{ user_id: 'u', encrypted_key: 'ek' }],
   }),
 );
 const decryptEntryMock = vi.hoisted(() => vi.fn());
@@ -88,7 +87,8 @@ vi.mock('../session-store.js', () => ({
   clearEntryTagsCache: clearEntryTagsCacheMock,
 }));
 
-vi.mock('@passbubble/shared-ts', () => ({
+vi.mock('@passbubble/shared-ts', async (importOriginal) => ({
+  dropStrayTotpSecret: (await importOriginal<typeof import('@passbubble/shared-ts')>()).dropStrayTotpSecret,
   PassbubbleClient: vi.fn().mockImplementation(() => ({
     setTokens: vi.fn(),
     listEntries: listEntriesMock,
@@ -97,7 +97,7 @@ vi.mock('@passbubble/shared-ts', () => ({
   })),
   unlock: vi.fn(),
   decryptEntry: decryptEntryMock,
-  encryptEntry: encryptEntryMock,
+  reencryptEntry: reencryptEntryMock,
   createEntry: createEntryMock,
 }));
 
@@ -113,7 +113,7 @@ describe('credential save flow', () => {
     for (const k of Object.keys(sessionStore)) delete sessionStore[k];
     for (const k of Object.keys(localStore)) delete localStore[k];
     createEntryMock.mockClear();
-    encryptEntryMock.mockClear();
+    reencryptEntryMock.mockClear();
     decryptEntryMock.mockReset();
     updateEntryMock.mockClear();
     getEntryMock.mockClear();
@@ -241,14 +241,14 @@ describe('credential save flow', () => {
     const res = (await handlers[MessageType.UPDATE_SAVE]({ entryId: 'e1' })) as { ok?: boolean; id?: string };
 
     expect(res.ok).toBe(true);
-    expect(encryptEntryMock).toHaveBeenCalledTimes(1);
-    expect(encryptEntryMock.mock.calls[0][0]).toEqual({
+    expect(reencryptEntryMock).toHaveBeenCalledTimes(1);
+    expect(reencryptEntryMock.mock.calls[0][0]).toEqual({
       username: 'alice', password: 'newpw', totp_secret: 'JBSWY3DP', sign_in_with: 'google',
     });
+    // No entry_keys: the data key stays, so every recipient's wrapped key stays valid.
     expect(updateEntryMock).toHaveBeenCalledWith('e1', {
       encrypted_data: 'ed',
       data_nonce: 'dn',
-      entry_keys: [{ user_id: 'u', encrypted_key: 'ek' }],
     });
     expect(sessionStore[STORAGE_KEYS.PENDING_SAVE]).toBeUndefined();
   });
@@ -272,8 +272,36 @@ describe('credential save flow', () => {
     const res = (await handlers[MessageType.UPDATE_SAVE]({ entryId: 'e1' }, {})) as { ok?: boolean };
 
     expect(res.ok).toBe(true);
-    expect(encryptEntryMock.mock.calls[0][0]).toEqual({ ...existing, password: 'newpw' });
+    expect(reencryptEntryMock.mock.calls[0][0]).toEqual({ ...existing, password: 'newpw' });
     expect(clearEntryTagsCacheMock).toHaveBeenCalled();
+  });
+
+  describe('UPDATE_SAVE and a stray totp_secret', () => {
+    const pendingNewPassword = () => {
+      sessionStore[STORAGE_KEYS.PENDING_SAVE] = {
+        name: 'Example', url: 'https://example.com/login', username: 'alice', password: 'newpw',
+      };
+    };
+
+    it('drops a copy of the old password, which would otherwise pass for a secret', async () => {
+      const handlers = buildHandlers();
+      decryptEntryMock.mockResolvedValue({ username: 'alice', password: 'oldpw', totp_secret: 'oldpw' });
+      pendingNewPassword();
+
+      await handlers[MessageType.UPDATE_SAVE]({ entryId: 'e1' }, {});
+
+      expect(reencryptEntryMock.mock.calls[0][0]).toEqual({ username: 'alice', password: 'newpw' });
+    });
+
+    it('keeps a real secret', async () => {
+      const handlers = buildHandlers();
+      decryptEntryMock.mockResolvedValue({ username: 'alice', password: 'oldpw', totp_secret: 'JBSWY3DP' });
+      pendingNewPassword();
+
+      await handlers[MessageType.UPDATE_SAVE]({ entryId: 'e1' }, {});
+
+      expect(reencryptEntryMock.mock.calls[0][0]).toEqual({ username: 'alice', password: 'newpw', totp_secret: 'JBSWY3DP' });
+    });
   });
 
   it('UPDATE_SAVE leaves the entry in its folder', async () => {
@@ -301,7 +329,7 @@ describe('credential save flow', () => {
 
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/nothing was changed/);
-    expect(encryptEntryMock).not.toHaveBeenCalled();
+    expect(reencryptEntryMock).not.toHaveBeenCalled();
     expect(updateEntryMock).not.toHaveBeenCalled();
     // The offer survives, so the user can still save it as a new entry.
     expect(sessionStore[STORAGE_KEYS.PENDING_SAVE]).toBeDefined();

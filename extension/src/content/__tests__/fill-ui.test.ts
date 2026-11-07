@@ -50,6 +50,39 @@ function mockElementsFromPoint(impl: (x: number, y: number) => Element[]): void 
     vi.fn(impl);
 }
 
+describe('fill-iframe message listener', () => {
+  // As fill-ui computes it (jsdom's URL gives this scheme an opaque origin).
+  const FROM_EXTENSION = { origin: new URL('chrome-extension://test/').origin };
+
+  beforeEach(() => {
+    removeFillIframe();
+    document.body.innerHTML = '';
+    mockElementsFromPoint(() => []);
+  });
+
+  it('goes away with its box, so a replaced box no longer answers messages', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    injectFillIframe(anchorAt(10, 40, 10), {}, { ...noHandlers, onUseGenerated: first });
+    injectFillIframe(anchorAt(10, 40, 10), {}, { ...noHandlers, onUseGenerated: second });
+
+    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, data: { type: 'FILL_USE_GENERATED', password: 'pw' } }));
+
+    expect(second).toHaveBeenCalledWith('pw');
+    expect(first).not.toHaveBeenCalled();
+  });
+
+  it('goes away when the box is removed from outside', () => {
+    const onDismiss = vi.fn();
+    injectFillIframe(anchorAt(10, 40, 10), {}, { ...noHandlers, onDismiss });
+    removeFillIframe();
+
+    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, data: { type: 'FILL_DISMISS' } }));
+
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+});
+
 describe('fill-iframe positioning', () => {
   beforeEach(() => {
     removeFillIframe();

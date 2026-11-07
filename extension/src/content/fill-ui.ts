@@ -24,6 +24,7 @@ import { isFlutterField } from './flutter.js';
 
 let activeIframe: HTMLIFrameElement | null = null;
 let activeAnchor: HTMLInputElement | null = null;
+let activeLocked = false;
 let activeCleanup: (() => void) | null = null;
 
 // True while a fill suggestion is currently shown for `anchor` (or for any
@@ -33,6 +34,11 @@ let activeCleanup: (() => void) | null = null;
 export function isFillIframeShown(anchor?: HTMLInputElement): boolean {
   if (!activeIframe || !document.body.contains(activeIframe)) return false;
   return anchor ? activeAnchor === anchor : true;
+}
+
+// True while the box on screen is the unlock box (locked mode).
+export function isLockedBoxShown(): boolean {
+  return activeLocked && isFillIframeShown();
 }
 
 export interface TotpSuggestion {
@@ -114,15 +120,19 @@ export function injectFillIframe(
   document.body.appendChild(iframe);
   activeIframe = iframe;
   activeAnchor = anchorField;
+  activeLocked = payload.locked ?? false;
 
   // Keep the fixed-position iframe glued to its anchor while the page scrolls
   // or resizes (capture-phase scroll also catches scrolling sub-containers).
   const reposition = () => positionIframe(iframe, anchorField);
   window.addEventListener('scroll', reposition, { capture: true, passive: true });
   window.addEventListener('resize', reposition, { passive: true });
+  // The message listener goes with the box. If it stayed, a replaced box's
+  // handlers would still answer the messages of the box after it.
   activeCleanup = () => {
     window.removeEventListener('scroll', reposition, { capture: true });
     window.removeEventListener('resize', reposition);
+    window.removeEventListener('message', handler);
   };
 
   const postInit = () =>
@@ -145,7 +155,7 @@ export function injectFillIframe(
   // race where the React app mounts after 'load' fires.
   iframe.addEventListener('load', postInit);
 
-  window.addEventListener('message', function handler(event) {
+  function handler(event: MessageEvent) {
     // Only accept messages from our extension
     if (event.origin !== new URL(browser.runtime.getURL('')).origin) return;
     const msg = event.data as { type: string; entryId?: string; height?: number; password?: string; code?: string };
@@ -238,7 +248,8 @@ export function injectFillIframe(
       removeFillIframe();
       window.removeEventListener('message', handler);
     }
-  });
+  }
+  window.addEventListener('message', handler);
 }
 
 export function removeFillIframe(): void {
@@ -249,6 +260,7 @@ export function removeFillIframe(): void {
     activeIframe = null;
   }
   activeAnchor = null;
+  activeLocked = false;
 }
 
 // Place the iframe below its anchor field — unless it would cover an

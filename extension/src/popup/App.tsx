@@ -99,7 +99,10 @@ export function App() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    // Bounded here because the body's max-height gives its children no definite
+    // height to resolve against: without it the content grows past the popup and
+    // is clipped, and the scrolling content area below never gets to scroll.
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', maxHeight: '600px' }}>
       {/* Header */}
       <div
         style={{
@@ -161,7 +164,7 @@ export function App() {
       {tab === 'vault' && <SavePrompt />}
 
       {/* Content */}
-      <div style={{ padding: '12px', flex: 1, overflowY: 'auto' }}>
+      <div style={{ padding: '12px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {tab === 'vault' ? <VaultPanel /> : tab === 'generator' ? <GeneratorPanel /> : <HealthPanel />}
       </div>
     </div>

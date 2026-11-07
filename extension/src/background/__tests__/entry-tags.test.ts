@@ -40,14 +40,14 @@ const client = vi.hoisted(() => ({
   updateEntry: vi.fn(),
 }));
 const decryptEntryMock = vi.hoisted(() => vi.fn());
-const encryptEntryMock = vi.hoisted(() => vi.fn());
+const reencryptEntryMock = vi.hoisted(() => vi.fn());
 const createEntryMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@passbubble/shared-ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@passbubble/shared-ts')>()),
   PassbubbleClient: vi.fn().mockImplementation(() => client),
   decryptEntry: decryptEntryMock,
-  encryptEntry: encryptEntryMock,
+  reencryptEntry: reencryptEntryMock,
   createEntry: createEntryMock,
 }));
 
@@ -107,10 +107,9 @@ describe('entry tags in the background', () => {
       if (data instanceof Error) throw data;
       return structuredClone(data ?? {});
     });
-    encryptEntryMock.mockReset().mockResolvedValue({
+    reencryptEntryMock.mockReset().mockResolvedValue({
       encrypted_data: 'ed',
       data_nonce: 'dn',
-      entry_keys: [{ user_id: 'u1', encrypted_key: 'ek' }],
     });
     createEntryMock.mockReset().mockResolvedValue({ id: 'new' });
     handlers = buildHandlers();
@@ -118,7 +117,7 @@ describe('entry tags in the background', () => {
 
   describe('LIST_ENTRY_TAGS', () => {
     it('answers { locked: true } while the vault is locked', async () => {
-      await lockVault();
+      await lockVault('manual');
       expect(await handlers[MessageType.LIST_ENTRY_TAGS]({}, {})).toEqual({ locked: true });
       expect(client.listEntriesFull).not.toHaveBeenCalled();
     });
@@ -165,7 +164,7 @@ describe('entry tags in the background', () => {
 
     it('does not refill the cache when the vault locks mid-decrypt', async () => {
       decryptEntryMock.mockImplementationOnce(async () => {
-        await lockVault();
+        await lockVault('manual');
         return { tags: ['work'] };
       });
       await handlers[MessageType.LIST_ENTRY_TAGS]({}, {});
@@ -223,8 +222,8 @@ describe('entry tags in the background', () => {
 
     it('changes only sign_in_with and keeps tags, custom-field keys and unknown keys', async () => {
       await persistSsoToEntries('example.com', 'google');
-      expect(encryptEntryMock).toHaveBeenCalledTimes(1);
-      expect(encryptEntryMock.mock.calls[0][0]).toEqual({ ...stored, sign_in_with: 'google' });
+      expect(reencryptEntryMock).toHaveBeenCalledTimes(1);
+      expect(reencryptEntryMock.mock.calls[0][0]).toEqual({ ...stored, sign_in_with: 'google' });
     });
 
     it('leaves the entry in its folder and drops the tags cache', async () => {
@@ -239,7 +238,7 @@ describe('entry tags in the background', () => {
     it('clearing the provider keeps everything else as well', async () => {
       vaultData.s = { ...structuredClone(stored), sign_in_with: 'github' } as EntryData;
       await persistSsoToEntries('example.com', null);
-      expect(encryptEntryMock.mock.calls[0][0]).toEqual(stored);
+      expect(reencryptEntryMock.mock.calls[0][0]).toEqual(stored);
     });
   });
 });

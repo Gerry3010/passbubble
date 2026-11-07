@@ -32,7 +32,7 @@ import {
 } from './flutter.js';
 import { CC_KINDS, classifyField, classifyOtpField, type FieldKind } from './field-classifier.js';
 import { providerFromText, SSO_PROVIDER_LABELS, type SsoProvider } from '../shared/sso.js';
-import { injectFillIframe, removeFillIframe, isFillIframeShown, type TypedFillData } from './fill-ui.js';
+import { injectFillIframe, removeFillIframe, isFillIframeShown, isLockedBoxShown, type TypedFillData } from './fill-ui.js';
 import { initSaveDetector, recoverPendingSave } from './save-detector.js';
 
 // Fill a form field in a way that works with React / Vue SPAs.
@@ -162,13 +162,16 @@ function autofillConfirmField(form: DetectedForm, password: string): void {
 let cachedGenerated: { origin: string; password: string } | null = null;
 
 // Show the fill suggestion for a focused login/signup field. Login forms get the
-// match list; signup forms get the password generator box.
+// match list, signup forms the password generator box; while the vault is locked
+// or logged out, both get the unlock box.
 async function showFillFor(form: DetectedForm): Promise<void> {
   const { usernameField, passwordField } = form;
   const anchor = anchorFor(form);
   if (!anchor) return;
-  // Already shown for this field (e.g. duplicate focus event)? Do nothing.
-  if (isFillIframeShown(anchor)) return;
+  // Already shown for this field (e.g. duplicate focus event)? Do nothing. The
+  // unlock box is the exception: the vault may have been unlocked since it
+  // appeared (from the toolbar, without using the box), so that is checked first.
+  if (isFillIframeShown(anchor) && !isLockedBoxShown()) return;
 
   const stillFocused = () => {
     const active = deepActiveElement();
@@ -180,9 +183,9 @@ async function showFillFor(form: DetectedForm): Promise<void> {
     payload: {},
   });
   if (!sessionResp?.isUnlocked) {
-    // Locked or logged out: on a real login form (not a signup), offer an unlock
-    // prompt whose button opens the toolbar popup. Nothing to suggest on signup.
-    if (form.isSignup || !stillFocused()) return;
+    // Locked or logged out: offer an unlock prompt whose button opens the toolbar
+    // popup. Once unlocked, focusing the field brings the regular box.
+    if (!stillFocused() || isFillIframeShown(anchor)) return;
     injectFillIframe(
       anchor,
       { locked: true, loggedIn: !!sessionResp?.isLoggedIn },
@@ -190,6 +193,8 @@ async function showFillFor(form: DetectedForm): Promise<void> {
     );
     return;
   }
+  // Unlocked by now: an unlock box still on screen has nothing left to offer.
+  if (isLockedBoxShown()) removeFillIframe();
 
   if (form.isSignup) {
     // Register form → the box generates a password itself (extension page,

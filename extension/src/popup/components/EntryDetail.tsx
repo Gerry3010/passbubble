@@ -13,22 +13,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
-import { generateTotp, tagsOf } from '@passbubble/shared-ts';
-import type { EntryData, EntryResponse } from '@passbubble/shared-ts';
+import { customFieldTotp, generateTotp, tagsOf, totpOptionsOf, totpSecretOf } from '@passbubble/shared-ts';
+import type { EntryData, EntryResponse, TotpOptions } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
 import { handleLockedResponse } from '../store/session.js';
 import { isSsoProvider, SSO_PROVIDER_LABELS } from '../../shared/sso.js';
 import { term, link, muted, errorText, tagChip } from '../../shared/theme.js';
 
-export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: () => void }) {
+export function EntryDetail({
+  entry,
+  onBack,
+  onEdit,
+}: {
+  entry: EntryResponse;
+  onBack: () => void;
+  onEdit?: () => void;
+}) {
   const [data, setData] = useState<EntryData | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Secret fields the user has revealed, by field id — each Show toggles only
   // its own field.
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set());
-  const [totp, setTotp] = useState<{ code: string; remaining: number } | null>(null);
+  // Live codes by source id (see totpSourcesOf).
+  const [codes, setCodes] = useState<Record<string, TotpCode>>({});
 
   useEffect(() => {
     browser.runtime
@@ -44,18 +53,22 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
       .catch((e) => setError(`Failed to load entry: ${e instanceof Error ? e.message : String(e)}`));
   }, [entry.id]);
 
-  // Live TOTP code (recomputed every second) when the entry has a secret.
+  // Live TOTP codes (recomputed every second) for whatever secrets the entry has.
   useEffect(() => {
-    const secret = data?.totp_secret;
-    if (!secret) return;
+    const sources = data ? totpSourcesOf(data) : [];
+    if (sources.length === 0) return;
     let active = true;
     const tick = async () => {
-      try {
-        const r = await generateTotp(secret);
-        if (active) setTotp({ code: r.code, remaining: r.secondsRemaining });
-      } catch {
-        if (active) setTotp(null);
+      const next: Record<string, TotpCode> = {};
+      for (const { id, secret, options } of sources) {
+        try {
+          const r = await generateTotp(secret, options);
+          next[id] = { code: r.code, remaining: r.secondsRemaining };
+        } catch {
+          // malformed secret or unknown algorithm: no code for this one
+        }
       }
+      if (active) setCodes(next);
     };
     void tick();
     const id = setInterval(() => void tick(), 1000);
@@ -63,7 +76,9 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
       active = false;
       clearInterval(id);
     };
-  }, [data?.totp_secret]);
+  }, [data]);
+
+  const totp = codes[MAIN_TOTP];
 
   const tags = tagsOf(data);
 
@@ -89,7 +104,14 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <button onClick={onBack} style={link}>‹ Back</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <button onClick={onBack} style={link}>‹ Back</button>
+        {onEdit && data && (
+          <button onClick={onEdit} style={link}>
+            Edit
+          </button>
+        )}
+      </div>
       <h3 style={{ margin: 0, fontSize: '15px', color: term.green }}>{entry.name}</h3>
       {entry.url && <div style={{ color: term.muted, fontSize: '11px' }}>{entry.url}</div>}
       {tags.length > 0 && (
@@ -115,7 +137,7 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
           )}
           {data.password && (
             <Field
-              label="Password"
+              label={PASSWORD_LABELS[entry.type] ?? 'Password'}
               value={revealed.has('password') ? data.password : '••••••••'}
               onCopy={() => copy(data.password!)}
               extra={revealButton('password')}
@@ -145,14 +167,23 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
             if (!cf.value) return null;
             const id = `cf-${i}`;
             const secret = SECRET_CUSTOM_TYPES.has(cf.type ?? '');
+            const live = codes[id];
             return (
-              <Field
-                key={id}
-                label={cf.label || 'Custom'}
-                value={secret && !revealed.has(id) ? mask(id, cf.value) : cf.value}
-                onCopy={() => copy(cf.value)}
-                extra={secret ? revealButton(id) : undefined}
-              />
+              <Fragment key={id}>
+                <Field
+                  label={cf.label || 'Custom'}
+                  value={secret && !revealed.has(id) ? mask(id, cf.value) : cf.value}
+                  onCopy={() => copy(cf.value)}
+                  extra={secret ? revealButton(id) : undefined}
+                />
+                {live && (
+                  <Field
+                    label={`${cf.label || 'Custom'} code (${live.remaining}s)`}
+                    value={live.code}
+                    onCopy={() => copy(live.code)}
+                  />
+                )}
+              </Fragment>
             );
           })}
           {data.notes && <Field label="Notes" value={data.notes} onCopy={() => copy(data.notes!)} />}
@@ -160,6 +191,26 @@ export function EntryDetail({ entry, onBack }: { entry: EntryResponse; onBack: (
       )}
     </div>
   );
+}
+
+interface TotpCode {
+  code: string;
+  remaining: number;
+}
+
+const MAIN_TOTP = 'main';
+
+// The secrets of an entry a live code is shown for: its own, then each custom
+// `totp` field. The ids match the custom fields' ids in the list above.
+function totpSourcesOf(data: EntryData): Array<{ id: string; secret: string; options: TotpOptions }> {
+  const sources: Array<{ id: string; secret: string; options: TotpOptions }> = [];
+  const secret = totpSecretOf(data);
+  if (secret) sources.push({ id: MAIN_TOTP, secret, options: totpOptionsOf(data) });
+  (data.custom_fields ?? []).forEach((cf, i) => {
+    const custom = cf.type === 'totp' ? customFieldTotp(cf, data) : null;
+    if (custom) sources.push({ id: `cf-${i}`, ...custom });
+  });
+  return sources;
 }
 
 // Non-login fields rendered when present, in display order. `secret` fields
@@ -174,6 +225,7 @@ const TYPED_FIELDS: Array<[keyof EntryData & string, string, boolean?]> = [
   ['iban', 'IBAN'],
   ['bic', 'BIC'],
   ['account_number', 'Account number'],
+  ['account_type', 'Account type'],
   ['title', 'Title'],
   ['first_name', 'First name'],
   ['last_name', 'Last name'],
@@ -188,10 +240,18 @@ const TYPED_FIELDS: Array<[keyof EntryData & string, string, boolean?]> = [
   ['product_name', 'Product'],
   ['license_key', 'License key', true],
   ['purchase_email', 'Purchase email'],
+  ['purchase_date', 'Purchased'],
+  ['expires_at', 'Expires'],
 ];
 
-// Custom field types the app masks until revealed.
-const SECRET_CUSTOM_TYPES = new Set(['password', 'ssh']);
+// What the `password` key holds for the types where it is not a password.
+const PASSWORD_LABELS: Record<string, string> = {
+  'ssh-key': 'Private key',
+  'api-key': 'API key / Secret',
+};
+
+// Custom field types masked until revealed.
+const SECRET_CUSTOM_TYPES = new Set(['password', 'ssh', 'totp']);
 
 function mask(key: string, value: string): string {
   if (key === 'card_number') {
@@ -231,7 +291,10 @@ function Field({
           </button>
         </span>
       </div>
-      <div style={{ fontSize: '13px', wordBreak: 'break-all', fontFamily: term.font, color: term.green }}>{value}</div>
+      {/* pre-wrap: a revealed private key or multi-line note keeps its lines. */}
+      <div style={{ fontSize: '13px', wordBreak: 'break-all', whiteSpace: 'pre-wrap', fontFamily: term.font, color: term.green }}>
+        {value}
+      </div>
     </div>
   );
 }

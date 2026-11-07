@@ -16,6 +16,7 @@
 import { create } from 'zustand';
 import browser from 'webextension-polyfill';
 import { MessageType, STORAGE_KEYS } from '../../shared/constants.js';
+import type { LockEvent } from '../../shared/lock-info.js';
 import type { SessionInfo } from '@passbubble/shared-ts';
 
 /** Drop the in-progress login draft + 2FA state from session storage. */
@@ -31,6 +32,7 @@ type SessionResponse = SessionInfo & {
   serverUrl: string;
   pinEnabled?: boolean;
   pinAvailable?: boolean;
+  lastLock?: LockEvent | null;
 };
 
 /** UNLOCK / UNLOCK_WITH_PIN failure details from the background. */
@@ -77,6 +79,8 @@ interface SessionState extends SessionInfo {
   pinEnabled: boolean;
   /** The PIN may be used to unlock right now (configured and within its interval). */
   pinAvailable: boolean;
+  /** Why the vault is locked, shown on the unlock screen. */
+  lastLock: LockEvent | null;
 
   checkSession: () => Promise<void>;
   /** Re-read the session state without the loading screen — used when the
@@ -105,6 +109,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   pendingToken: null,
   pinEnabled: false,
   pinAvailable: false,
+  lastLock: null,
 
   checkSession: async () => {
     set({ isLoading: true, error: null });
@@ -241,7 +246,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   lock: async () => {
     await browser.runtime.sendMessage({ type: MessageType.LOCK, payload: {} });
-    set({ isUnlocked: false, error: null });
+    set({ isUnlocked: false, error: null, lastLock: { reason: 'manual', at: Date.now() } });
   },
 
   logout: async () => {

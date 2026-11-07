@@ -21,5 +21,6 @@ export * from './health/index.js';
 export type * from './types/api.js';
 export type * from './types/vault.js';
 export * from './vault/vault.js';
+export * from './vault/entry-totp.js';
 export * from './vault/pin.js';
 export * from './vault/tags.js';

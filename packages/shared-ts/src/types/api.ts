@@ -113,6 +113,7 @@ export interface UpdateEntryRequest {
   folder_id?: string;
   type?: string;
   name?: string;
+  /** Missing = keep existing; '' = clear. */
   url?: string;
   /** nil = keep existing; [] = clear. */
   match_patterns?: string[];

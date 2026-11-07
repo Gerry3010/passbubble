@@ -30,6 +30,8 @@ import { loadAccount } from './account-store.js';
 import { registerBasicAuthHandler } from './basic-auth.js';
 import { initSsoMemory, setSsoRecordedHook } from './sso-memory.js';
 import { persistSsoToEntries } from './sso-entry.js';
+import { recordSessionGone } from './lock-log.js';
+import { countsAsActivity } from './activity.js';
 import { MessageType, STORAGE_KEYS, AUTO_LOCK_ALARM, TOKEN_REFRESH_ALARM } from '../shared/constants.js';
 
 const handlers = buildHandlers();
@@ -54,25 +56,6 @@ setSsoRecordedHook((host, provider) => {
   void ensureSessionRestored().then(() => persistSsoToEntries(host, provider));
 });
 
-// Messages that count as "the user is actively using the vault" — receiving one
-// restarts the idle auto-lock countdown. Passive background traffic (autofill
-// URL matching, login-frame reports, save offers) is deliberately excluded so
-// that merely browsing does not keep the vault unlocked forever.
-const ACTIVITY_MESSAGES = new Set<string>([
-  MessageType.GET_SESSION,
-  MessageType.UNLOCK,
-  MessageType.UNLOCK_WITH_PIN,
-  MessageType.SEARCH_ENTRIES,
-  MessageType.LIST_FOLDERS,
-  MessageType.GET_ENTRY,
-  MessageType.CREATE_ENTRY,
-  MessageType.UPDATE_ENTRY,
-  MessageType.DELETE_ENTRY,
-  MessageType.GENERATE,
-  MessageType.FILL_ENTRY,
-  MessageType.GET_FILL_HOST,
-]);
-
 browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime.MessageSender) => {
   const { type, payload } = message as { type: string; payload: Record<string, unknown> };
   const handler = handlers[type];
@@ -83,7 +66,7 @@ browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime
   // "listener's promise rejected without an Error".
   return (async () => {
     await ensureSessionRestored();
-    if (ACTIVITY_MESSAGES.has(type) && getSession()) await touchActivity();
+    if (countsAsActivity(type, sender, browser.runtime.getURL('')) && getSession()) await touchActivity();
     return handler(payload ?? {}, sender);
   })().catch((err: unknown) => {
     if (err instanceof Error) throw err;
@@ -107,6 +90,11 @@ browser.tabs.onRemoved.addListener((tabId) => {
   clearLastFilledEntry(tabId);
 });
 
+// The browser wipes storage.session in these two cases, so they are the likely
+// answer to "why is the vault locked?" if it was unlocked before.
+browser.runtime.onStartup.addListener(() => void recordSessionGone('browser-start'));
+browser.runtime.onInstalled.addListener(() => void recordSessionGone('extension-reload'));
+
 // Idle auto-lock: a recurring 1-minute alarm checks how long ago the vault was
 // last used and locks it once the configured timeout elapses.
 // Token refresh: keeps the access token of an unlocked vault fresh; transient
@@ -125,5 +113,9 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
 // alarm is armed or retired accordingly) instead of at the next unlock.
 browser.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync' || !(STORAGE_KEYS.AUTO_LOCK_MINUTES in changes)) return;
+  const { newValue } = changes[STORAGE_KEYS.AUTO_LOCK_MINUTES];
+  if (newValue !== undefined) {
+    void browser.storage.local.set({ [STORAGE_KEYS.AUTO_LOCK_MIRROR]: newValue }).catch(() => undefined);
+  }
   void ensureSessionRestored().then(() => (getSession() ? scheduleAutoLock() : undefined));
 });

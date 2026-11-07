@@ -36,6 +36,39 @@ describe('TOTP', () => {
     expect(code).toBe('94287082');
   });
 
+  // RFC 6238 appendix B, T=59s, 8 digits, with the seed length each hash uses.
+  it.each([
+    ['SHA1', 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', '94287082'],
+    ['SHA256', 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA', '46119246'],
+    [
+      'SHA512',
+      'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA',
+      '90693936',
+    ],
+  ])('matches the RFC 6238 %s test vector', async (algorithm, secret, expected) => {
+    const { code } = await generateTotp(secret, { digits: 8, algorithm }, 59 * 1000);
+    expect(code).toBe(expected);
+  });
+
+  it('reads the common spellings of an algorithm', async () => {
+    const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA';
+    for (const algorithm of ['sha256', 'SHA-256', 'HmacSHA256', 'hmac-sha-256']) {
+      const { code } = await generateTotp(secret, { digits: 8, algorithm }, 59 * 1000);
+      expect(code).toBe('46119246');
+    }
+  });
+
+  it('refuses an unknown algorithm instead of producing a wrong code', async () => {
+    await expect(generateTotp('JBSWY3DPEHPK3PXP', { algorithm: 'MD5' })).rejects.toThrow('unsupported algorithm');
+  });
+
+  it('honours the period for the counter and the seconds remaining', async () => {
+    const at = (now: number) => generateTotp('JBSWY3DPEHPK3PXP', { period: 60 }, now);
+    expect((await at(0)).code).toBe((await at(59_000)).code);
+    expect((await at(1_000)).secondsRemaining).toBe(59);
+    expect((await at(0)).code).not.toBe((await at(60_000)).code);
+  });
+
   it('reports seconds remaining within the period', async () => {
     const { secondsRemaining } = await generateTotp('JBSWY3DPEHPK3PXP', {}, 0);
     expect(secondsRemaining).toBeGreaterThan(0);

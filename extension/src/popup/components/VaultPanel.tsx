@@ -19,20 +19,51 @@ import type { EntryResponse } from '@passbubble/shared-ts';
 import { EntryList } from './EntryList.js';
 import { EntryDetail } from './EntryDetail.js';
 import { CreateEntryForm } from './CreateEntryForm.js';
+import { EditEntryForm } from './EditEntryForm.js';
 import { useEntriesStore } from '../store/entries.js';
+import { getEditDraft } from '../store/edit-draft.js';
 
-type View = { kind: 'list' } | { kind: 'detail'; entry: EntryResponse } | { kind: 'create' };
+type View =
+  | { kind: 'list' }
+  | { kind: 'detail'; entry: EntryResponse }
+  | { kind: 'create' }
+  | { kind: 'edit'; entry: EntryResponse };
 
 /** The vault tab: switches between the entry list, a detail view, and the
- * create form. */
+ * create and edit forms. Unsaved edits reopen the edit form when the panel comes
+ * back, e.g. after the vault locked in the middle of them. */
 export function VaultPanel() {
-  const [view, setView] = useState<View>({ kind: 'list' });
+  const [view, setView] = useState<View>(() => {
+    const draft = getEditDraft();
+    return draft ? { kind: 'edit', entry: draft.entry } : { kind: 'list' };
+  });
   const load = useEntriesStore((s) => s.load);
   const entryTags = useEntriesStore((s) => s.entryTags);
   const vaultTags = useMemo(() => collectTags(Object.values(entryTags)), [entryTags]);
 
   if (view.kind === 'detail') {
-    return <EntryDetail entry={view.entry} onBack={() => setView({ kind: 'list' })} />;
+    const { entry } = view;
+    return (
+      <EntryDetail
+        entry={entry}
+        onBack={() => setView({ kind: 'list' })}
+        onEdit={() => setView({ kind: 'edit', entry })}
+      />
+    );
+  }
+  if (view.kind === 'edit') {
+    const { entry } = view;
+    return (
+      <EditEntryForm
+        entry={entry}
+        vaultTags={vaultTags}
+        onCancel={() => setView({ kind: 'detail', entry })}
+        onSaved={(meta) => {
+          void load();
+          setView({ kind: 'detail', entry: { ...entry, ...meta } });
+        }}
+      />
+    );
   }
   if (view.kind === 'create') {
     return (

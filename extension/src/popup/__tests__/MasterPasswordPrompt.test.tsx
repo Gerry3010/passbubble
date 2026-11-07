@@ -47,6 +47,17 @@ describe('MasterPasswordPrompt', () => {
     expect(screen.getByPlaceholderText('Master password')).toBeDefined();
   });
 
+  it('says why the vault is locked', () => {
+    mockUseStore.mockReturnValue(defaultStore({ lastLock: { reason: 'browser-start', at: Date.now() } }));
+    render(<MasterPasswordPrompt />);
+    expect(screen.getByText(/the browser restarted/)).toBeDefined();
+  });
+
+  it('shows no lock reason when none is known', () => {
+    render(<MasterPasswordPrompt />);
+    expect(screen.queryByText(/^locked /)).toBeNull();
+  });
+
   it('renders the Unlock button', () => {
     render(<MasterPasswordPrompt />);
     expect(screen.getByRole('button', { name: /unlock/i })).toBeDefined();

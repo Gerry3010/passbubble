@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
 import { STORAGE_KEYS, AUTO_LOCK_DEFAULT_MINUTES } from '../../shared/constants.js';
+import { describeLock, formatLockTime, type LockEvent } from '../../shared/lock-info.js';
 import { term, input, muted } from '../../shared/theme.js';
 
 // 0 = never: no idle timeout, but the vault still locks when the browser closes
@@ -31,6 +32,7 @@ const OPTIONS: { value: number; label: string }[] = [
 
 export function AutoLockSection() {
   const [minutes, setMinutes] = useState<number>(AUTO_LOCK_DEFAULT_MINUTES);
+  const [lockLog, setLockLog] = useState<LockEvent[]>([]);
 
   useEffect(() => {
     void (async () => {
@@ -38,6 +40,8 @@ export function AutoLockSection() {
       const raw = data[STORAGE_KEYS.AUTO_LOCK_MINUTES];
       const n = typeof raw === 'number' ? raw : Number(raw);
       setMinutes(Number.isFinite(n) && n >= 0 ? n : AUTO_LOCK_DEFAULT_MINUTES);
+      const local = await browser.storage.local.get(STORAGE_KEYS.LOCK_LOG);
+      setLockLog((local[STORAGE_KEYS.LOCK_LOG] as LockEvent[] | undefined) ?? []);
     })();
   }, []);
 
@@ -68,6 +72,18 @@ export function AutoLockSection() {
           ))}
         </select>
       </label>
+      {lockLog.length > 0 && (
+        <details style={{ ...muted, fontSize: '12px' }}>
+          <summary style={{ cursor: 'pointer' }}>recent locks</summary>
+          <ul style={{ margin: '8px 0 0', paddingLeft: '18px' }}>
+            {[...lockLog].reverse().map((e) => (
+              <li key={`${e.at}-${e.reason}`}>
+                {formatLockTime(e.at)}: {describeLock(e)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </section>
   );
 }

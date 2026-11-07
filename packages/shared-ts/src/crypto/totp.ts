@@ -88,6 +88,7 @@ export function parseOtpauthUri(uri: string): OtpauthParams | null {
 export interface TotpOptions {
   period?: number; // seconds, default 30
   digits?: number; // default 6
+  algorithm?: string; // SHA1 (default), SHA256 or SHA512, in any common spelling
 }
 
 export interface TotpResult {
@@ -95,9 +96,22 @@ export interface TotpResult {
   secondsRemaining: number;
 }
 
+const HMAC_HASHES: Record<string, string> = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
+
+// The WebCrypto hash for a stored algorithm name ("SHA256", "sha-256",
+// "HmacSHA256"). An unknown one throws: no code is better than a wrong code.
+function hmacHash(algorithm: string | undefined): string {
+  if (!algorithm) return 'SHA-1';
+  const name = algorithm.toUpperCase().replace(/^HMAC/, '').replace(/[^A-Z0-9]/g, '');
+  const hash = HMAC_HASHES[name];
+  if (!hash) throw new Error(`totp: unsupported algorithm ${algorithm}`);
+  return hash;
+}
+
 /**
  * Computes the current TOTP code for a base32 secret. [now] is in milliseconds
- * (defaults to Date.now()). Algorithm is HMAC-SHA1 per RFC 6238.
+ * (defaults to Date.now()). HMAC-SHA1 unless `opts.algorithm` says otherwise,
+ * per RFC 6238.
  */
 export async function generateTotp(
   secret: string,
@@ -106,6 +120,7 @@ export async function generateTotp(
 ): Promise<TotpResult> {
   const period = opts.period ?? 30;
   const digits = opts.digits ?? 6;
+  const hash = hmacHash(opts.algorithm);
 
   const key = base32Decode(secret);
   const counter = Math.floor(now / 1000 / period);
@@ -121,7 +136,7 @@ export async function generateTotp(
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
     key as unknown as BufferSource,
-    { name: 'HMAC', hash: 'SHA-1' },
+    { name: 'HMAC', hash },
     false,
     ['sign'],
   );

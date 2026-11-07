@@ -21,7 +21,10 @@ import {
   PassbubbleClient,
   unlock,
   decryptEntry,
-  encryptEntry,
+  reencryptEntry,
+  totpOptionsOf,
+  totpSecretOf,
+  dropStrayTotpSecret,
   createEntry,
   computeHealthReport,
   checkStrength,
@@ -63,6 +66,8 @@ import {
   setSession,
 } from './session-store.js';
 import { clearPin, loadPin, resetPinAfterUnlock, savePin, savePinFailCount, type PinRecord } from './pin-store.js';
+import { noteUnlocked, readLastLock, recordSessionGone } from './lock-log.js';
+import type { AutoLockSource, LockEvent } from '../shared/lock-info.js';
 import { loadAccount, saveAccountFromLogin, type StoredAccount } from './account-store.js';
 import {
   VaultLockedError,
@@ -76,6 +81,7 @@ import {
   vaultClient,
 } from './vault-client.js';
 import { mergeGeneratorOptions, readGeneratorDefaults } from '../shared/generator-defaults.js';
+import { applyEntryEdit, type EntryEdit } from '../shared/entry-edit.js';
 import { matchEntriesForUrl } from './autofill-service.js';
 import { deleteSsoRecord, getSsoRecord, noteSsoCandidate } from './sso-memory.js';
 import { persistSsoToEntries, ssoFromEntries } from './sso-entry.js';
@@ -84,18 +90,50 @@ import type { EntryData, EntryResponse, SessionInfo, UnlockedSession } from '@pa
 
 // --- Idle auto-lock -------------------------------------------------------
 
-/** The configured idle-lock timeout in minutes (0 = never). Falls back to the
- * default if unset or malformed. */
-export async function readAutoLockMinutes(): Promise<number> {
+function validMinutes(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return null;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+interface AutoLockSetting {
+  minutes: number;
+  /** Where `minutes` came from; 'unreadable' means storage.local threw as well,
+   * so nothing can be said about the setting. */
+  source: AutoLockSource | 'unreadable';
+}
+
+/** The configured idle-lock timeout in minutes (0 = never): storage.sync, else
+ * the mirror of the last value seen, else the default. */
+async function readAutoLockSetting(): Promise<AutoLockSetting> {
   try {
     const data = await browser.storage.sync.get(STORAGE_KEYS.AUTO_LOCK_MINUTES);
-    const raw = data[STORAGE_KEYS.AUTO_LOCK_MINUTES];
-    const n = typeof raw === 'number' ? raw : Number(raw);
-    if (Number.isFinite(n) && n >= 0) return n;
+    const minutes = validMinutes(data[STORAGE_KEYS.AUTO_LOCK_MINUTES]);
+    if (minutes !== null) return { minutes, source: 'sync' };
   } catch {
-    /* fall through to default */
+    /* fall through to the mirror */
   }
-  return AUTO_LOCK_DEFAULT_MINUTES;
+  try {
+    const data = await browser.storage.local.get(STORAGE_KEYS.AUTO_LOCK_MIRROR);
+    const minutes = validMinutes(data[STORAGE_KEYS.AUTO_LOCK_MIRROR]);
+    return minutes !== null ? { minutes, source: 'local' } : { minutes: AUTO_LOCK_DEFAULT_MINUTES, source: 'default' };
+  } catch {
+    return { minutes: AUTO_LOCK_DEFAULT_MINUTES, source: 'unreadable' };
+  }
+}
+
+export async function readAutoLockMinutes(): Promise<number> {
+  return (await readAutoLockSetting()).minutes;
+}
+
+/** True if the session should lock now. A setting that cannot be read is no
+ * reason to lock: the next check tries again. */
+async function idleLockDue({ minutes, source }: AutoLockSetting): Promise<boolean> {
+  return source !== 'unreadable' && (await idleLimitReached(minutes));
+}
+
+function idleDetails({ minutes, source }: AutoLockSetting): Pick<LockEvent, 'idleMinutes' | 'settingSource'> {
+  return { idleMinutes: minutes, settingSource: source === 'unreadable' ? undefined : source };
 }
 
 /** Record "the vault was just used" so the auto-lock alarm restarts its countdown.
@@ -115,7 +153,14 @@ export async function scheduleAutoLock(): Promise<void> {
   // Always record the unlock as activity, so switching from "never" to a timeout
   // later measures idle time from a real timestamp.
   await touchActivity();
-  const minutes = await readAutoLockMinutes();
+  const { minutes, source } = await readAutoLockSetting();
+  if (source === 'sync') {
+    try {
+      await browser.storage.local.set({ [STORAGE_KEYS.AUTO_LOCK_MIRROR]: minutes });
+    } catch {
+      /* best-effort */
+    }
+  }
   if (minutes <= 0) {
     await browser.alarms.clear(AUTO_LOCK_ALARM);
     return;
@@ -135,8 +180,8 @@ async function idleLimitReached(minutes: number): Promise<boolean> {
  * configured timeout, and retire the alarm. Returns true if it locked (or there
  * was nothing to keep armed). Driven by the recurring AUTO_LOCK_ALARM. */
 export async function maybeAutoLock(): Promise<boolean> {
-  const minutes = await readAutoLockMinutes();
-  if (minutes <= 0) {
+  const setting = await readAutoLockSetting();
+  if (setting.minutes <= 0) {
     await browser.alarms.clear(AUTO_LOCK_ALARM);
     return true;
   }
@@ -147,8 +192,8 @@ export async function maybeAutoLock(): Promise<boolean> {
     await browser.alarms.clear(AUTO_LOCK_ALARM);
     return true;
   }
-  if (!(await idleLimitReached(minutes))) return false;
-  await lockVault();
+  if (!(await idleLockDue(setting))) return false;
+  await lockVault('idle', idleDetails(setting));
   return true;
 }
 
@@ -166,8 +211,9 @@ export function ensureSessionRestored(): Promise<void> {
     try {
       const stored = await readStoredSession();
       if (!stored) return;
-      if (await idleLimitReached(await readAutoLockMinutes())) {
-        await lockVault();
+      const setting = await readAutoLockSetting();
+      if (await idleLockDue(setting)) {
+        await lockVault('idle', idleDetails(setting));
         return;
       }
       if (!getSession()) adoptSession(stored);
@@ -258,6 +304,7 @@ async function buildSession(
     encPrivMLKEM: b64Dec(account.encPrivMLKEM),
   };
   await setSession(session);
+  await noteUnlocked();
   await scheduleAutoLock();
 
   // Pre-load the entries cache. Not fatal: the popup and autofill load it on demand.
@@ -357,15 +404,22 @@ export function buildHandlers(): Record<string, Handler> {
       const isLoggedIn = !!account;
       // PIN is offered for unlock only while it is still within its interval.
       const pinAvailable = isLoggedIn && pin.enabled && !pwIntervalElapsed(pin.lastMasterUnlock, pin.intervalDays);
+      if (!session) await recordSessionGone('session-lost');
       return {
         isLoggedIn,
         isUnlocked: !!session,
+        lastLock: session ? null : await readLastLock(),
         userEmail: account?.userEmail || session?.userEmail,
         userName: account?.userName || session?.userName,
         serverUrl,
         pinEnabled: pin.enabled,
         pinAvailable,
-      } satisfies SessionInfo & { serverUrl: string; pinEnabled: boolean; pinAvailable: boolean };
+      } satisfies SessionInfo & {
+        serverUrl: string;
+        pinEnabled: boolean;
+        pinAvailable: boolean;
+        lastLock: LockEvent | null;
+      };
     },
 
     [MessageType.LOGIN]: async (payload) => {
@@ -501,7 +555,7 @@ export function buildHandlers(): Record<string, Handler> {
       } catch {
         if (newCount >= maxTries) {
           await clearPin();
-          await lockVault();
+          await lockVault('pin-lockout');
           return { ok: false, lockedOut: true };
         }
         return { ok: false, wrongPin: true, triesRemaining: maxTries - newCount };
@@ -542,7 +596,7 @@ export function buildHandlers(): Record<string, Handler> {
     },
 
     [MessageType.LOCK]: async () => {
-      await lockVault();
+      await lockVault('manual');
       return { ok: true };
     },
 
@@ -653,9 +707,10 @@ export function buildHandlers(): Record<string, Handler> {
       // UI copies it to the clipboard so it's ready for the 2FA prompt. Only the
       // short-lived code leaves the background, never the secret.
       let totpCode = '';
-      if (data.totp_secret) {
+      const totpSecret = totpSecretOf(data);
+      if (totpSecret) {
         try {
-          totpCode = (await generateTotp(data.totp_secret, { period: data.period, digits: data.digits })).code;
+          totpCode = (await generateTotp(totpSecret, totpOptionsOf(data))).code;
         } catch {
           // malformed secret — fill username/password anyway
         }
@@ -679,8 +734,9 @@ export function buildHandlers(): Record<string, Handler> {
         try {
           const apiEntry = await client.getEntry(id);
           const data = await decryptEntry(apiEntry, session);
-          if (!data.totp_secret) continue;
-          const r = await generateTotp(data.totp_secret, { period: data.period, digits: data.digits });
+          const secret = totpSecretOf(data);
+          if (!secret) continue;
+          const r = await generateTotp(secret, totpOptionsOf(data));
           return { code: r.code, remainingSeconds: r.secondsRemaining, entryName: apiEntry.name };
         } catch {
           // skip entries we cannot read or with malformed secrets
@@ -811,6 +867,61 @@ export function buildHandlers(): Record<string, Handler> {
       await client.updateEntry(entryId, { folder_id: folderId, match_patterns: matchPatterns });
       // Refresh the cache so autofill matching sees the new patterns immediately.
       setEntriesCache(await client.listEntries());
+      return { ok: true };
+    },
+
+    // The popup's edit form. The changes go onto the entry as it is on the server
+    // right now, under its existing data key, so other recipients keep access and
+    // every key the form did not change survives. match_patterns stays out of the
+    // request (the backend keeps it), favorites are not part of an update, and
+    // folder_id is echoed back because the backend always overwrites it. An entry
+    // that cannot be read is left alone.
+    [MessageType.EDIT_ENTRY]: async (payload) => {
+      const session = getSession();
+      if (!session) return { locked: true };
+      const { entryId, ...edit } = payload as unknown as { entryId?: string } & EntryEdit;
+      if (!entryId) return { ok: false, error: 'No entry to save.' };
+      const name = edit.name?.trim();
+      if (edit.name !== undefined && !name) return { ok: false, error: 'Name is required' };
+
+      const client = vaultClient(session);
+      let apiEntry: EntryResponse;
+      let encrypted: { encrypted_data: string; data_nonce: string };
+      try {
+        apiEntry = await client.getEntry(entryId);
+        const data = (await decryptEntry(apiEntry, session)) ?? {};
+        applyEntryEdit(data, { ...edit, name });
+        encrypted = await reencryptEntry(data, apiEntry, session);
+      } catch (err) {
+        if (err instanceof VaultLockedError) throw err;
+        return { ok: false, error: 'Could not read the existing entry — nothing was changed.' };
+      }
+
+      try {
+        await client.updateEntry(entryId, {
+          ...encrypted,
+          ...(name !== undefined ? { name } : {}),
+          // Missing keeps the URL, '' clears it.
+          ...(edit.url !== undefined ? { url: edit.url } : {}),
+          folder_id: apiEntry.folder_id,
+        });
+      } catch (err) {
+        if (err instanceof VaultLockedError) throw err;
+        return {
+          ok: false,
+          error:
+            httpStatus(err) === 403
+              ? 'You only have read access to this entry — nothing was changed.'
+              : `Could not save the entry: ${errorMessage(err)}`,
+        };
+      }
+
+      clearEntryTagsCache();
+      try {
+        setEntriesCache(await client.listEntries());
+      } catch {
+        // The edit is saved; the next list call rebuilds the cache.
+      }
       return { ok: true };
     },
 
@@ -1002,13 +1113,12 @@ export function buildHandlers(): Record<string, Handler> {
     },
 
     // The user chose to update an existing entry (known site, changed password or
-    // a new password for the same username). Re-encrypt the pending credentials
-    // and overwrite that entry's data; the data key is freshly wrapped for the
-    // current session keys (hybrid where available, X25519-only fallback).
+    // a new password for the same username). Merge the pending credentials into
+    // that entry's data and re-encrypt it under its existing data key, so other
+    // recipients of a shared entry keep access.
     [MessageType.UPDATE_SAVE]: async (payload) => {
       const session = getSession();
       if (!session) return { locked: true };
-      assertCanEncrypt(session);
       const { entryId } = payload as { entryId?: string };
       if (!entryId) return { ok: false };
       const stored = await browser.storage.session.get(STORAGE_KEYS.PENDING_SAVE);
@@ -1023,17 +1133,19 @@ export function buildHandlers(): Record<string, Handler> {
       // key another client wrote. An entry that cannot be read is therefore
       // left alone; the pending save stays, so it can still be saved as new.
       let apiEntry: EntryResponse;
-      let data: EntryData;
+      let encrypted: { encrypted_data: string; data_nonce: string };
       try {
         apiEntry = await client.getEntry(entryId);
-        data = (await decryptEntry(apiEntry, session)) ?? {};
+        const data = (await decryptEntry(apiEntry, session)) ?? {};
+        // Before the password changes: see applyEntryEdit.
+        dropStrayTotpSecret(data);
+        data.username = pending.username;
+        data.password = pending.password;
+        encrypted = await reencryptEntry(data, apiEntry, session);
       } catch (err) {
         if (err instanceof VaultLockedError) throw err;
         return { ok: false, error: 'Could not read the existing entry — nothing was changed.' };
       }
-      data.username = pending.username;
-      data.password = pending.password;
-      const encrypted = await encryptEntry(data, session);
       // folder_id is echoed back because the backend always overwrites it.
       await client.updateEntry(entryId, { ...encrypted, folder_id: apiEntry.folder_id });
       clearEntryTagsCache();

@@ -17,6 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sessionStore: Record<string, unknown> = {};
 const syncStore: Record<string, unknown> = {};
+const localStore: Record<string, unknown> = {};
 const alarmsClear = vi.hoisted(() => vi.fn());
 
 vi.mock('webextension-polyfill', () => ({
@@ -30,6 +31,13 @@ vi.mock('webextension-polyfill', () => ({
           return out;
         }),
         set: vi.fn(async (obj: Record<string, unknown>) => Object.assign(syncStore, obj)),
+      },
+      local: {
+        get: vi.fn(async (key: string) => (key in localStore ? { [key]: localStore[key] } : {})),
+        set: vi.fn(async (obj: Record<string, unknown>) => Object.assign(localStore, obj)),
+        remove: vi.fn(async (key: string) => {
+          delete localStore[key];
+        }),
       },
       session: {
         get: vi.fn(async (keys: string | string[]) => {
@@ -70,12 +78,15 @@ vi.mock('@passbubble/shared-ts', () => ({ PassbubbleClient: vi.fn() }));
 vi.mock('../autofill-service.js', () => ({ matchEntriesForUrl: vi.fn() }));
 vi.mock('../pin-store.js', () => ({}));
 
-import { maybeAutoLock } from '../message-handler.js';
+import browser from 'webextension-polyfill';
+import { maybeAutoLock, scheduleAutoLock } from '../message-handler.js';
+import { readLastLock } from '../lock-log.js';
 import { STORAGE_KEYS } from '../../shared/constants.js';
 
 beforeEach(() => {
   for (const k of Object.keys(sessionStore)) delete sessionStore[k];
   for (const k of Object.keys(syncStore)) delete syncStore[k];
+  for (const k of Object.keys(localStore)) delete localStore[k];
   sessionPresent = true;
   storedPresent = false;
   clearSessionMock.mockClear();
@@ -153,5 +164,62 @@ describe('maybeAutoLock', () => {
     expect(locked).toBe(true);
     expect(clearSessionMock).toHaveBeenCalledOnce();
     expect(sessionStore[STORAGE_KEYS.LAST_ACTIVITY]).toBeUndefined();
+  });
+
+  it('records why it locked', async () => {
+    syncStore[STORAGE_KEYS.AUTO_LOCK_MINUTES] = 5;
+    sessionStore[STORAGE_KEYS.LAST_ACTIVITY] = Date.now() - 6 * 60_000;
+
+    await maybeAutoLock();
+
+    expect(await readLastLock()).toMatchObject({ reason: 'idle', idleMinutes: 5, settingSource: 'sync' });
+  });
+
+  it('keeps "never" from the mirror when storage.sync has lost the value', async () => {
+    localStore[STORAGE_KEYS.AUTO_LOCK_MIRROR] = 0;
+    sessionStore[STORAGE_KEYS.LAST_ACTIVITY] = Date.now() - 999 * 60_000;
+
+    await maybeAutoLock();
+
+    expect(clearSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('applies the default timeout when no value was ever saved', async () => {
+    sessionStore[STORAGE_KEYS.LAST_ACTIVITY] = Date.now() - 999 * 60_000;
+
+    expect(await maybeAutoLock()).toBe(true);
+
+    expect(clearSessionMock).toHaveBeenCalledOnce();
+    expect((await readLastLock())?.settingSource).toBe('default');
+  });
+
+  it('applies the default timeout when only storage.sync fails and nothing was mirrored', async () => {
+    vi.mocked(browser.storage.sync.get).mockRejectedValueOnce(new Error('sync down'));
+    sessionStore[STORAGE_KEYS.LAST_ACTIVITY] = Date.now() - 999 * 60_000;
+
+    expect(await maybeAutoLock()).toBe(true);
+
+    expect(clearSessionMock).toHaveBeenCalledOnce();
+  });
+
+  it('does not lock while the setting cannot be read', async () => {
+    vi.mocked(browser.storage.sync.get).mockRejectedValueOnce(new Error('sync down'));
+    vi.mocked(browser.storage.local.get).mockRejectedValueOnce(new Error('local down'));
+    sessionStore[STORAGE_KEYS.LAST_ACTIVITY] = Date.now() - 999 * 60_000;
+
+    expect(await maybeAutoLock()).toBe(false);
+
+    expect(clearSessionMock).not.toHaveBeenCalled();
+    expect(alarmsClear).not.toHaveBeenCalled();
+  });
+});
+
+describe('scheduleAutoLock', () => {
+  it('mirrors the synced setting into storage.local', async () => {
+    syncStore[STORAGE_KEYS.AUTO_LOCK_MINUTES] = 0;
+
+    await scheduleAutoLock();
+
+    expect(localStore[STORAGE_KEYS.AUTO_LOCK_MIRROR]).toBe(0);
   });
 });
