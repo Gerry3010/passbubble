@@ -15,6 +15,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:local_auth_android/local_auth_android.dart';
 
@@ -85,9 +86,14 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
   }
 
   Future<void> _logout() async {
+    // Read before the await: signing out unmounts this screen.
+    final router = GoRouter.of(context);
     setState(() => _loading = true);
     try {
       await ref.read(authStateProvider.notifier).logout();
+      // A deliberate sign-out drops the way back to the locked page; the next
+      // login may be another account.
+      router.go('/login');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

@@ -49,14 +49,99 @@ String? _launchFragment;
 /// link survives the splash MaterialApp overwriting the URL fragment.
 void captureLaunchUri() => _launchFragment ??= Uri.base.fragment;
 
-/// Recovers a public share link from the captured launch fragment (hash routing
-/// puts the route after '#') so it opens without bouncing to /login.
-String _initialLocation() {
-  final frag = _launchFragment ?? Uri.base.fragment;
-  // Preserve public/unauthenticated deep links (share viewer, invitation
-  // register link) so they open without bouncing to /login on first load.
-  if (frag.startsWith('/share') || frag.startsWith('/register')) return frag;
-  return '/entries';
+String _initialLocation() =>
+    launchLocation(_launchFragment ?? Uri.base.fragment);
+
+/// Maps the launch fragment (hash routing puts the route after '#') to the
+/// first location. Public deep links (share viewer, invitation register link)
+/// open as they are, without bouncing to /login. Any other in-app link, such
+/// as a reloaded entry page, opens where it pointed; the redirect then puts
+/// the login or unlock screen in front of it.
+@visibleForTesting
+String launchLocation(String fragment) {
+  if (fragment.startsWith('/share') || fragment.startsWith('/register')) {
+    return fragment;
+  }
+  final uri = Uri.tryParse(fragment);
+  return (uri == null ? null : _returnFor(uri)) ?? '/entries';
+}
+
+/// Top-level screens a `from` link may lead back to. The auth screens and the
+/// public pages are not among them.
+const _appRoots = {
+  '/entries',
+  '/wallet',
+  '/trash',
+  '/health',
+  '/generate',
+  '/manage',
+  '/settings',
+};
+
+/// Returns [raw] when it is an in-app location below [_appRoots], else null,
+/// so a crafted `from` cannot lead anywhere else.
+String? _validReturn(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final uri = Uri.tryParse(raw);
+  if (uri == null || uri.hasScheme || uri.hasAuthority) return null;
+  if (uri.pathSegments.any((s) => s == '.' || s == '..')) return null;
+  final path = uri.path;
+  if (!_appRoots.any((r) => path == r || path.startsWith('$r/'))) return null;
+  return uri.toString();
+}
+
+/// Where to come back to once [current] has been sent to login or unlock.
+/// From those two screens their own `from` is carried along, so a session
+/// that expires on the unlock screen still leads back to the entry. The
+/// vault list is the default anyway and needs no `from`.
+String? _returnFor(Uri current) {
+  final path = current.path;
+  final raw = path.startsWith('/login') || path.startsWith('/unlock')
+      ? current.queryParameters['from']
+      : current.toString();
+  final back = _validReturn(raw);
+  return back == '/entries' ? null : back;
+}
+
+String _withReturn(String target, Uri current) {
+  final back = _returnFor(current);
+  return back == null
+      ? target
+      : Uri(path: target, queryParameters: {'from': back}).toString();
+}
+
+/// The router's redirect, apart from the router so tests can call it.
+/// Sending a locked or logged-out user to unlock or login appends the current
+/// location as `from`, and a successful unlock or login returns there.
+@visibleForTesting
+String? authRedirect(AuthState auth, Uri uri, {required bool apiConfigured}) {
+  final path = uri.path;
+  final isSetup = path.startsWith('/setup');
+  final isLogin = path.startsWith('/login');
+  final isUnlock = path.startsWith('/unlock');
+  final isRegister = path.startsWith('/register');
+  // Public share-link viewer is reachable without an account.
+  if (path.startsWith('/share')) return null;
+
+  // Without a configured server URL every API call fails with "no host
+  // specified in URI" — so funnel to /setup regardless of auth state. This
+  // also self-heals an already-logged-in client that somehow lost its URL
+  // (the old session-wipe bug), which would otherwise be stuck on a screen
+  // it can never load. Web always has a URL (the serving origin).
+  if (!apiConfigured && !isSetup && !isRegister) {
+    return '/setup';
+  }
+
+  if (!auth.isLoggedIn && !isSetup && !isLogin && !isRegister) {
+    return _withReturn('/login', uri);
+  }
+  if (auth.isLoggedIn && !auth.isUnlocked && !isUnlock && !isLogin) {
+    return _withReturn('/unlock', uri);
+  }
+  if (auth.isLoggedIn && auth.isUnlocked && (isLogin || isUnlock)) {
+    return _validReturn(uri.queryParameters['from']) ?? '/entries';
+  }
+  return null;
 }
 
 /// Index of the tab shown last, so the next tab switch knows its direction.
@@ -114,38 +199,11 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: _initialLocation(),
     refreshListenable: refresh,
-    redirect: (context, state) {
-      final auth = ref.read(authStateProvider);
-      final path = state.matchedLocation;
-      final isSetup = path.startsWith('/setup');
-      final isLogin = path.startsWith('/login');
-      final isRegister = path.startsWith('/register');
-      // Public share-link viewer is reachable without an account.
-      if (path.startsWith('/share')) return null;
-
-      // Without a configured server URL every API call fails with "no host
-      // specified in URI" — so funnel to /setup regardless of auth state. This
-      // also self-heals an already-logged-in client that somehow lost its URL
-      // (the old session-wipe bug), which would otherwise be stuck on a screen
-      // it can never load. Web always has a URL (the serving origin).
-      final api = ref.read(apiClientProvider);
-      if (!api.isConfigured && !isSetup && !isRegister) {
-        return '/setup';
-      }
-
-      if (!auth.isLoggedIn && !isSetup && !isLogin && !isRegister) {
-        return '/login';
-      }
-      if (auth.isLoggedIn && !auth.isUnlocked &&
-          !path.startsWith('/unlock') && !isLogin) {
-        return '/unlock';
-      }
-      if (auth.isLoggedIn && auth.isUnlocked &&
-          (isLogin || path.startsWith('/unlock'))) {
-        return '/entries';
-      }
-      return null;
-    },
+    redirect: (context, state) => authRedirect(
+      ref.read(authStateProvider),
+      state.uri,
+      apiConfigured: ref.read(apiClientProvider).isConfigured,
+    ),
     routes: [
       GoRoute(path: '/setup', builder: (_, _) => const SetupScreen()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),

@@ -188,7 +188,13 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 );
                 if (ok == true) {
+                  if (!context.mounted) return;
+                  // Read before the await: signing out unmounts this screen.
+                  final router = GoRouter.of(context);
                   await ref.read(authStateProvider.notifier).logout();
+                  // A deliberate sign-out starts over at the vault list instead
+                  // of returning here; the next login may be another account.
+                  router.go('/login');
                 }
               },
               icon: Icons.logout,
