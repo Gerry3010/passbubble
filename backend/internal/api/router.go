@@ -45,8 +45,8 @@ func (s *Server) buildRouter() http.Handler {
 	// (it contains no secrets) — it shows its own login screen when the user
 	// isn't authenticated. The actual authorization boundary is the
 	// /api/v1/admin/* routes below, gated by JWTAuth + AdminOnly.
-	webHandler := http.FileServer(static.WebFS())
-	adminHandler := http.FileServer(static.AdminFS())
+	webHandler := revalidatedAssets(static.WebFS(), http.FileServer(static.WebFS()))
+	adminHandler := revalidatedAssets(static.AdminFS(), http.FileServer(static.AdminFS()))
 	// Bare host → the Flutter web app.
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/web/", http.StatusFound)

@@ -116,7 +116,7 @@ func generatePassword(length int, genType string, noAmbiguous bool, exclude stri
 func passwordStrength(pw string) int {
 	var (
 		hasLower, hasUpper, hasDigit, hasSymbol bool
-		length = len(pw)
+		length                                  = len(pw)
 	)
 	for _, c := range pw {
 		switch {

@@ -30,7 +30,7 @@ type Handler struct {
 	pool       *pgxpool.Pool
 	rdb        *redis.Client
 	jwtSecret  []byte
-	adminEmail string // if non-empty, only this email may bootstrap the first admin
+	adminEmail string         // if non-empty, only this email may bootstrap the first admin
 	mailer     *mailer.Mailer // nil when SMTP is not configured
 }
 
@@ -40,6 +40,8 @@ func New(pool *pgxpool.Pool, rdb *redis.Client, jwtSecret []byte, adminEmail str
 
 // Health handles GET /health
 func Health(w http.ResponseWriter, r *http.Request) {
+	// The live version and state, so no cache may answer in the server's place.
+	w.Header().Set("Cache-Control", "no-store")
 	respond(w, http.StatusOK, map[string]string{
 		"status":  "ok",
 		"version": version.Version,

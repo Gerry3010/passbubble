@@ -219,10 +219,11 @@ func (h *Handler) UpdateEntry(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	// When the encrypted payload is being replaced, snapshot the current state
-	// first: the blob AND the current entry_keys (every update re-wraps a fresh
-	// data key, so the old blob is only readable with the keys of its time).
+	// first: the blob AND the current entry_keys (older clients re-wrapped a fresh
+	// data key on every update, so an old blob may only be readable with the keys
+	// of its time).
 	if req.EncryptedData != "" {
-		if err := h.snapshotVersionTx(r.Context(), tx, entryID, claims.UserID); err != nil {
+		if err := h.snapshotVersionTx(r.Context(), tx, entryID, claims.UserID, ""); err != nil {
 			respondErr(w, http.StatusInternalServerError, "failed to version entry")
 			return
 		}
@@ -231,7 +232,7 @@ func (h *Handler) UpdateEntry(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.Exec(r.Context(), `
 		UPDATE entries SET
 			name = COALESCE(NULLIF($2,''), name),
-			url  = COALESCE(NULLIF($3,''), url),
+			url  = COALESCE($3::text, url),
 			match_patterns = COALESCE($7::text[], match_patterns),
 			encrypted_data = CASE WHEN $4!='' THEN decode($4,'base64') ELSE encrypted_data END,
 			data_nonce     = CASE WHEN $5!='' THEN decode($5,'base64') ELSE data_nonce END,

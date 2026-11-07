@@ -38,7 +38,7 @@ const maxVersionsPerEntry = 20
 // entry_keys into entry_version_keys, then prunes to maxVersionsPerEntry.
 // Must run inside the tx that overwrites the entry, so snapshot and overwrite
 // are atomic.
-func (h *Handler) snapshotVersionTx(ctx context.Context, tx pgx.Tx, entryID, editorID string) error {
+func (h *Handler) snapshotVersionTx(ctx context.Context, tx pgx.Tx, entryID, editorID, keepVersionID string) error {
 	var versionID string
 	err := tx.QueryRow(ctx, `
 		INSERT INTO entry_versions (entry_id, name, url, encrypted_data, data_nonce, edited_by)
@@ -54,9 +54,9 @@ func (h *Handler) snapshotVersionTx(ctx context.Context, tx pgx.Tx, entryID, edi
 		return err
 	}
 	_, err = tx.Exec(ctx, `
-		DELETE FROM entry_versions WHERE id IN (
+		DELETE FROM entry_versions WHERE id::text <> $3 AND id IN (
 			SELECT id FROM entry_versions WHERE entry_id=$1
-			ORDER BY created_at DESC OFFSET $2)`, entryID, maxVersionsPerEntry)
+			ORDER BY created_at DESC OFFSET $2)`, entryID, maxVersionsPerEntry, keepVersionID)
 	return err
 }
 
@@ -260,7 +260,7 @@ func (h *Handler) RestoreVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
 
-	if err := h.snapshotVersionTx(r.Context(), tx, entryID, claims.UserID); err != nil {
+	if err := h.snapshotVersionTx(r.Context(), tx, entryID, claims.UserID, versionID); err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to restore version")
 		return
 	}
@@ -279,15 +279,13 @@ func (h *Handler) RestoreVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The restored blob is only readable with its contemporaneous keys.
-	if _, err := tx.Exec(r.Context(), `DELETE FROM entry_keys WHERE entry_id=$1`, entryID); err != nil {
-		respondErr(w, http.StatusInternalServerError, "failed to restore version")
-		return
-	}
+	// The restored blob may only be readable with its contemporaneous keys, so
+	// everyone who has access now and had a key back then gets that key back.
+	// Whoever joined later keeps their key, whoever was removed since stays out.
 	if _, err := tx.Exec(r.Context(), `
-		INSERT INTO entry_keys (id, entry_id, user_id, encrypted_key)
-		SELECT gen_random_uuid(), $1, user_id, encrypted_key
-		FROM entry_version_keys WHERE version_id=$2`, entryID, versionID); err != nil {
+		UPDATE entry_keys k SET encrypted_key = vk.encrypted_key
+		FROM entry_version_keys vk
+		WHERE k.entry_id=$1 AND vk.version_id=$2 AND vk.user_id=k.user_id`, entryID, versionID); err != nil {
 		respondErr(w, http.StatusInternalServerError, "failed to restore version")
 		return
 	}
