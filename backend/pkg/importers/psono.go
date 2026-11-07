@@ -115,20 +115,16 @@ func convertPsonoItem(item map[string]any, folderPath []string, result *ImportRe
 		if title == "" {
 			title = name
 		}
-		totp := str("website_password_totp_code")
-		t := "password"
-		if totp != "" {
-			t = "totp"
-		}
 		rec = EntryRecord{
 			Name:       title,
-			Type:       t,
+			Type:       "password",
 			URL:        str("website_password_url"),
 			Username:   str("website_password_username"),
 			Password:   str("website_password_password"),
-			TOTPSecret: totp,
+			TOTPSecret: str("website_password_totp_code"),
 			Notes:      str("website_password_notes"),
 		}
+		rec.settleLoginType()
 
 	case "application_password":
 		title := str("application_password_title")

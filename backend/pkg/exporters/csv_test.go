@@ -90,3 +90,46 @@ func TestExportCSVSpecialChars(t *testing.T) {
 		t.Errorf("comma in password not preserved: %q", rows[1][3])
 	}
 }
+
+func TestCSVLeftOutCountsWhatHasNoColumn(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		records       []exporters.EntryRecord
+		fields, items int
+	}{
+		{name: "nothing", records: nil},
+		{
+			name: "only what has a column",
+			records: []exporters.EntryRecord{{
+				Type: "password", Name: "GitHub", URL: "https://github.com", Username: "octo", Password: "pw",
+				Notes: "n", Tags: []string{"work"},
+			}},
+		},
+		{
+			name: "one entry, each kind of field",
+			records: []exporters.EntryRecord{{
+				Type: "password", Name: "GitHub", Username: "octo", Password: "pw",
+				TOTPSecret: "S", IBAN: "AT00",
+				CustomFields:  []exporters.CustomField{{Label: "PIN", Value: "1"}, {Label: "Scan", Value: "aGk=", Type: "file"}},
+				UnknownFields: []exporters.UnknownField{{Key: "future", Value: "v"}},
+			}},
+			fields: 5, items: 1,
+		},
+		{
+			name: "several entries, the plain one does not count",
+			records: []exporters.EntryRecord{
+				{Type: "credit-card", Name: "Visa", CardNumber: "4111", CVV: "123"},
+				{Type: "password", Name: "Plain", Password: "pw"},
+				{Type: "license", Name: "IDE", LicenseKey: "K"},
+			},
+			fields: 3, items: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fields, items := exporters.CSVLeftOut(tc.records)
+			if fields != tc.fields || items != tc.items {
+				t.Fatalf("got %d fields of %d entries, want %d of %d", fields, items, tc.fields, tc.items)
+			}
+		})
+	}
+}

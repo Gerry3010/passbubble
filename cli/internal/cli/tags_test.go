@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/Gerry3010/passbubble/cli/internal/vault"
+	"github.com/spf13/pflag"
 )
 
 func TestSplitTagArgs(t *testing.T) {
@@ -38,6 +39,17 @@ func TestSplitTagArgs(t *testing.T) {
 }
 
 func TestTagFlagsAreRepeatable(t *testing.T) {
+	// A string array flag appends across Parse calls, and addCmd lives as long
+	// as the test binary: start empty and leave nothing behind.
+	tagFlag := addCmd.Flags().Lookup("tag").Value.(pflag.SliceValue)
+	reset := func() {
+		if err := tagFlag.Replace(nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reset()
+	t.Cleanup(reset)
+
 	if err := addCmd.Flags().Parse([]string{"--tag", "a", "--tag", "b,c"}); err != nil {
 		t.Fatal(err)
 	}

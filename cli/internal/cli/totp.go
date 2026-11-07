@@ -16,6 +16,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -140,7 +141,7 @@ var totpAddCmd = &cobra.Command{
 }
 
 var totpCodeCmd = &cobra.Command{
-	Use:   "totp-code <name>",
+	Use:   "totp-code <name|id>",
 	Short: "Generate TOTP codes",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -150,28 +151,9 @@ var totpCodeCmd = &cobra.Command{
 
 		watch, _ := cmd.Flags().GetBool("watch")
 
-		matches, err := v.SearchEntries(args[0])
+		entry, err := resolveCodeEntry(args[0])
 		if err != nil {
 			return err
-		}
-		if len(matches) == 0 {
-			return fmt.Errorf("no TOTP entry found for '%s'", args[0])
-		}
-
-		id := matches[0].ID
-		for _, m := range matches {
-			if m.Name == args[0] && m.Type == "totp" {
-				id = m.ID
-				break
-			}
-		}
-
-		entry, err := v.GetEntry(id)
-		if err != nil {
-			return err
-		}
-		if entry.Type != "totp" {
-			return fmt.Errorf("entry '%s' is not a TOTP entry", entry.Name)
 		}
 		if entry.Data == nil || entry.Data.TOTPSecret == "" {
 			return fmt.Errorf("no TOTP secret found in entry")
@@ -213,6 +195,35 @@ var totpCodeCmd = &cobra.Command{
 	},
 }
 
+// resolveCodeEntry reads the entry totp-code means: the TOTP entry of that name,
+// or else a login that holds a secret. Without one it still is no TOTP entry.
+func resolveCodeEntry(arg string) (*vault.Entry, error) {
+	match, err := resolveEntry(arg, resolveOptions{entryType: "totp"})
+	var wrongType *wrongTypeError
+	if !errors.As(err, &wrongType) {
+		if err != nil {
+			return nil, err
+		}
+		return v.GetEntry(match.ID)
+	}
+
+	login, lerr := resolveEntry(arg, resolveOptions{entryType: "password"})
+	if errors.As(lerr, &wrongType) {
+		return nil, err
+	}
+	if lerr != nil {
+		return nil, lerr
+	}
+	entry, lerr := v.GetEntry(login.ID)
+	if lerr != nil {
+		return nil, lerr
+	}
+	if entry.Data == nil || entry.Data.TOTPSecret == "" {
+		return nil, err
+	}
+	return entry, nil
+}
+
 var totpListCmd = &cobra.Command{
 	Use:   "totp-list",
 	Short: "List all TOTP entries",
@@ -247,7 +258,7 @@ var totpListCmd = &cobra.Command{
 }
 
 var totpDeleteCmd = &cobra.Command{
-	Use:   "totp-delete <name>",
+	Use:   "totp-delete <name|id>",
 	Short: "Delete a TOTP entry",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -255,15 +266,11 @@ var totpDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		matches, err := v.SearchEntries(args[0])
+		entry, err := resolveEntry(args[0], resolveOptions{entryType: "totp"})
 		if err != nil {
 			return err
 		}
-		if len(matches) == 0 {
-			return fmt.Errorf("no entry found for '%s'", args[0])
-		}
 
-		entry := matches[0]
 		if !confirm(fmt.Sprintf("Delete TOTP entry '%s'?", entry.Name)) {
 			fmt.Println("Cancelled.")
 			return nil

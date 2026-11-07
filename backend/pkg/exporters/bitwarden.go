@@ -18,13 +18,32 @@ package exporters
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
+// bitwardenTagsField is the custom field that carries the tags: Bitwarden has
+// none of its own. The importer and the app read the same name.
+const bitwardenTagsField = "passbubble_tags"
+
+const (
+	bitwardenFieldText   = 0
+	bitwardenFieldHidden = 1
+)
+
+// The keys each kind of item has a place for. Anything else an entry holds goes
+// into a custom field named after its key.
+var (
+	bitwardenLoginKeys    = keySet("url", "username", "password", "totp_secret")
+	bitwardenCardKeys     = keySet("card_number", "holder_name", "expiry_month", "expiry_year", "cvv")
+	bitwardenIdentityKeys = keySet("title", "first_name", "last_name", "company", "email", "phone",
+		"street", "city", "state", "postal_code", "country")
+)
+
 type bwExport struct {
-	Encrypted bool       `json:"encrypted"`
-	Folders   []any      `json:"folders"`
-	Items     []bwItem   `json:"items"`
+	Encrypted bool     `json:"encrypted"`
+	Folders   []any    `json:"folders"`
+	Items     []bwItem `json:"items"`
 }
 
 type bwItem struct {
@@ -123,35 +142,28 @@ func ExportBitwarden(records []EntryRecord, opts BitwardenExportOptions) ([]byte
 					if mime == "" {
 						mime = "application/octet-stream"
 					}
+					name := cf.Filename
+					if name == "" {
+						name = cf.Label
+					}
 					item.Fields = append(item.Fields, bwField{
-						Name:  cf.Filename,
+						Name:  name,
 						Value: "data:" + mime + ";base64," + cf.Value,
-						Type:  1,
+						Type:  bitwardenFieldHidden,
 					})
 				}
 				continue
 			}
-			bwType := 0
-			if cfType == "password" || cfType == "ssh" || cfType == "totp" {
-				bwType = 1
-			}
-			item.Fields = append(item.Fields, bwField{Name: cf.Label, Value: cf.Value, Type: bwType})
+			item.Fields = append(item.Fields, bwField{Name: cf.Label, Value: cf.Value, Type: bitwardenCustomFieldType(cfType)})
 		}
 
+		placed := bitwardenLoginKeys
 		switch rec.Type {
-		case "totp":
-			item.Type = 1
-			item.Login = &bwLogin{
-				Username: rec.Username,
-				Password: rec.Password,
-				TOTP:     rec.TOTPSecret,
-			}
-			if rec.URL != "" {
-				item.Login.URIS = []bwURI{{URI: rec.URL}}
-			}
 		case "note":
 			item.Type = 2
+			placed = nil
 		case "credit-card":
+			placed = bitwardenCardKeys
 			item.Type = 3
 			item.Card = &bwCard{
 				CardholderName: rec.HolderName,
@@ -161,8 +173,10 @@ func ExportBitwarden(records []EntryRecord, opts BitwardenExportOptions) ([]byte
 				Code:           rec.CVV,
 			}
 		case "identity":
+			placed = bitwardenIdentityKeys
 			item.Type = 4
 			item.Identity = &bwIdentity{
+				Title:      rec.Title,
 				FirstName:  rec.FirstName,
 				LastName:   rec.LastName,
 				Company:    rec.Company,
@@ -174,19 +188,50 @@ func ExportBitwarden(records []EntryRecord, opts BitwardenExportOptions) ([]byte
 				PostalCode: rec.PostalCode,
 				Country:    rec.Country,
 			}
-		default: // password, api-key, ssh-key, etc.
+		default: // password, totp, api-key, ssh-key, bank-account, license, etc.
 			item.Type = 1
 			item.Login = &bwLogin{
 				Username: rec.Username,
 				Password: rec.Password,
+				TOTP:     rec.TOTPSecret,
 			}
 			if rec.URL != "" {
 				item.Login.URIS = []bwURI{{URI: rec.URL}}
 			}
 		}
 
+		for _, f := range rec.fieldsOutside(placed) {
+			fieldType := bitwardenFieldText
+			if f.secret {
+				fieldType = bitwardenFieldHidden
+			}
+			item.Fields = append(item.Fields, bwField{Name: f.key, Value: f.value, Type: fieldType})
+		}
+		// A login is what the format makes of these types, so the file says what
+		// the entry really was.
+		if item.Type == 1 && rec.Type != "" && rec.Type != "password" && rec.Type != "totp" {
+			item.Fields = append(item.Fields, bwField{Name: "type", Value: rec.Type, Type: bitwardenFieldText})
+		}
+		// Nobody here knows what an unknown key means, so it counts as secret.
+		for _, f := range rec.UnknownFields {
+			item.Fields = append(item.Fields, bwField{Name: f.Key, Value: f.Value, Type: bitwardenFieldHidden})
+		}
+		if len(rec.Tags) > 0 {
+			item.Fields = append(item.Fields, bwField{Name: bitwardenTagsField, Value: strings.Join(rec.Tags, tagSeparator)})
+		}
+
 		export.Items = append(export.Items, item)
 	}
 
 	return json.MarshalIndent(export, "", "  ")
+}
+
+// bitwardenCustomFieldType masks everything but the kinds known to be plain, so a
+// kind from a newer client counts as secret.
+func bitwardenCustomFieldType(cfType string) int {
+	switch cfType {
+	case "text", "url", "email", "phone", "note":
+		return bitwardenFieldText
+	}
+	return bitwardenFieldHidden
 }

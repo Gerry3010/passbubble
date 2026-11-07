@@ -18,15 +18,22 @@ package exporters
 import (
 	"bytes"
 	"encoding/csv"
+	"strings"
 )
 
+// tagSeparator joins tags in formats that keep them in one cell or field.
+const tagSeparator = ", "
+
+// csvKeys are the keyed fields ExportCSV has a column for.
+var csvKeys = keySet("url", "username", "password")
+
 // ExportCSV produces a generic CSV export compatible with Chrome/Edge import.
-// Columns: name, url, username, password, notes
+// Columns: name, url, username, password, notes, tags
 func ExportCSV(records []EntryRecord) ([]byte, error) {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
-	_ = w.Write([]string{"name", "url", "username", "password", "notes"})
+	_ = w.Write([]string{"name", "url", "username", "password", "notes", "tags"})
 	for _, rec := range records {
 		_ = w.Write([]string{
 			rec.Name,
@@ -34,6 +41,7 @@ func ExportCSV(records []EntryRecord) ([]byte, error) {
 			rec.Username,
 			rec.Password,
 			rec.Notes,
+			strings.Join(rec.Tags, tagSeparator),
 		})
 	}
 	w.Flush()
@@ -41,4 +49,17 @@ func ExportCSV(records []EntryRecord) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// CSVLeftOut counts what ExportCSV has no column for: how many fields of how many
+// entries stay behind.
+func CSVLeftOut(records []EntryRecord) (fields, entries int) {
+	for _, rec := range records {
+		left := len(rec.fieldsOutside(csvKeys)) + len(rec.CustomFields) + len(rec.UnknownFields)
+		if left > 0 {
+			fields += left
+			entries++
+		}
+	}
+	return fields, entries
 }

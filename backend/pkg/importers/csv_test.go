@@ -75,8 +75,8 @@ func TestParseCSVLastPass(t *testing.T) {
 	if result.Records[0].Name != "My Bank" {
 		t.Errorf("expected 'My Bank', got %q", result.Records[0].Name)
 	}
-	if result.Records[1].Type != "totp" {
-		t.Errorf("expected totp type, got %q", result.Records[1].Type)
+	if r := result.Records[1]; r.Type != "password" || r.Password != "pass" || r.TOTPSecret != "JBSWY3DP" {
+		t.Errorf("a login with a TOTP secret stays a password entry, got %+v", r)
 	}
 }
 

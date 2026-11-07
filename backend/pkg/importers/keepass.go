@@ -93,16 +93,17 @@ func convertKeePassEntry(e gokeepasslib.Entry) *EntryRecord {
 		Notes:     get("Notes"),
 		CreatedAt: keepassTime(e.Times.CreationTime),
 		UpdatedAt: keepassTime(e.Times.LastModificationTime),
+		Tags:      splitTags(e.Tags, ";,"),
 	}
 
 	// Detect TOTP via common KeePass TOTP field names
 	for _, key := range []string{"otp", "TOTP Seed", "TimeOtp-Secret-Base32", "HmacOtp-Secret-Base32"} {
 		if v := get(key); v != "" {
 			rec.TOTPSecret = v
-			rec.Type = "totp"
 			break
 		}
 	}
+	rec.settleLoginType()
 
 	// Custom fields (skip the standard ones)
 	standard := map[string]bool{"Title": true, "URL": true, "UserName": true, "Password": true, "Notes": true}

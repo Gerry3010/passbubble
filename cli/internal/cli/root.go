@@ -48,6 +48,13 @@ Usage:
   pwmgr list      List all entries
   pwmgr tags      List tags with entry counts
   pwmgr generate  Generate a secure password`,
+	// Cobra gets here once flags and arguments are accepted, so usage stays on
+	// for mistakes in those and an error from here on shows only the error.
+	// Subcommands must not define their own PersistentPreRun: cobra runs just
+	// the nearest one.
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		cmd.SilenceUsage = true
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Launch the TUI directly; it handles login / unlock on its own.
 		return runTUI(v)

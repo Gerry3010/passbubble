@@ -149,7 +149,7 @@ type CreateEntryRequest struct {
 type UpdateEntryRequest struct {
 	FolderID      *string    `json:"folder_id,omitempty"`
 	Name          string     `json:"name,omitempty"`
-	URL           string     `json:"url,omitempty"`
+	URL           *string    `json:"url,omitempty"`            // nil = keep existing; "" = clear
 	MatchPatterns []string   `json:"match_patterns,omitempty"` // nil = keep existing; [] = clear
 	EncryptedData string     `json:"encrypted_data,omitempty"` // base64; "" keeps existing
 	DataNonce     string     `json:"data_nonce,omitempty"`     // base64

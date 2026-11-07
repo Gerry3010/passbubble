@@ -271,3 +271,38 @@ func TestIsValidSecret(t *testing.T) {
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
+
+func TestStoredOptions(t *testing.T) {
+	got := StoredOptions(60, 8, "sha256")
+	if got.Period != 60 || got.Digits != otp.DigitsEight || got.Algorithm != otp.AlgorithmSHA256 {
+		t.Errorf("StoredOptions = %+v", got)
+	}
+	if got := StoredOptions(0, 0, "SHA512"); got.Period != 30 || got.Digits != otp.DigitsSix || got.Algorithm != otp.AlgorithmSHA512 {
+		t.Errorf("unset values should mean the defaults: %+v", got)
+	}
+	if got := StoredOptions(0, 0, ""); got.Algorithm != otp.AlgorithmSHA1 {
+		t.Errorf("algorithm default = %v", got.Algorithm)
+	}
+}
+
+func TestSameSecret(t *testing.T) {
+	const url = "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&period=60"
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"JBSWY3DPEHPK3PXP", "JBSWY3DPEHPK3PXP", true},
+		{"JBSWY3DPEHPK3PXP", "jbswy3dpehpk3pxp", true},
+		{"JBSWY3DPEHPK3PXP", " JBSW Y3DP-EHPK_3PXP ", true},
+		{"JBSWY3DPEHPK3PXP", "JBSWY3DPEHPK3PXP====", true},
+		{"JBSWY3DPEHPK3PXP", "GEZDGNBVGY3TQOJQ", false},
+		{"JBSWY3DPEHPK3PXP", "", false},
+		{"", "", true},
+		{url, url, true},
+		{url, "JBSWY3DPEHPK3PXP", false},
+	} {
+		if got := SameSecret(tc.a, tc.b); got != tc.want {
+			t.Errorf("SameSecret(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}

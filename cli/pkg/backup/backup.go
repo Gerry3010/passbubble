@@ -13,483 +13,247 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Package backup writes and restores local JSON backups of decrypted entries. The
+// `pwmgr backup` commands and the TUI both go through it. A backup holds the whole
+// entry data, so it holds secrets in the clear: its file is only for its owner.
 package backup
 
 import (
-	"archive/tar"
-	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
+	"github.com/Gerry3010/passbubble/cli/internal/vault"
 )
 
-// BackupData represents the structure of a backup file
-type BackupData struct {
-	Passwords []keyring.Entry `json:"passwords"`
-	Metadata  BackupMetadata  `json:"metadata"`
+// File is the content of a backup file.
+type File struct {
+	CreatedAt string  `json:"created_at"`
+	Server    string  `json:"server"`
+	Email     string  `json:"email"`
+	Entries   []Entry `json:"entries"`
 }
 
-// BackupMetadata contains information about the backup
-type BackupMetadata struct {
-	BackupDate    time.Time `json:"backup_date"`
-	Hostname      string    `json:"hostname"`
-	User          string    `json:"user"`
-	Version       string    `json:"version"`
-	PasswordCount int       `json:"password_count"`
-	Checksum      string    `json:"checksum"`
+// Entry is one backed up entry. Data keeps everything the entry holds, also keys
+// the CLI does not model.
+type Entry struct {
+	Name string           `json:"name"`
+	Type string           `json:"type"`
+	URL  string           `json:"url,omitempty"`
+	Data *vault.EntryData `json:"data,omitempty"`
 }
 
-// BackupOptions contains options for backup operations
-type BackupOptions struct {
-	OutputPath  string
-	UseGPG      bool
-	UsePassword bool
-	BackupDir   string
-	MaxBackups  int
+// Source is what a backup reads. *vault.Vault is one.
+type Source interface {
+	ListEntries() ([]vault.Entry, error)
+	GetEntry(id string) (*vault.Entry, error)
 }
 
-// Manager handles backup and restore operations
-type Manager struct {
-	keyring keyring.KeyringInterface
-	options *BackupOptions
+// Target is what a restore writes to. *vault.Vault is one.
+type Target interface {
+	CreateEntry(name, entryType, url string, data *vault.EntryData, folderID *string, createdAt, updatedAt string, matchPatterns []string) (*vault.Entry, error)
 }
 
-// New creates a new backup manager
-func New(kr keyring.KeyringInterface, opts *BackupOptions) *Manager {
-	if opts == nil {
-		homeDir, _ := os.UserHomeDir()
-		opts = &BackupOptions{
-			BackupDir:  filepath.Join(homeDir, "Documents", "pwmgr-backups"),
-			MaxBackups: 10,
-		}
-	}
-	return &Manager{
-		keyring: kr,
-		options: opts,
-	}
+// Options are the details of Create that are not entries.
+type Options struct {
+	Server, Email string                // recorded in the file
+	Progress      func(done, total int) // told about each entry, may be nil
 }
 
-// CreateBackup creates a new backup of all passwords
-func (m *Manager) CreateBackup() (string, error) {
-	if err := m.ensureBackupDir(); err != nil {
-		return "", fmt.Errorf("failed to create backup directory: %w", err)
-	}
+// Result says what Create wrote.
+type Result struct {
+	Path  string
+	Saved int
+	Total int
+}
 
-	// Get all password entries
-	entries, err := m.keyring.List()
+// IncompleteError means the backup was written, but without the Skipped entries.
+type IncompleteError struct {
+	Skipped []string
+}
+
+func (e *IncompleteError) Error() string {
+	return "backup is incomplete, these could not be read and are NOT in it: " + strings.Join(e.Skipped, "; ")
+}
+
+// DefaultDir is where backups go unless told otherwise.
+func DefaultDir() (string, error) {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to list passwords: %w", err)
+		return "", fmt.Errorf("find the backup directory: %w", err)
 	}
-
-	// Fetch actual passwords for each entry
-	for i := range entries {
-		password, err := m.keyring.Get(entries[i].Service, entries[i].Username)
-		if err != nil {
-			continue // Skip entries that can't be retrieved
-		}
-		entries[i].Password = password
-	}
-
-	// Create backup data
-	hostname, _ := os.Hostname()
-	user := os.Getenv("USER")
-	if user == "" {
-		user = os.Getenv("USERNAME")
-	}
-
-	backupData := BackupData{
-		Passwords: entries,
-		Metadata: BackupMetadata{
-			BackupDate:    time.Now(),
-			Hostname:      hostname,
-			User:          user,
-			Version:       "2.0.0",
-			PasswordCount: len(entries),
-		},
-	}
-
-	// Generate filename
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	filename := fmt.Sprintf("pwmgr-backup-%s.tar.gz", timestamp)
-	if m.options.OutputPath != "" {
-		filename = m.options.OutputPath
-	} else {
-		filename = filepath.Join(m.options.BackupDir, filename)
-	}
-
-	// Create backup file
-	if err := m.writeBackup(backupData, filename); err != nil {
-		return "", fmt.Errorf("failed to write backup: %w", err)
-	}
-
-	// Apply encryption if requested
-	if m.options.UseGPG {
-		encryptedFilename, err := m.encryptWithGPG(filename)
-		if err != nil {
-			_ = os.Remove(filename) // Clean up unencrypted file
-			return "", fmt.Errorf("failed to encrypt backup: %w", err)
-		}
-		_ = os.Remove(filename) // Remove unencrypted file
-		filename = encryptedFilename
-	} else if m.options.UsePassword {
-		encryptedFilename, err := m.encryptWithPassword(filename)
-		if err != nil {
-			_ = os.Remove(filename) // Clean up unencrypted file
-			return "", fmt.Errorf("failed to encrypt backup: %w", err)
-		}
-		_ = os.Remove(filename) // Remove unencrypted file
-		filename = encryptedFilename
-	}
-
-	return filename, nil
+	return filepath.Join(home, "Documents", "pwmgr-backups"), nil
 }
 
-// RestoreBackup restores passwords from a backup file
-func (m *Manager) RestoreBackup(backupPath string) error {
-	// Decrypt if necessary
-	actualPath := backupPath
-	if strings.HasSuffix(backupPath, ".gpg") {
-		decryptedPath, err := m.decryptWithGPG(backupPath)
-		if err != nil {
-			return fmt.Errorf("failed to decrypt GPG backup: %w", err)
-		}
-		defer func() { _ = os.Remove(decryptedPath) }() // Clean up decrypted file
-		actualPath = decryptedPath
-	} else if strings.HasSuffix(backupPath, ".enc") {
-		decryptedPath, err := m.decryptWithPassword(backupPath)
-		if err != nil {
-			return fmt.Errorf("failed to decrypt password-protected backup: %w", err)
-		}
-		defer func() { _ = os.Remove(decryptedPath) }() // Clean up decrypted file
-		actualPath = decryptedPath
+// NewPath creates dir if needed and returns the path of a new backup in it. name
+// is optional: it defaults to the time, and must stay a name, not a path. A backup
+// of that name that exists already is never replaced by this.
+func NewPath(dir, name string) (string, error) {
+	if name == "" {
+		name = time.Now().Format("20060102-150405")
 	}
-
-	// Read backup data
-	backupData, err := m.readBackup(actualPath)
-	if err != nil {
-		return fmt.Errorf("failed to read backup: %w", err)
+	name = strings.TrimPrefix(strings.TrimSuffix(name, ".json"), "backup-")
+	if name == "" || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("invalid backup name %q: it must not be a path", name)
 	}
-
-	// Verify backup integrity
-	if err := m.verifyBackup(backupData); err != nil {
-		return fmt.Errorf("backup verification failed: %w", err)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create backup dir: %w", err)
 	}
-
-	// Restore passwords
-	restored := 0
-	skipped := 0
-	for _, entry := range backupData.Passwords {
-		// Check if password already exists
-		if _, err := m.keyring.Get(entry.Service, entry.Username); err == nil {
-			skipped++
-			continue // Skip existing passwords
-		}
-
-		// Store password
-		if err := m.keyring.Store(entry.Service, entry.Username, entry.Password); err != nil {
-			fmt.Printf("Warning: Failed to restore password for %s: %v\n", entry.Service, err)
-			continue
-		}
-		restored++
+	path := filepath.Join(dir, "backup-"+name+".json")
+	if _, err := os.Lstat(path); err == nil {
+		return "", fmt.Errorf("%s already exists", path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
 	}
-
-	fmt.Printf("Backup restored successfully: %d passwords restored, %d skipped (already exist)\n", restored, skipped)
-	return nil
+	return path, nil
 }
 
-// ListBackups lists available backup files
-func (m *Manager) ListBackups() ([]BackupInfo, error) {
-	if err := m.ensureBackupDir(); err != nil {
-		return nil, fmt.Errorf("backup directory not accessible: %w", err)
-	}
-
-	files, err := os.ReadDir(m.options.BackupDir)
+// Create writes a backup of every entry to path, readable by its owner only.
+// Entries that cannot be read do not stop it: the file holds the rest, and the
+// error is an *IncompleteError naming them.
+func Create(src Source, path string, opts Options) (Result, error) {
+	listed, err := src.ListEntries()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read backup directory: %w", err)
+		return Result{}, err
 	}
 
-	var backups []BackupInfo
-	for _, file := range files {
-		if file.IsDir() {
+	entries := make([]Entry, 0, len(listed))
+	var skipped []string
+	for i, e := range listed {
+		if opts.Progress != nil {
+			opts.Progress(i+1, len(listed))
+		}
+		full, err := src.GetEntry(e.ID)
+		if err == nil && full.Data == nil {
+			err = errors.New("entry has no data")
+		}
+		if err != nil {
+			skipped = append(skipped, fmt.Sprintf("%s (id %s): %v", e.Name, e.ID, err))
 			continue
 		}
+		entries = append(entries, Entry{Name: full.Name, Type: full.Type, URL: full.URL, Data: full.Data})
+	}
 
-		name := file.Name()
-		if !strings.HasPrefix(name, "pwmgr-backup-") {
+	data, err := json.MarshalIndent(File{
+		CreatedAt: time.Now().Format(time.RFC3339),
+		Server:    opts.Server,
+		Email:     opts.Email,
+		Entries:   entries,
+	}, "", "  ")
+	if err != nil {
+		return Result{}, err
+	}
+	if err := writePrivate(path, data); err != nil {
+		return Result{}, fmt.Errorf("write backup: %w", err)
+	}
+
+	result := Result{Path: path, Saved: len(entries), Total: len(listed)}
+	if len(skipped) > 0 {
+		return result, &IncompleteError{Skipped: skipped}
+	}
+	return result, nil
+}
+
+// writePrivate writes to a temporary file with mode 0600 and moves it into place.
+// A write that fails leaves an older backup alone, and an existing file does not
+// lend its wider permissions to the new content.
+func writePrivate(path string, data []byte) (err error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".pwmgr-backup-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if _, err = tmp.Write(data); err != nil {
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
+// Read loads a backup file.
+func Read(path string) (*File, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read backup file: %w", err)
+	}
+	var file File
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("parse backup file: %w", err)
+	}
+	return &file, nil
+}
+
+// RestoreResult says what Restore did.
+type RestoreResult struct {
+	Restored int
+	Failed   []string // one line per entry that could not be created
+}
+
+// Restore creates a new entry for every entry in the file, twins included. It
+// never looks at what the vault holds, so entries that are still there exist
+// twice afterwards. Failures do not stop it and end up in the result.
+func Restore(dst Target, file *File, progress func(done, total int)) RestoreResult {
+	var result RestoreResult
+	for i, e := range file.Entries {
+		if progress != nil {
+			progress(i+1, len(file.Entries))
+		}
+		data := e.Data
+		if data == nil {
+			data = &vault.EntryData{}
+		}
+		data.DropStrayTOTPSecret() // older backups still hold them
+		if _, err := dst.CreateEntry(e.Name, e.Type, e.URL, data, nil, "", "", nil); err != nil {
+			result.Failed = append(result.Failed, fmt.Sprintf("%s: %v", e.Name, err))
 			continue
 		}
+		result.Restored++
+	}
+	return result
+}
 
-		info, err := file.Info()
+// Info describes a backup file on disk.
+type Info struct {
+	Name    string
+	Path    string
+	Size    int64
+	ModTime time.Time
+}
+
+// List returns the backups in dir, newest first. A directory that does not exist
+// holds none.
+func List(dir string) ([]Info, error) {
+	files, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read backup directory: %w", err)
+	}
+	var backups []Info
+	for _, f := range files {
+		name := f.Name()
+		if f.IsDir() || !strings.HasPrefix(name, "backup-") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		info, err := f.Info()
 		if err != nil {
 			continue
 		}
-
-		backups = append(backups, BackupInfo{
-			Name:    name,
-			Path:    filepath.Join(m.options.BackupDir, name),
-			Size:    info.Size(),
-			ModTime: info.ModTime(),
-		})
+		backups = append(backups, Info{Name: name, Path: filepath.Join(dir, name), Size: info.Size(), ModTime: info.ModTime()})
 	}
-
-	// Sort by modification time (newest first)
-	sort.Slice(backups, func(i, j int) bool {
-		return backups[i].ModTime.After(backups[j].ModTime)
-	})
-
+	sort.Slice(backups, func(i, j int) bool { return backups[i].ModTime.After(backups[j].ModTime) })
 	return backups, nil
-}
-
-// VerifyBackup verifies the integrity of a backup file
-func (m *Manager) VerifyBackup(backupPath string) error {
-	backupData, err := m.readBackup(backupPath)
-	if err != nil {
-		return fmt.Errorf("failed to read backup: %w", err)
-	}
-
-	return m.verifyBackup(backupData)
-}
-
-// CleanOldBackups removes old backup files, keeping only the most recent ones
-func (m *Manager) CleanOldBackups() error {
-	backups, err := m.ListBackups()
-	if err != nil {
-		return err
-	}
-
-	if len(backups) <= m.options.MaxBackups {
-		return nil // Nothing to clean
-	}
-
-	// Remove old backups
-	toRemove := backups[m.options.MaxBackups:]
-	for _, backup := range toRemove {
-		if err := os.Remove(backup.Path); err != nil {
-			fmt.Printf("Warning: Failed to remove old backup %s: %v\n", backup.Name, err)
-		}
-	}
-
-	fmt.Printf("Cleaned %d old backup(s)\n", len(toRemove))
-	return nil
-}
-
-// BackupInfo contains information about a backup file
-type BackupInfo struct {
-	Name    string    `json:"name"`
-	Path    string    `json:"path"`
-	Size    int64     `json:"size"`
-	ModTime time.Time `json:"mod_time"`
-}
-
-// Helper methods
-
-func (m *Manager) ensureBackupDir() error {
-	return os.MkdirAll(m.options.BackupDir, 0755)
-}
-
-func (m *Manager) writeBackup(data BackupData, filename string) error {
-	// Create temporary directory for backup contents
-	tempDir, err := os.MkdirTemp("", "pwmgr-backup-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
-
-	// Write JSON data
-	jsonPath := filepath.Join(tempDir, "passwords.json")
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	// Calculate checksum
-	hash := sha256.Sum256(jsonData)
-	data.Metadata.Checksum = hex.EncodeToString(hash[:])
-
-	// Update JSON with checksum
-	jsonData, err = json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(jsonPath, jsonData, 0600); err != nil {
-		return err
-	}
-
-	// Create tar.gz archive
-	return m.createTarGz(filename, tempDir)
-}
-
-func (m *Manager) readBackup(filename string) (BackupData, error) {
-	var data BackupData
-
-	// Create temporary directory
-	tempDir, err := os.MkdirTemp("", "pwmgr-restore-")
-	if err != nil {
-		return data, err
-	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
-
-	// Extract tar.gz
-	if err := m.extractTarGz(filename, tempDir); err != nil {
-		return data, err
-	}
-
-	// Read JSON data
-	jsonPath := filepath.Join(tempDir, "passwords.json")
-	jsonData, err := os.ReadFile(jsonPath)
-	if err != nil {
-		return data, err
-	}
-
-	if err := json.Unmarshal(jsonData, &data); err != nil {
-		return data, err
-	}
-
-	return data, nil
-}
-
-func (m *Manager) verifyBackup(data BackupData) error {
-	// Recalculate checksum without the checksum field
-	originalChecksum := data.Metadata.Checksum
-	data.Metadata.Checksum = ""
-
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	hash := sha256.Sum256(jsonData)
-	calculatedChecksum := hex.EncodeToString(hash[:])
-
-	if originalChecksum != calculatedChecksum {
-		return fmt.Errorf("backup checksum verification failed")
-	}
-
-	return nil
-}
-
-func (m *Manager) createTarGz(filename, sourceDir string) error {
-	file, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
-	gzWriter := gzip.NewWriter(file)
-	defer func() { _ = gzWriter.Close() }()
-
-	tarWriter := tar.NewWriter(gzWriter)
-	defer func() { _ = tarWriter.Close() }()
-
-	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(sourceDir, path)
-		if err != nil {
-			return err
-		}
-
-		header, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return err
-		}
-		header.Name = relPath
-
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return err
-		}
-
-		srcFile, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = srcFile.Close() }()
-
-		_, err = io.Copy(tarWriter, srcFile)
-		return err
-	})
-}
-
-func (m *Manager) extractTarGz(filename, destDir string) error {
-	file, err := os.Open(filename)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
-	gzReader, err := gzip.NewReader(file)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = gzReader.Close() }()
-
-	tarReader := tar.NewReader(gzReader)
-
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		path := filepath.Join(destDir, header.Name)
-
-		switch header.Typeflag {
-		case tar.TypeReg:
-			outFile, err := os.Create(path)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = outFile.Close() }()
-
-			if _, err := io.Copy(outFile, tarReader); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func (m *Manager) encryptWithGPG(filename string) (string, error) {
-	encryptedFilename := filename + ".gpg"
-	cmd := exec.Command("gpg", "--symmetric", "--cipher-algo", "AES256", "--output", encryptedFilename, filename)
-	return encryptedFilename, cmd.Run()
-}
-
-func (m *Manager) decryptWithGPG(filename string) (string, error) {
-	decryptedFilename := strings.TrimSuffix(filename, ".gpg")
-	cmd := exec.Command("gpg", "--decrypt", "--output", decryptedFilename, filename)
-	return decryptedFilename, cmd.Run()
-}
-
-func (m *Manager) encryptWithPassword(filename string) (string, error) {
-	encryptedFilename := filename + ".enc"
-	cmd := exec.Command("openssl", "enc", "-aes-256-cbc", "-salt", "-in", filename, "-out", encryptedFilename)
-	return encryptedFilename, cmd.Run()
-}
-
-func (m *Manager) decryptWithPassword(filename string) (string, error) {
-	decryptedFilename := strings.TrimSuffix(filename, ".enc")
-	cmd := exec.Command("openssl", "enc", "-aes-256-cbc", "-d", "-in", filename, "-out", decryptedFilename)
-	return decryptedFilename, cmd.Run()
 }

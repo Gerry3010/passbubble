@@ -18,7 +18,9 @@ package vault
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -74,6 +76,43 @@ func (cf *CustomField) UnmarshalJSON(b []byte) error {
 func (cf CustomField) MarshalJSON() ([]byte, error) {
 	type plain CustomField
 	return encodeWithExtra(plain(cf), cf.extra, customFieldKeys)
+}
+
+// UnknownField is a key of the entry JSON the CLI does not model, with its value
+// as text: a string as it is, anything else as its JSON.
+type UnknownField struct {
+	Key   string
+	Value string
+}
+
+// UnknownFields lists what the entry holds beyond the modelled keys, for formats
+// that have to write it down, sorted by key. An unknown key of a custom field
+// follows as "<label>.<key>". A key without a value (null or "") has nothing to
+// keep and is left out.
+func (d EntryData) UnknownFields() []UnknownField {
+	out := unknownFields("", d.extra)
+	for _, cf := range d.CustomFields {
+		out = append(out, unknownFields(cf.Label+".", cf.extra)...)
+	}
+	return out
+}
+
+func unknownFields(prefix string, extra map[string]json.RawMessage) []UnknownField {
+	out := make([]UnknownField, 0, len(extra))
+	for _, key := range slices.Sorted(maps.Keys(extra)) {
+		value := string(extra[key])
+		var text *string
+		if json.Unmarshal(extra[key], &text) == nil {
+			value = ""
+			if text != nil {
+				value = *text
+			}
+		}
+		if value != "" {
+			out = append(out, UnknownField{Key: prefix + key, Value: value})
+		}
+	}
+	return out
 }
 
 // decodeKnown decodes the keys of the JSON object b that are in known into dst

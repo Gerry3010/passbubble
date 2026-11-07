@@ -41,7 +41,7 @@ type JobResponse struct {
 
 func (c *Client) CreateJob(req CreateJobRequest) (*JobResponse, error) {
 	var out JobResponse
-	if err := c.post("/jobs", req, &out); err != nil {
+	if err := c.post("/api/v1/jobs", req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -49,7 +49,7 @@ func (c *Client) CreateJob(req CreateJobRequest) (*JobResponse, error) {
 
 func (c *Client) UpdateJob(id string, req UpdateJobRequest) (*JobResponse, error) {
 	var out JobResponse
-	if err := c.do(http.MethodPatch, "/jobs/"+id, req, &out); err != nil {
+	if err := c.do(http.MethodPatch, "/api/v1/jobs/"+id, req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

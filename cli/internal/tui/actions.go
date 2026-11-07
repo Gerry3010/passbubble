@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/Gerry3010/passbubble/cli/pkg/backup"
 	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
 	"github.com/Gerry3010/passbubble/cli/pkg/totp"
 )
@@ -42,9 +41,9 @@ type BackupCreatedMsg struct {
 
 // BackupRestoredMsg indicates a backup was restored
 type BackupRestoredMsg struct {
-	Success bool
-	Message string
-	Error   error
+	Restored int // entries created, also when others failed
+	Message  string
+	Error    error
 }
 
 // processFormSubmission processes form submissions and returns appropriate actions
@@ -56,10 +55,6 @@ func processFormSubmission(formMsg FormSubmittedMsg) tea.Cmd {
 		return handleAddTOTP(formMsg.Fields)
 	case AddTOTPToEntryForm:
 		return handleAddTOTPToEntry(formMsg.Entry, formMsg.Fields)
-	case EditEntryForm:
-		return handleEditEntry(formMsg.Entry, formMsg.Fields)
-	case CreateBackupForm:
-		return handleCreateBackup(formMsg.Fields)
 	case SavePasswordForm:
 		return handleSavePassword(formMsg.Fields)
 	default:
@@ -362,181 +357,10 @@ func handleAddTOTPToEntry(entry *Entry, fields map[string]string) tea.Cmd {
 	}
 }
 
-// handleEditEntry processes editing an existing entry
-func handleEditEntry(entry *Entry, fields map[string]string) tea.Cmd {
-	return func() tea.Msg {
-		if entry == nil {
-			return ActionResultMsg{
-				Success: false,
-				Message: "No entry to edit",
-				Action:  "edit_entry",
-			}
-		}
-		
-		newService := strings.TrimSpace(fields["service"])
-		newUsername := strings.TrimSpace(fields["username"])
-		newPassword := strings.TrimSpace(fields["password"])
-		newIssuer := strings.TrimSpace(fields["issuer"])
-		newSecret := strings.TrimSpace(fields["secret"])
-		newAlgorithm := strings.TrimSpace(fields["algorithm"])
-		newLengthStr := strings.TrimSpace(fields["length"])
-		newPeriodStr := strings.TrimSpace(fields["period"])
-		
-		if newService == "" {
-			return ActionResultMsg{
-				Success: false,
-				Message: "Service name is required",
-				Action:  "edit_entry",
-			}
-		}
-		
-		kr := keyring.New()
-		
-		// If service or username changed, we need to delete old and create new
-		if newService != entry.Service || newUsername != entry.Username {
-			// Delete old entry
-			if err := kr.Delete(entry.Service, entry.Username); err != nil {
-				return ActionResultMsg{
-					Success: false,
-					Message: fmt.Sprintf("Failed to delete old entry: %v", err),
-					Action:  "edit_entry",
-					Error:   err,
-				}
-			}
-		}
-		
-		// Create updated entry
-		var updatedEntry keyring.Entry
-		if entry.Type == "totp" {
-			// Load existing entry for TOTP updates
-			existingEntry, err := kr.GetEntry(entry.Service, entry.Username)
-			if err != nil {
-				return ActionResultMsg{
-					Success: false,
-					Message: fmt.Sprintf("Failed to load existing TOTP entry: %v", err),
-					Action:  "edit_entry",
-					Error:   err,
-				}
-			}
-			
-			// Use new secret if provided, otherwise keep existing
-			secret := existingEntry.Password
-			if newSecret != "" {
-				// Validate new secret
-				if !totp.IsValidSecret(newSecret) {
-					return ActionResultMsg{
-						Success: false,
-						Message: "Invalid TOTP secret format",
-						Action:  "edit_entry",
-					}
-				}
-				secret = newSecret
-			}
-			
-			// Parse and validate algorithm
-			algorithm := existingEntry.Algorithm
-			if newAlgorithm != "" {
-				algorithm = strings.ToUpper(newAlgorithm)
-				if algorithm != "SHA1" && algorithm != "SHA256" && algorithm != "SHA512" {
-					return ActionResultMsg{
-						Success: false,
-						Message: "Algorithm must be SHA1, SHA256, or SHA512",
-						Action:  "edit_entry",
-					}
-				}
-			}
-			
-			// Parse and validate length
-			digits := existingEntry.Digits
-			if newLengthStr != "" {
-				parsedDigits, err := strconv.Atoi(newLengthStr)
-				if err != nil || (parsedDigits != 6 && parsedDigits != 8) {
-					return ActionResultMsg{
-						Success: false,
-						Message: "Length must be 6 or 8",
-						Action:  "edit_entry",
-					}
-				}
-				digits = parsedDigits
-			}
-			
-			// Parse and validate period
-			period := existingEntry.Period
-			if newPeriodStr != "" {
-				parsedPeriod, err := strconv.Atoi(newPeriodStr)
-				if err != nil || parsedPeriod < 10 || parsedPeriod > 300 {
-					return ActionResultMsg{
-						Success: false,
-						Message: "Period must be between 10 and 300 seconds",
-						Action:  "edit_entry",
-					}
-				}
-				period = parsedPeriod
-			}
-			
-		updatedEntry = keyring.Entry{
-			Service:    newService,
-			Username:   newUsername,
-			Password:   secret,
-			SecretType: keyring.SecretTypeTOTP,
-			Issuer:     newIssuer,
-			Period:     period,
-			Digits:     digits,
-			Algorithm:  algorithm,
-		}
-	} else {
-		// For passwords, use new password if provided, otherwise keep existing
-			var password string
-			if newPassword != "" {
-				password = newPassword
-			} else {
-				// Load existing password
-				existingPassword, err := kr.Get(entry.Service, entry.Username)
-				if err != nil {
-					return ActionResultMsg{
-						Success: false,
-						Message: fmt.Sprintf("Failed to load existing password: %v", err),
-						Action:  "edit_entry",
-						Error:   err,
-					}
-				}
-				password = existingPassword
-			}
-			
-			updatedEntry = keyring.Entry{
-				Service:    newService,
-				Username:   newUsername,
-				Password:   password,
-				SecretType: keyring.SecretTypePassword,
-			}
-		}
-		
-		// Store updated entry
-		if err := kr.StoreEntry(updatedEntry); err != nil {
-			return ActionResultMsg{
-				Success: false,
-				Message: fmt.Sprintf("Failed to update entry: %v", err),
-				Action:  "edit_entry",
-				Error:   err,
-			}
-		}
-		
-		message := fmt.Sprintf("Entry %s", newService)
-		if newUsername != "" {
-			message += fmt.Sprintf(" (%s)", newUsername)
-		}
-		message += " updated successfully"
-		
-		return ActionResultMsg{
-			Success: true,
-			Message: message,
-			Action:  "edit_entry",
-		}
-	}
-}
-
-// handleDeleteEntry processes deleting an entry
-func handleDeleteEntry(entry *Entry) tea.Cmd {
+// deleteEntryCmd moves the selected entry to the trash. It goes by ID: names are
+// not unique, and the wrong entry must never be the one deleted.
+func (m Model) deleteEntryCmd(entry *Entry) tea.Cmd {
+	v := m.vault
 	return func() tea.Msg {
 		if entry == nil {
 			return ActionResultMsg{
@@ -545,9 +369,15 @@ func handleDeleteEntry(entry *Entry) tea.Cmd {
 				Action:  "delete_entry",
 			}
 		}
+		if v == nil {
+			return ActionResultMsg{
+				Success: false,
+				Message: "Failed to delete entry: not connected",
+				Action:  "delete_entry",
+			}
+		}
 		
-		kr := keyring.New()
-		if err := kr.Delete(entry.Service, entry.Username); err != nil {
+		if err := v.DeleteEntry(entry.ID); err != nil {
 			return ActionResultMsg{
 				Success: false,
 				Message: fmt.Sprintf("Failed to delete entry: %v", err),
@@ -565,68 +395,6 @@ func handleDeleteEntry(entry *Entry) tea.Cmd {
 			Success: true,
 			Message: message,
 			Action:  "delete_entry",
-		}
-	}
-}
-
-// handleCreateBackup processes creating a backup
-func handleCreateBackup(fields map[string]string) tea.Cmd {
-	return func() tea.Msg {
-		backupName := strings.TrimSpace(fields["backup_name"])
-		
-		kr := keyring.New()
-		opts := &backup.BackupOptions{
-			BackupDir:  "", // Use default
-			MaxBackups: 10,
-		}
-		
-		if backupName != "" {
-			opts.OutputPath = backupName
-		}
-		
-		backupMgr := backup.New(kr, opts)
-		filename, err := backupMgr.CreateBackup()
-		if err != nil {
-			return BackupCreatedMsg{
-				Error: fmt.Errorf("failed to create backup: %w", err),
-			}
-		}
-		
-		return BackupCreatedMsg{
-			Filename: filename,
-		}
-	}
-}
-
-// handleRestoreBackup processes restoring a backup
-func handleRestoreBackup(backupInfo backup.BackupInfo) tea.Cmd {
-	return func() tea.Msg {
-		kr := keyring.New()
-		backupMgr := backup.New(kr, nil)
-		
-		if err := backupMgr.RestoreBackup(backupInfo.Path); err != nil {
-			return BackupRestoredMsg{
-				Success: false,
-				Error:   fmt.Errorf("failed to restore backup: %w", err),
-			}
-		}
-		
-		return BackupRestoredMsg{
-			Success: true,
-			Message: fmt.Sprintf("Backup %s restored successfully", backupInfo.Name),
-		}
-	}
-}
-
-// handleDeleteBackup processes deleting a backup file
-func handleDeleteBackup(backupInfo backup.BackupInfo) tea.Cmd {
-	return func() tea.Msg {
-		// This would implement backup file deletion
-		// For now, return a placeholder message
-		return ActionResultMsg{
-			Success: true,
-			Message: fmt.Sprintf("Backup %s deleted", backupInfo.Name),
-			Action:  "delete_backup",
 		}
 	}
 }

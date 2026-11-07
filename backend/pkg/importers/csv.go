@@ -27,12 +27,14 @@ type CSVFormat string
 
 const (
 	// CSVFormatGeneric expects columns: name,url,username,password,notes
+	// and an optional tags column.
 	CSVFormatGeneric CSVFormat = "generic"
 	// CSVFormatChrome exports from Chrome/Edge password manager: name,url,username,password
 	CSVFormatChrome CSVFormat = "chrome"
 	// CSVFormatLastPass exports from LastPass: url,username,password,totp,extra,name,grouping,fav
 	CSVFormatLastPass CSVFormat = "lastpass"
 	// CSVFormat1Password exports from 1Password: Title,Username,Password,URL,Notes,Type
+	// and an optional Tags column.
 	CSVFormat1Password CSVFormat = "1password"
 )
 
@@ -51,6 +53,7 @@ func ParseCSV(data []byte, format CSVFormat) (*ImportResult, error) {
 	}
 
 	result := &ImportResult{}
+	tagsCol := csvTagsColumn(records[0], format)
 	rows := records[1:] // skip header
 
 	for i, row := range rows {
@@ -62,9 +65,27 @@ func ParseCSV(data []byte, format CSVFormat) (*ImportResult, error) {
 			}
 			continue
 		}
+		if tagsCol >= 0 && tagsCol < len(row) {
+			rec.Tags = splitTags(row[tagsCol], ",")
+		}
 		result.Records = append(result.Records, *rec)
 	}
 	return result, nil
+}
+
+// csvTagsColumn finds the tags column by name, or returns -1. Unlike the fixed
+// columns it is not positional, so an unrelated extra column is never read as
+// tags. The Chrome and LastPass exports have no tags.
+func csvTagsColumn(header []string, format CSVFormat) int {
+	if format != CSVFormatGeneric && format != CSVFormat1Password {
+		return -1
+	}
+	for i, name := range header {
+		if strings.EqualFold(strings.TrimSpace(name), "tags") {
+			return i
+		}
+	}
+	return -1
 }
 
 func convertCSVRow(row []string, format CSVFormat, lineNum int) (*EntryRecord, string) {
@@ -94,9 +115,7 @@ func convertCSVRow(row []string, format CSVFormat, lineNum int) (*EntryRecord, s
 		rec.TOTPSecret = col(3)
 		rec.Notes = col(4)
 		rec.Name = col(5)
-		if rec.TOTPSecret != "" {
-			rec.Type = "totp"
-		}
+		rec.settleLoginType()
 
 	case CSVFormat1Password:
 		// Title, Username, Password, URL, Notes, Type

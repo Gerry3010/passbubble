@@ -18,7 +18,10 @@
 // must encrypt before uploading to the Passbubble API.
 package importers
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // normalizeTimestamp parses a source timestamp into an RFC3339 UTC string.
 // Returns "" when the input is empty or unparseable (caller falls back to NOW()).
@@ -61,6 +64,7 @@ type EntryRecord struct {
 	CVV         string
 
 	// Identity
+	Title      string
 	FirstName  string
 	LastName   string
 	Company    string
@@ -87,6 +91,31 @@ type EntryRecord struct {
 
 	// Generic key-value extras
 	CustomFields []CustomField
+
+	// Tags as the source file has them, split but not normalised: the rules
+	// live with the clients, callers normalise before saving. Nil = no tags.
+	Tags []string
+}
+
+// settleLoginType types a login by what it holds, once all its fields are read.
+// A login with a password stays a password entry with a TOTP secret next to it;
+// only a secret without a password makes a TOTP entry. Other types stay.
+func (r *EntryRecord) settleLoginType() {
+	if r.Type == "password" && r.TOTPSecret != "" && r.Password == "" {
+		r.Type = "totp"
+	}
+}
+
+// splitTags splits a tag list on any of the separator characters and drops
+// blank pieces. It returns nil when no tag is left.
+func splitTags(s, separators string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return strings.ContainsRune(separators, r) }) {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // CustomField is a user-defined field inside an entry.

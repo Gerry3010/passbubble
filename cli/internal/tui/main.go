@@ -53,6 +53,17 @@ func isAuthScreen(s Screen) bool {
 	return s == LoginScreen || s == RegisterScreen || s == UnlockScreen
 }
 
+// lateVaultResult reports whether msg carries vault data. On an auth screen such
+// a message comes from a command started before the lock and must not refill
+// the model. A clipboard wipe is not in this list: it still has to happen.
+func lateVaultResult(msg tea.Msg) bool {
+	switch msg.(type) {
+	case LoadEntriesMsg, LoadBackupsMsg, SecretLoadMsg, TOTPUpdateMsg, EntryTagsMsg, ShareLinkCreatedMsg, EditFormLoadedMsg:
+		return true
+	}
+	return false
+}
+
 // Entry represents a stored secret entry
 type Entry struct {
 	ID        string
@@ -184,13 +195,14 @@ type Model struct {
 	totpCode      string
 	totpRemaining int
 	password      string
+	detailHasTOTP bool     // the decrypted entry holds a TOTP secret; false until SecretLoadMsg arrives
 	detailTags    []string // decrypted on open; nil until EntryTagsMsg arrives
 
 	// List scroll state
 	listOffset int
 
 	// Backup screen state
-	backups      []backup.BackupInfo
+	backups      []backup.Info
 	backupCursor int
 
 	// Generate screen state
@@ -342,9 +354,10 @@ type TickMsg struct {
 
 // LoadEntriesMsg represents loaded entries + folder tree
 type LoadEntriesMsg struct {
-	Entries []Entry
-	Folders []*vaultpkg.Folder
-	Err     error
+	Entries    []Entry
+	Folders    []*vaultpkg.Folder
+	Err        error
+	KeepStatus bool // the status line reports something more important
 }
 
 // EntryTagsMsg carries the decrypted tags of the entry opened in the detail
@@ -356,24 +369,34 @@ type EntryTagsMsg struct {
 
 // LoadBackupsMsg represents loaded backups
 type LoadBackupsMsg struct {
-	Backups []backup.BackupInfo
+	Backups []backup.Info
 	Err     error
 }
 
 // Update handles messages and updates the model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle form updates when showing form
+	if isAuthScreen(m.screen) && lateVaultResult(msg) {
+		return m, nil
+	}
+
+	// A form only takes the keyboard and its own results. Everything else (the
+	// auto-lock tick, a resize, the results of background commands, the
+	// clipboard wipe) falls through to the switch below, also while it is open.
 	if m.showingForm {
 		switch msg := msg.(type) {
 		case FormSubmittedMsg:
 			m.showingForm = false
-			// Folder forms need vault access, so they are handled here rather
-			// than in the vault-less processFormSubmission helper.
+			// Folder and edit forms need vault access, so they are handled here
+			// rather than in the vault-less processFormSubmission helper.
 			switch msg.Type {
 			case NewFolderForm:
 				return m, m.createFolderCmd(msg.Fields["folder_name"], msg.ParentID)
 			case RenameFolderForm:
 				return m, m.renameFolderCmd(msg.FolderID, msg.Fields["folder_name"], msg.ParentID)
+			case EditEntryForm:
+				return m, m.editEntryCmd(msg.Entry, msg.Fields)
+			case CreateBackupForm:
+				return m, m.createBackupCmd(msg.Fields)
 			case AddPasswordForm:
 				// An empty password field asks for a generated one first.
 				if strings.TrimSpace(msg.Fields["password"]) == "" {
@@ -400,11 +423,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch msg.Action {
 				case "delete":
 					if entry, ok := msg.Data.(*Entry); ok {
-						return m, handleDeleteEntry(entry)
+						return m, m.deleteEntryCmd(entry)
 					}
 				case "delete_folder":
 					if id, ok := msg.Data.(string); ok {
 						return m, m.deleteFolderCmd(id)
+					}
+				case "restore_backup":
+					if info, ok := msg.Data.(*backup.Info); ok {
+						m.status = fmt.Sprintf("Restoring %s...", info.Name)
+						m.statusType = "info"
+						return m, m.restoreBackupCmd(*info)
 					}
 				}
 			} else {
@@ -413,10 +442,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		default:
+		case tea.KeyMsg:
+			m.lastActivity = time.Now()
 			updatedForm, cmd := m.form.Update(msg)
 			m.form = updatedForm
 			return m, cmd
+
+		case tea.MouseMsg:
+			// Forms have no mouse targets; a click must not reach the list below.
+			m.lastActivity = time.Now()
+			return m, nil
 		}
 	}
 
@@ -487,8 +522,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.allEntries = msg.Entries
 		m.folders = msg.Folders
 		m.clampCursor()
-		m.status = "Entries refreshed"
-		m.statusType = "success"
+		if !msg.KeepStatus {
+			m.status = "Entries refreshed"
+			m.statusType = "success"
+		}
 		return m, nil
 
 	case LoadBackupsMsg:
@@ -502,6 +539,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case TOTPUpdateMsg:
+		// Ignore a late answer for an entry the user has already left.
+		if msg.EntryID != m.detailEntry.ID {
+			return m, nil
+		}
 		if msg.Error != nil {
 			m.status = fmt.Sprintf("TOTP Error: %v", msg.Error)
 			m.statusType = "error"
@@ -512,12 +553,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case SecretLoadMsg:
+		// Ignore a late answer for an entry the user has already left.
+		if msg.EntryID != m.detailEntry.ID {
+			return m, nil
+		}
 		if msg.Error != nil {
 			m.status = fmt.Sprintf("Error loading secret: %v", msg.Error)
 			m.statusType = "error"
 			return m, nil
 		}
 		m.password = msg.Password
+		m.detailHasTOTP = msg.HasTOTP
 		return m, nil
 
 	case EntryTagsMsg:
@@ -527,14 +573,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case EditFormLoadedMsg:
+		return m.openEditForm(msg), nil
+
+	case EntryEditedMsg:
+		return m.finishEdit(msg)
+
 	case ActionResultMsg:
 		m.status = msg.Message
 		if msg.Success {
 			m.statusType = "success"
 			// Refresh entries after successful add/edit/delete/folder ops
 			if msg.Action == "add_password" || msg.Action == "add_totp" ||
-				msg.Action == "edit_entry" || msg.Action == "delete_entry" ||
-				msg.Action == "folder" {
+				msg.Action == "delete_entry" || msg.Action == "folder" {
 				return m, m.loadEntries()
 			}
 		} else {
@@ -575,6 +626,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case BackupCreatedMsg:
 		if msg.Error != nil {
 			m.status = fmt.Sprintf("Backup failed: %v", msg.Error)
+			if msg.Filename != "" {
+				m.status = fmt.Sprintf("Backup saved to %s, but: %v", msg.Filename, msg.Error)
+			}
 			m.statusType = "error"
 		} else {
 			m.status = fmt.Sprintf("Backup created: %s", msg.Filename)
@@ -593,8 +647,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = msg.Message
 			m.statusType = "success"
-			// Refresh entries after restore
-			return m, m.loadEntries()
+		}
+		// Refresh entries after restore, without covering up how it went
+		if msg.Restored > 0 {
+			return m, m.reloadEntriesKeepingStatus()
 		}
 		return m, nil
 
@@ -613,7 +669,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return locked, nextTickCmd
 		}
 
-		if m.screen == DetailScreen && m.detailEntry.Type == "totp" && m.showSecrets {
+		if m.screen == DetailScreen && m.detailShowsCode() && m.showSecrets {
 			// Decrement remaining time if we have an active TOTP code
 			if m.totpRemaining > 0 {
 				m.totpRemaining--
@@ -733,11 +789,7 @@ func (m Model) handleMainScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.listOffset = 0
 			return m, nil
 		}
-		m.detailEntry = *item.entry
-		m.screen = DetailScreen
-		m.showSecrets = false
-		m.detailTags = nil
-		return m, tea.Batch(m.loadPasswordReal(), m.loadEntryTags())
+		return m.openDetail(*item.entry)
 	}
 
 	// Rebindable actions.
@@ -820,18 +872,19 @@ func (m Model) runAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case actEdit:
-		if item, ok := m.selectedItem(); ok {
-			m.showingForm = true
-			if item.kind == folderKind {
-				m.form = CreateRenameFolderForm(item.folder.ID, item.folder.Name, item.folder.ParentID)
-				m.status = "Renaming folder"
-			} else {
-				m.form = CreateEditEntryForm(*item.entry)
-				m.status = "Editing entry"
-			}
-			m.form.width = m.width
-			m.statusType = "info"
+		item, ok := m.selectedItem()
+		if !ok {
+			return m, nil
 		}
+		m.statusType = "info"
+		if item.kind == entryKind {
+			m.status = "Loading entry…"
+			return m, m.loadEditFormCmd(*item.entry)
+		}
+		m.showingForm = true
+		m.form = CreateRenameFolderForm(item.folder.ID, item.folder.Name, item.folder.ParentID)
+		m.form.width = m.width
+		m.status = "Renaming folder"
 		return m, nil
 
 	case actMove:
@@ -1020,19 +1073,41 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "s":
-		// Toggle password masking for password entries, or TOTP secrets for TOTP entries
-		switch m.detailEntry.Type {
-		case "password":
-			m.maskPasswords = !m.maskPasswords
-		case "totp":
-			m.showSecrets = !m.showSecrets
-			if m.showSecrets {
-				return m, m.updateTOTPReal()
-			} else {
-				// Clear TOTP data when hiding
-				m.totpCode = ""
-				m.totpRemaining = 0
+		// Toggle password masking, or the code on an entry that has one. An entry
+		// holding both shows and hides them together.
+		if !m.detailShowsCode() {
+			if m.detailEntry.Type == "password" {
+				m.maskPasswords = !m.maskPasswords
 			}
+			return m, nil
+		}
+		m.showSecrets = !m.showSecrets
+		if m.password != "" {
+			m.maskPasswords = !m.showSecrets
+		}
+		if m.showSecrets {
+			return m, m.updateTOTPReal()
+		}
+		// Clear TOTP data when hiding
+		m.totpCode = ""
+		m.totpRemaining = 0
+		return m, nil
+
+	case "p":
+		// c copies the code of a TOTP entry, so its password has a key of its own.
+		if m.detailEntry.Type == "totp" && m.password != "" {
+			return m, copyWithClear(m.password, "Password")
+		}
+		return m, nil
+
+	case "o":
+		// c copies the password of a login, so its code has a key of its own.
+		if m.detailEntry.Type == "password" && m.detailHasTOTP {
+			if m.totpCode != "" {
+				return m, copyWithClear(m.totpCode, "TOTP code")
+			}
+			m.status = "No TOTP code available"
+			m.statusType = "info"
 		}
 		return m, nil
 
@@ -1064,12 +1139,9 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "e":
-		m.showingForm = true
-		m.form = CreateEditEntryForm(m.detailEntry)
-		m.form.width = m.width
-		m.status = "Editing entry"
+		m.status = "Loading entry…"
 		m.statusType = "info"
-		return m, nil
+		return m, m.loadEditFormCmd(m.detailEntry)
 	}
 
 	return m, nil
@@ -1092,17 +1164,14 @@ func (m Model) handleBackupScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.backupCursor++
 		}
 
-	case "d":
-		// Delete backup
-		if len(m.backups) > 0 {
-			return m, handleDeleteBackup(m.backups[m.backupCursor])
-		}
-		return m, nil
-
 	case "r":
-		// Restore backup
+		// Restore backup, after asking: it adds to the vault whatever is in there
 		if len(m.backups) > 0 {
-			return m, handleRestoreBackup(m.backups[m.backupCursor])
+			m.showingForm = true
+			m.form = CreateConfirmRestoreForm(m.backups[m.backupCursor])
+			m.form.width = m.width
+			m.status = "Confirm restore"
+			m.statusType = "info"
 		}
 		return m, nil
 
@@ -1226,6 +1295,7 @@ func (m Model) renderMainScreen() string {
 		visible = items[m.listOffset:end]
 	}
 
+	hints := duplicateNameHints(m.allEntries)
 	var rows []string
 	for i, item := range visible {
 		absIdx := m.listOffset + i
@@ -1243,6 +1313,9 @@ func (m Model) renderMainScreen() string {
 			line = label
 		} else {
 			line = fmt.Sprintf("%s %s %s", cursor, m.getTypeIcon(item.entry.Type), item.entry.Service)
+			if hint := hints[item.entry.ID]; hint != "" {
+				line += "  · " + hint
+			}
 			if item.entry.Username != "" {
 				line += fmt.Sprintf(" (%s)", item.entry.Username)
 			}
@@ -1312,8 +1385,9 @@ func (m Model) renderDetailScreen() string {
 		details = append(details, fmt.Sprintf("Tags: %s", strings.Join(m.detailTags, ", ")))
 	}
 
-	// Always show password field for password entries
-	if m.detailEntry.Type == "password" {
+	// Always show password field for password entries, and for TOTP entries that
+	// hold one
+	if m.detailEntry.Type == "password" || (m.detailEntry.Type == "totp" && m.password != "") {
 		details = append(details, "")
 		if m.password != "" {
 			if m.maskPasswords {
@@ -1334,7 +1408,7 @@ func (m Model) renderDetailScreen() string {
 	}
 
 	// Show TOTP codes only if secrets are toggled
-	if m.detailEntry.Type == "totp" {
+	if m.detailShowsCode() {
 		if m.showSecrets {
 			if m.totpCode != "" {
 				details = append(details, "")
@@ -1360,10 +1434,14 @@ func (m Model) renderDetailScreen() string {
 	content := m.detailStyle.Width(detailWidth).Render(strings.Join(details, "\n"))
 
 	var helpText string
-	switch m.detailEntry.Type {
-	case "password":
+	switch {
+	case m.detailEntry.Type == "password" && m.detailHasTOTP:
+		helpText = "s: show/hide  c: copy password  o: copy code  e: edit  esc/q: back"
+	case m.detailEntry.Type == "password":
 		helpText = "s: show/hide  c: copy to clipboard  t: add TOTP  e: edit  esc/q: back"
-	case "totp":
+	case m.detailEntry.Type == "totp" && m.password != "":
+		helpText = "s: show/hide  c: copy code  p: copy password  e: edit  esc/q: back"
+	case m.detailEntry.Type == "totp":
 		helpText = "s: show/hide TOTP  c: copy code  e: edit  esc/q: back"
 	default:
 		helpText = "e: edit  esc/q: back"
@@ -1406,7 +1484,7 @@ func (m Model) renderBackupScreen() string {
 
 	list := m.listStyle.Render(strings.Join(backupList, "\n"))
 
-	help := m.helpStyle.Render("↑/↓ j/k: navigate  d: delete  r: restore  f: refresh  esc/q: back")
+	help := m.helpStyle.Render("↑/↓ j/k: navigate  r: restore  f: refresh  esc/q: back")
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
@@ -1465,6 +1543,44 @@ func (m Model) renderGenerateScreen() string {
 		help,
 		m.renderStatus(),
 	)
+}
+
+// duplicateNameHints tells list rows with the same name apart: per entry ID its
+// URL host, plus a short ID where there is no host or the host repeats too.
+func duplicateNameHints(entries []Entry) map[string]string {
+	type nameHost struct{ name, host string }
+	names := make(map[string]int, len(entries))
+	hosts := make(map[nameHost]int, len(entries))
+	for i := range entries {
+		e := &entries[i]
+		names[e.Service]++
+		hosts[nameHost{e.Service, vaultpkg.URLHost(e.URL)}]++
+	}
+	hints := make(map[string]string)
+	for i := range entries {
+		e := &entries[i]
+		if names[e.Service] < 2 {
+			continue
+		}
+		host := vaultpkg.URLHost(e.URL)
+		switch {
+		case host == "":
+			hints[e.ID] = shortEntryID(e.ID)
+		case hosts[nameHost{e.Service, host}] > 1:
+			hints[e.ID] = host + " " + shortEntryID(e.ID)
+		default:
+			hints[e.ID] = host
+		}
+	}
+	return hints
+}
+
+// shortEntryID is the start of an entry's ID, enough to tell rows apart.
+func shortEntryID(id string) string {
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return "#" + id
 }
 
 // getTypeIcon returns an icon for the entry type
@@ -1683,20 +1799,6 @@ func (m Model) breadcrumb() string {
 	return s
 }
 
-// loadBackups loads backup information
-func (m Model) loadBackups() tea.Cmd {
-	return func() tea.Msg {
-		kr := keyring.New()
-		backupMgr := backup.New(kr, nil)
-		backups, err := backupMgr.ListBackups()
-		if err != nil {
-			return LoadBackupsMsg{Err: err}
-		}
-
-		return LoadBackupsMsg{Backups: backups}
-	}
-}
-
 // loadEntryTags decrypts the detail entry to read its tags, which live inside
 // the encrypted data. Errors are dropped: the detail view then simply shows no
 // tags, and the password loader already reports a broken entry.
@@ -1769,10 +1871,19 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.listOffset = 0
 		return m, nil
 	}
-	m.detailEntry = *item.entry
+	return m.openDetail(*item.entry)
+}
+
+// openDetail shows an entry's detail screen, without anything the previous
+// entry left behind.
+func (m Model) openDetail(entry Entry) (tea.Model, tea.Cmd) {
+	m.detailEntry = entry
 	m.screen = DetailScreen
 	m.showSecrets = false
 	m.password = ""
+	m.detailHasTOTP = false
+	m.totpCode = ""
+	m.totpRemaining = 0
 	m.detailTags = nil
 	return m, tea.Batch(m.loadPasswordReal(), m.loadEntryTags())
 }

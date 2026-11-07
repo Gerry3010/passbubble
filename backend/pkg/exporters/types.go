@@ -21,31 +21,55 @@ package exporters
 // EntryRecord mirrors importers.EntryRecord and is kept in a separate package
 // to avoid an import cycle with the importers package.
 type EntryRecord struct {
-	Name        string
-	URL         string
-	Type        string
-	Username    string
-	Password    string
-	TOTPSecret  string
-	Notes       string
-	CardNumber  string
-	HolderName  string
-	ExpiryMonth string
-	ExpiryYear  string
-	CVV         string
-	FirstName   string
-	LastName    string
-	Company     string
-	Email       string
-	Phone       string
-	Street      string
-	City        string
-	State       string
-	PostalCode  string
-	Country     string
-	LicenseKey  string
-	ProductName string
-	CustomFields []CustomField
+	Name          string
+	URL           string
+	Type          string
+	Username      string
+	Password      string
+	TOTPSecret    string
+	Notes         string
+	SignInWith    string
+	Issuer        string
+	Period        int
+	Digits        int
+	Algorithm     string
+	CardNumber    string
+	HolderName    string
+	ExpiryMonth   string
+	ExpiryYear    string
+	CVV           string
+	BankName      string
+	IBAN          string
+	BIC           string
+	AccountNumber string
+	AccountType   string
+	Title         string
+	FirstName     string
+	LastName      string
+	Company       string
+	Email         string
+	Phone         string
+	Street        string
+	City          string
+	State         string
+	PostalCode    string
+	Country       string
+	LicenseKey    string
+	ProductName   string
+	PurchaseEmail string
+	PurchaseDate  string
+	ExpiresAt     string
+	CustomFields  []CustomField
+	Tags          []string
+	// UnknownFields holds what the entry has beyond the fields above: keys from
+	// other clients or newer versions, whose meaning nobody here can vouch for.
+	UnknownFields []UnknownField
+}
+
+// UnknownField is a value of an entry under the key it has in the entry JSON.
+type UnknownField struct {
+	Key   string
+	Value string
 }
 
 // CustomField is a user-defined field on an entry.

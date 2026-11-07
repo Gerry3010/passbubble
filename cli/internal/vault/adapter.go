@@ -53,62 +53,40 @@ func (a *KeyringAdapter) StoreEntry(e keyring.Entry) error {
 		return fmt.Errorf("vault is locked — master password required")
 	}
 	data := &EntryData{
-		Username:   e.Username,
-		Password:   e.Password,
-		TOTPSecret: e.Password, // TOTP: password field holds the secret
-		Notes:      e.Notes,
-		Issuer:     e.Issuer,
-		Period:     e.Period,
-		Digits:     e.Digits,
-		Algorithm:  e.Algorithm,
+		Username:  e.Username,
+		Notes:     e.Notes,
+		Issuer:    e.Issuer,
+		Period:    e.Period,
+		Digits:    e.Digits,
+		Algorithm: e.Algorithm,
+	}
+	// keyring.Entry has one secret field; the entry data has one per kind.
+	if e.SecretType == keyring.SecretTypeTOTP {
+		data.TOTPSecret = e.Password
+	} else {
+		data.Password = e.Password
 	}
 	entryType := string(e.SecretType)
 	if entryType == "" {
 		entryType = "password"
 	}
-	// For TOTP entries, TOTPSecret holds the secret; Password holds it too.
-	if e.SecretType == keyring.SecretTypeTOTP {
-		data.TOTPSecret = e.Password
-		data.Password = ""
-	}
 	_, err := a.v.CreateEntry(e.Service, entryType, "", data, nil, "", "", nil)
 	return err
 }
 
-func (a *KeyringAdapter) Get(service, username string) (string, error) {
-	if !a.v.IsUnlocked() {
-		return "", fmt.Errorf("vault is locked — master password required")
-	}
-	entries, err := a.v.SearchEntries(service)
-	if err != nil {
-		return "", err
-	}
-	for _, e := range entries {
-		if e.Name != service {
-			continue
-		}
-		full, err := a.v.GetEntry(e.ID)
-		if err != nil {
-			return "", err
-		}
-		if full.Data == nil {
-			continue
-		}
-		if username == "" || full.Data.Username == username {
-			return full.Data.Password, nil
-		}
-	}
-	return "", fmt.Errorf("no entry found for %s", service)
-}
-
-func (a *KeyringAdapter) GetEntry(service, username string) (*keyring.Entry, error) {
+// findEntry returns the one entry service and username name. An empty username
+// means the caller does not know it. Names are not unique, so several matches
+// are an error: guessing would hand out or delete another entry. Callers that
+// know the entry's ID should go through Vault instead.
+func (a *KeyringAdapter) findEntry(service, username string) (*Entry, error) {
 	if !a.v.IsUnlocked() {
 		return nil, fmt.Errorf("vault is locked — master password required")
 	}
-	entries, err := a.v.SearchEntries(service)
+	entries, err := a.v.ListEntries() // search stops at 50 hits and could miss a twin
 	if err != nil {
 		return nil, err
 	}
+	var found *Entry
 	for _, e := range entries {
 		if e.Name != service {
 			continue
@@ -117,42 +95,64 @@ func (a *KeyringAdapter) GetEntry(service, username string) (*keyring.Entry, err
 		if err != nil {
 			return nil, err
 		}
-		if full.Data == nil {
+		if full.Data == nil || (username != "" && full.Data.Username != username) {
 			continue
 		}
-		if username != "" && full.Data.Username != username {
-			continue
+		if found != nil {
+			return nil, fmt.Errorf("%w for %s", keyring.ErrAmbiguous, service)
 		}
-		secret := full.Data.Password
-		if full.Type == "totp" {
-			secret = full.Data.TOTPSecret
-		}
-		return &keyring.Entry{
-			Service:    full.Name,
-			Username:   full.Data.Username,
-			Password:   secret,
-			SecretType: keyring.SecretType(full.Type),
-			Issuer:     full.Data.Issuer,
-			Period:     full.Data.Period,
-			Digits:     full.Data.Digits,
-			Algorithm:  full.Data.Algorithm,
-			Notes:      full.Data.Notes,
-		}, nil
+		found = full
 	}
-	return nil, fmt.Errorf("no entry found for %s", service)
+	if found == nil {
+		return nil, fmt.Errorf("no entry found for %s", service)
+	}
+	return found, nil
+}
+
+// toKeyringEntry converts a decrypted entry. Its secret goes into Password,
+// which holds the TOTP secret for TOTP entries.
+func toKeyringEntry(name, url, entryType string, data *EntryData) keyring.Entry {
+	secret := data.Password
+	if entryType == string(keyring.SecretTypeTOTP) {
+		secret = data.TOTPSecret
+	}
+	return keyring.Entry{
+		Service:    name,
+		Username:   data.Username,
+		Password:   secret,
+		Label:      url,
+		SecretType: keyring.SecretType(entryType),
+		Issuer:     data.Issuer,
+		Period:     data.Period,
+		Digits:     data.Digits,
+		Algorithm:  data.Algorithm,
+		Notes:      data.Notes,
+	}
+}
+
+func (a *KeyringAdapter) Get(service, username string) (string, error) {
+	entry, err := a.GetEntry(service, username)
+	if err != nil {
+		return "", err
+	}
+	return entry.Password, nil
+}
+
+func (a *KeyringAdapter) GetEntry(service, username string) (*keyring.Entry, error) {
+	full, err := a.findEntry(service, username)
+	if err != nil {
+		return nil, err
+	}
+	entry := toKeyringEntry(full.Name, full.URL, full.Type, full.Data)
+	return &entry, nil
 }
 
 func (a *KeyringAdapter) Delete(service, username string) error {
-	entries, err := a.v.SearchEntries(service)
+	full, err := a.findEntry(service, username)
 	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		if e.Name == service {
-			return a.v.DeleteEntry(e.ID)
-		}
-	}
-	return fmt.Errorf("no entry found for %s", service)
+	return a.v.DeleteEntry(full.ID)
 }
 
 func (a *KeyringAdapter) List() ([]keyring.Entry, error) {
@@ -186,16 +186,4 @@ func (a *KeyringAdapter) Search(pattern string) ([]keyring.Entry, error) {
 		}
 	}
 	return result, nil
-}
-
-// BackupData is the legacy JSON backup format (used by the old pkg/backup package).
-// Kept for compatibility with the TUI's backup screen.
-type BackupData struct {
-	Passwords []keyring.Entry    `json:"passwords"`
-	Metadata  BackupDataMetadata `json:"metadata"`
-}
-
-type BackupDataMetadata struct {
-	BackupDate    string `json:"backup_date"`
-	PasswordCount int    `json:"password_count"`
 }

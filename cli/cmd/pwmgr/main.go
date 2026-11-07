@@ -16,15 +16,14 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	"github.com/Gerry3010/passbubble/cli/internal/cli"
 )
 
 func main() {
+	// Cobra has already printed the error.
 	if err := cli.Execute(); err != nil {
-		log.Printf("Error: %v", err)
 		os.Exit(1)
 	}
 }

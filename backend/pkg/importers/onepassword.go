@@ -134,6 +134,7 @@ func convert1PuxItem(raw json.RawMessage, vaultName string, fileBlobs map[string
 			URLs  []struct {
 				URL string `json:"url"`
 			} `json:"urls"`
+			Tags []string `json:"tags"`
 		} `json:"overview"`
 		Files []struct {
 			DocumentAttributes struct {
@@ -155,6 +156,7 @@ func convert1PuxItem(raw json.RawMessage, vaultName string, fileBlobs map[string
 		Notes:     item.Details.NotesPlain,
 		CreatedAt: unixToRFC3339(item.CreatedAt),
 		UpdatedAt: unixToRFC3339(item.UpdatedAt),
+		Tags:      item.Overview.Tags,
 	}
 	if vaultName != "" {
 		rec.FolderPath = []string{vaultName}
@@ -208,11 +210,11 @@ func convert1PuxItem(raw json.RawMessage, vaultName string, fileBlobs map[string
 	// Detect TOTP from custom fields
 	for _, cf := range rec.CustomFields {
 		if cf.Type == "totp" && cf.Value != "" {
-			rec.Type = "totp"
 			rec.TOTPSecret = cf.Value
 			break
 		}
 	}
+	rec.settleLoginType()
 
 	// File attachments
 	for _, fileRef := range item.Files {
@@ -263,7 +265,6 @@ func mapStructuredField(rec *EntryRecord, id, title string, valMap map[string]an
 	case "totp":
 		if v := str("totp"); v != "" {
 			rec.TOTPSecret = v
-			rec.Type = "totp"
 		}
 	// Credit card
 	case "card_number", "ccnum":

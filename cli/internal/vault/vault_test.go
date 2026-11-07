@@ -146,7 +146,7 @@ func TestUpdateEntryKeepsUnknownKeys(t *testing.T) {
 }
 
 // The server answers a create with {"id": ...} only; the returned entry must
-// still carry the name ("pwmgr add" used to print "Entry '' saved").
+// still carry the name ("pwmgr add" used to print "Entry ” saved").
 func TestCreateEntryReturnsRequestMetadata(t *testing.T) {
 	var post apiclient.CreateEntryRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -185,5 +185,196 @@ func TestCreateEntryReturnsRequestMetadata(t *testing.T) {
 	}
 	if !slices.Equal(saved.Tags, []string{"work", "dev"}) {
 		t.Fatalf("saved tags = %q", saved.Tags)
+	}
+}
+
+// entryServer serves one sealed entry and returns the raw JSON of each update.
+func entryServer(t *testing.T, entryURL, plaintext string) (v *Vault, dataKey []byte, puts *[]map[string]any) {
+	t.Helper()
+	var (
+		encData, encKey string
+		got             []map[string]any
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(apiclient.EntryResponse{
+				ID: "e1", Name: "GitHub", URL: entryURL, Type: "password",
+				EncryptedData: encData,
+				EntryKey:      &apiclient.EntryKey{UserID: "u1", EncryptedKey: encKey},
+			})
+		case http.MethodPut:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			got = append(got, body)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	v = unlockedTestVault(t, srv.URL)
+	encData, encKey, dataKey = sealEntry(t, v, plaintext)
+	return v, dataKey, &got
+}
+
+func TestUpdateOmitsAnEmptyURLAndReplaceSendsIt(t *testing.T) {
+	v, _, puts := entryServer(t, "https://github.com", `{"password":"pw"}`)
+	data := &EntryData{Password: "pw"}
+
+	if err := v.UpdateEntry("e1", "GitHub", "", data, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, sent := (*puts)[0]["url"]; sent {
+		t.Errorf("UpdateEntry with an empty url must keep the stored one: %v", (*puts)[0]["url"])
+	}
+
+	if err := v.UpdateEntry("e1", "GitHub", "https://new.example", data, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*puts)[1]["url"]; got != "https://new.example" {
+		t.Errorf("UpdateEntry url = %v", got)
+	}
+
+	if err := v.ReplaceEntry("e1", "GitHub", "", data); err != nil {
+		t.Fatal(err)
+	}
+	if got, sent := (*puts)[2]["url"]; !sent || got != "" {
+		t.Errorf(`ReplaceEntry with an empty url must send "", got %v (sent %v)`, got, sent)
+	}
+	if _, sent := (*puts)[2]["match_patterns"]; sent {
+		t.Error("ReplaceEntry must leave the match patterns alone")
+	}
+
+	if err := v.MoveEntry("e1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, sent := (*puts)[3]["url"]; sent {
+		t.Error("MoveEntry must not touch the URL")
+	}
+}
+
+func TestReadingAnEntryIgnoresAStrayTOTPSecret(t *testing.T) {
+	v, _, _ := entryServer(t, "", `{"password":"hunter2","totp_secret":"hunter2"}`)
+	entry, err := v.GetEntry("e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Data.TOTPSecret != "" || entry.Data.Password != "hunter2" {
+		t.Fatalf("data = %+v", entry.Data)
+	}
+}
+
+func TestReadingAnEntryKeepsARealTOTPSecret(t *testing.T) {
+	v, _, _ := entryServer(t, "", `{"password":"hunter2","totp_secret":"JBSWY3DPEHPK3PXP"}`)
+	entry, err := v.GetEntry("e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Data.TOTPSecret != "JBSWY3DPEHPK3PXP" {
+		t.Fatalf("a real secret must stay, got %q", entry.Data.TOTPSecret)
+	}
+}
+
+// After a password change the old value would pass for a real secret, so saving
+// must not carry it along.
+func TestSavingDoesNotWriteAStrayTOTPSecretBack(t *testing.T) {
+	v, dataKey, puts := entryServer(t, "", `{"password":"old","totp_secret":"old","future_flag":true}`)
+	entry, err := v.GetEntry("e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry.Data.Password = "new"
+	if err := v.UpdateEntry("e1", entry.Name, "", entry.Data, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := openBlob(t, dataKey, (*puts)[0]["encrypted_data"].(string))
+	if want := `{"password":"new","future_flag":true}`; !reflect.DeepEqual(canon(t, got), canon(t, want)) {
+		t.Fatalf("saved %s, want %s", got, want)
+	}
+}
+
+func TestIsStrayTOTPSecret(t *testing.T) {
+	for _, tc := range []struct {
+		secret, password string
+		want             bool
+	}{
+		{"hunter2", "hunter2", true},
+		{"JBSWY3DPEHPK3PXP", "hunter2", false},
+		{"JBSWY3DPEHPK3PXP", "", false},
+		{"", "", false},
+		{"", "hunter2", false},
+	} {
+		if got := IsStrayTOTPSecret(tc.secret, tc.password); got != tc.want {
+			t.Errorf("IsStrayTOTPSecret(%q, %q) = %v", tc.secret, tc.password, got)
+		}
+	}
+}
+
+func TestURLHost(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://github.com/login":  "github.com",
+		"http://GitHub.com:8080/x":  "GitHub.com",
+		"github.com/login":          "github.com",
+		"  https://a.example  ":     "a.example",
+		"androidapp://com.foo.bar":  "com.foo.bar",
+		"":                          "",
+		"   ":                       "",
+		"https://exa mple.com/path": "",
+	} {
+		if got := URLHost(raw); got != want {
+			t.Errorf("URLHost(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestFindDuplicatesReturnsAllMatches(t *testing.T) {
+	existing := []EntryRecord{
+		{ID: "e1", Name: "GitHub", Data: EntryData{Username: "octo"}},
+		{ID: "e2", Name: "github", Data: EntryData{Username: "OCTO"}},
+		{ID: "e3", Name: "GitHub", Data: EntryData{Username: "hubot"}},
+	}
+	if got := FindDuplicates("GitHub", "octo", "password", existing); !slices.Equal(got, []string{"e1", "e2"}) {
+		t.Errorf("got %q", got)
+	}
+	if got := FindDuplicates("GitHub", "nobody", "password", existing); got != nil {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestFindDuplicatesStaysInTheTypeFamily(t *testing.T) {
+	for _, tc := range []struct {
+		incoming, stored string
+		want             bool
+	}{
+		{"password", "password", true},
+		{"password", "totp", true},
+		{"totp", "password", true},
+		{"totp", "totp", true},
+		{"", "password", true},
+		{"password", "", true},
+		{"", "totp", true},
+		{"totp", "", true},
+		{"", "", true},
+		{"credit-card", "credit-card", true},
+		{"note", "note", true},
+		{"api-key", "api-key", true},
+		{"future-type", "future-type", true},
+		{"credit-card", "password", false},
+		{"password", "credit-card", false},
+		{"credit-card", "totp", false},
+		{"totp", "note", false},
+		{"", "note", false},
+		{"note", "", false},
+		{"credit-card", "identity", false},
+		{"api-key", "password", false},
+		{"password", "ssh-key", false},
+		{"Password", "password", false},
+	} {
+		existing := []EntryRecord{{ID: "e1", Name: "Visa", Type: tc.stored}}
+		got := FindDuplicates("Visa", "", tc.incoming, existing)
+		if (len(got) == 1) != tc.want {
+			t.Errorf("%q over %q: got %q, want a match: %v", tc.incoming, tc.stored, got, tc.want)
+		}
 	}
 }

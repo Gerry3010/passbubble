@@ -16,15 +16,16 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
 	"github.com/Gerry3010/passbubble/cli/pkg/totp"
 )
 
 // TOTPUpdateMsg represents a TOTP code update
 type TOTPUpdateMsg struct {
+	EntryID   string
 	Code      string
 	Remaining int
 	Error     error
@@ -32,62 +33,67 @@ type TOTPUpdateMsg struct {
 
 // SecretLoadMsg represents loaded secret data
 type SecretLoadMsg struct {
+	EntryID  string
 	Password string
+	HasTOTP  bool // the entry holds a TOTP secret
 	Error    error
 }
 
-// Enhanced methods with real integrations
+// Enhanced methods with real integrations. Both go by the entry's ID: names are
+// not unique, and a list row does not know the username.
 
-// updateTOTPReal updates the TOTP code with real data
+// updateTOTPReal updates the TOTP code from the entry's secret and settings.
 func (m Model) updateTOTPReal() tea.Cmd {
-	if m.detailEntry.Type != "totp" {
+	if !m.detailShowsCode() {
 		return nil
 	}
-	
+	v, id := m.vault, m.detailEntry.ID
+
 	return func() tea.Msg {
-		// Load the TOTP secret from keyring
-		kr := keyring.New()
-		secret, err := kr.Get(m.detailEntry.Service, m.detailEntry.Username)
+		full, err := fetchEntry(v, id)
 		if err != nil {
-			return TOTPUpdateMsg{Error: fmt.Errorf("failed to load TOTP secret: %w", err)}
+			return TOTPUpdateMsg{EntryID: id, Error: fmt.Errorf("failed to load TOTP secret: %w", err)}
 		}
-		
-		// Parse TOTP options from the stored secret metadata
-		opts := totp.DefaultOptions()
-		
-		// Generate current TOTP code
-		code, err := totp.GenerateCode(secret, opts)
+		// An empty secret would produce a valid-looking code.
+		if full.Data.TOTPSecret == "" {
+			return TOTPUpdateMsg{EntryID: id, Error: errors.New("entry has no TOTP secret")}
+		}
+
+		opts := totp.StoredOptions(full.Data.Period, full.Data.Digits, full.Data.Algorithm)
+		code, err := totp.GenerateCode(full.Data.TOTPSecret, opts)
 		if err != nil {
-			return TOTPUpdateMsg{Error: fmt.Errorf("failed to generate TOTP code: %w", err)}
+			return TOTPUpdateMsg{EntryID: id, Error: fmt.Errorf("failed to generate TOTP code: %w", err)}
 		}
-		
-		// Format code with spaces
-		formattedCode := totp.FormatCode(code)
-		
-		// Calculate remaining time
-		remaining := totp.GetTimeRemaining(opts.Period)
-		
+
 		return TOTPUpdateMsg{
-			Code:      formattedCode,
-			Remaining: remaining,
+			EntryID:   id,
+			Code:      totp.FormatCode(code),
+			Remaining: totp.GetTimeRemaining(opts.Period),
 		}
 	}
 }
 
-// loadPasswordReal loads the actual password from keyring
+// detailShowsCode reports whether the detail entry has a TOTP code to show: a TOTP
+// entry by its type, a login once its decrypted data turned out to hold a secret.
+func (m Model) detailShowsCode() bool {
+	return m.detailEntry.Type == "totp" || m.detailHasTOTP
+}
+
+// loadPasswordReal loads the password and what the detail screen needs to know
+// about the TOTP secret. Both kinds of login can hold both.
 func (m Model) loadPasswordReal() tea.Cmd {
-	if m.detailEntry.Type != "password" {
+	if m.detailEntry.Type != "password" && m.detailEntry.Type != "totp" {
 		return nil
 	}
-	
+	v, id := m.vault, m.detailEntry.ID
+
 	return func() tea.Msg {
-		kr := keyring.New()
-		password, err := kr.Get(m.detailEntry.Service, m.detailEntry.Username)
+		full, err := fetchEntry(v, id)
 		if err != nil {
-			return SecretLoadMsg{Error: fmt.Errorf("failed to load password: %w", err)}
+			return SecretLoadMsg{EntryID: id, Error: fmt.Errorf("failed to load password: %w", err)}
 		}
-		
-		return SecretLoadMsg{Password: password}
+
+		return SecretLoadMsg{EntryID: id, Password: full.Data.Password, HasTOTP: full.Data.TOTPSecret != ""}
 	}
 }
 

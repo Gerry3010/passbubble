@@ -46,6 +46,25 @@ func DefaultOptions() *GenerateOptions {
 	}
 }
 
+// StoredOptions returns the code options for the settings stored with an entry.
+// Unset or unknown values mean the defaults.
+func StoredOptions(period, digits int, algorithm string) *GenerateOptions {
+	opts := DefaultOptions()
+	if period > 0 {
+		opts.Period = uint(period)
+	}
+	if digits == 8 {
+		opts.Digits = otp.DigitsEight
+	}
+	switch strings.ToUpper(algorithm) {
+	case "SHA256":
+		opts.Algorithm = otp.AlgorithmSHA256
+	case "SHA512":
+		opts.Algorithm = otp.AlgorithmSHA512
+	}
+	return opts
+}
+
 // GenerateSecret generates a new TOTP secret
 func GenerateSecret(opts *GenerateOptions) (string, string, error) {
 	if opts == nil {
@@ -89,10 +108,22 @@ func resolveSecret(secret string, opts *GenerateOptions) (string, *GenerateOptio
 		}
 	}
 
-	// base32 contains none of these separators, so stripping them is safe and
-	// fixes secrets that were copied with grouping for readability.
-	s = strings.NewReplacer(" ", "", "-", "", "_", "").Replace(s)
-	return strings.ToUpper(s), opts
+	return cleanSecret(s), opts
+}
+
+// cleanSecret brings a secret into one spelling. base32 contains none of these
+// separators, so stripping them is safe and fixes secrets that were copied with
+// grouping for readability.
+func cleanSecret(s string) string {
+	s = strings.NewReplacer(" ", "", "-", "", "_", "").Replace(strings.TrimSpace(s))
+	return strings.ToUpper(s)
+}
+
+// SameSecret reports whether two stored values are one secret spelled differently,
+// in case, grouping or padding. An otpauth:// URL brings its own options, so it
+// only equals the same URL, not the bare secret inside it.
+func SameSecret(a, b string) bool {
+	return strings.TrimRight(cleanSecret(a), "=") == strings.TrimRight(cleanSecret(b), "=")
 }
 
 // GenerateCode generates a TOTP code for the given secret

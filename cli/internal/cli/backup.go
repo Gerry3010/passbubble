@@ -16,30 +16,12 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"time"
 
-	"github.com/Gerry3010/passbubble/cli/internal/vault"
+	"github.com/Gerry3010/passbubble/cli/pkg/backup"
 	"github.com/spf13/cobra"
 )
-
-// localBackup is a simple JSON backup of decrypted entries stored locally.
-type localBackup struct {
-	CreatedAt string        `json:"created_at"`
-	Server    string        `json:"server"`
-	Email     string        `json:"email"`
-	Entries   []backupEntry `json:"entries"`
-}
-
-type backupEntry struct {
-	Name string           `json:"name"`
-	Type string           `json:"type"`
-	URL  string           `json:"url,omitempty"`
-	Data *vault.EntryData `json:"data,omitempty"`
-}
 
 func init() {
 	rootCmd.AddCommand(backupCmd)
@@ -70,56 +52,34 @@ Examples:
 		outputPath, _ := cmd.Flags().GetString("output")
 		backupDir, _ := cmd.Flags().GetString("dir")
 		if outputPath == "" {
+			var err error
 			if backupDir == "" {
-				home, _ := os.UserHomeDir()
-				backupDir = filepath.Join(home, "Documents", "pwmgr-backups")
+				if backupDir, err = backup.DefaultDir(); err != nil {
+					return err
+				}
 			}
-			if err := os.MkdirAll(backupDir, 0700); err != nil {
-				return fmt.Errorf("create backup dir: %w", err)
+			if outputPath, err = backup.NewPath(backupDir, ""); err != nil {
+				return err
 			}
-			ts := time.Now().Format("20060102-150405")
-			outputPath = filepath.Join(backupDir, fmt.Sprintf("backup-%s.json", ts))
 		}
 
 		fmt.Println("Fetching entries...")
-		apiEntries, err := v.ListEntries()
-		if err != nil {
-			return err
-		}
-
-		entries := make([]backupEntry, 0, len(apiEntries))
-		for i, e := range apiEntries {
-			fmt.Printf("\r  Decrypting %d/%d...", i+1, len(apiEntries))
-			full, err := v.GetEntry(e.ID)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "\nWarning: could not decrypt '%s': %v\n", e.Name, err)
-				continue
-			}
-			entries = append(entries, backupEntry{
-				Name: full.Name,
-				Type: full.Type,
-				URL:  full.URL,
-				Data: full.Data,
-			})
-		}
+		result, err := backup.Create(v, outputPath, backup.Options{
+			Server: cfg.ServerURL,
+			Email:  cfg.Email,
+			Progress: func(done, total int) {
+				fmt.Printf("\r  Decrypting %d/%d...", done, total)
+			},
+		})
 		fmt.Println()
-
-		bk := localBackup{
-			CreatedAt: time.Now().Format(time.RFC3339),
-			Server:    cfg.ServerURL,
-			Email:     cfg.Email,
-			Entries:   entries,
-		}
-
-		data, err := json.MarshalIndent(bk, "", "  ")
-		if err != nil {
+		if result.Path == "" {
 			return err
 		}
-		if err := os.WriteFile(outputPath, data, 0600); err != nil {
-			return fmt.Errorf("write backup: %w", err)
+		if err != nil {
+			fmt.Printf("Backup saved to %s (%d of %d entries)\n", result.Path, result.Saved, result.Total)
+			return err
 		}
-
-		fmt.Printf("✓ Backup saved to %s (%d entries)\n", outputPath, len(entries))
+		fmt.Printf("✓ Backup saved to %s (%d entries)\n", result.Path, result.Saved)
 		return nil
 	},
 }
@@ -133,39 +93,28 @@ var restoreCmd = &cobra.Command{
 			return err
 		}
 
-		backupFile := args[0]
-		data, err := os.ReadFile(backupFile)
+		file, err := backup.Read(args[0])
 		if err != nil {
-			return fmt.Errorf("read backup file: %w", err)
-		}
-
-		var bk localBackup
-		if err := json.Unmarshal(data, &bk); err != nil {
-			return fmt.Errorf("parse backup file: %w", err)
+			return err
 		}
 
 		force, _ := cmd.Flags().GetBool("force")
 		if !force {
-			fmt.Printf("Restore %d entries from %s?\n", len(bk.Entries), bk.CreatedAt)
+			fmt.Printf("Restore %d entries from %s?\n", len(file.Entries), file.CreatedAt)
 			if !confirm("Continue?") {
 				fmt.Println("Cancelled.")
 				return nil
 			}
 		}
 
-		ok, failed := 0, 0
-		for i, e := range bk.Entries {
-			fmt.Printf("\r  Importing %d/%d...", i+1, len(bk.Entries))
-			_, err := v.CreateEntry(e.Name, e.Type, e.URL, e.Data, nil, "", "", nil)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "\nWarning: could not import '%s': %v\n", e.Name, err)
-				failed++
-			} else {
-				ok++
-			}
-		}
+		result := backup.Restore(v, file, func(done, total int) {
+			fmt.Printf("\r  Importing %d/%d...", done, total)
+		})
 		fmt.Println()
-		fmt.Printf("✓ Restored %d entries (%d failed)\n", ok, failed)
+		for _, failure := range result.Failed {
+			fmt.Fprintf(os.Stderr, "Warning: could not import %s\n", failure)
+		}
+		fmt.Printf("✓ Restored %d entries (%d failed)\n", result.Restored, len(result.Failed))
 		return nil
 	},
 }
@@ -176,24 +125,24 @@ var listBackupsCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		backupDir, _ := cmd.Flags().GetString("dir")
 		if backupDir == "" {
-			home, _ := os.UserHomeDir()
-			backupDir = filepath.Join(home, "Documents", "pwmgr-backups")
+			var err error
+			if backupDir, err = backup.DefaultDir(); err != nil {
+				return err
+			}
 		}
 
-		files, err := filepath.Glob(filepath.Join(backupDir, "backup-*.json"))
-		if err != nil || len(files) == 0 {
+		backups, err := backup.List(backupDir)
+		if err != nil {
+			return err
+		}
+		if len(backups) == 0 {
 			fmt.Printf("No backups found in %s\n", backupDir)
 			return nil
 		}
 
 		fmt.Printf("Backups in %s:\n\n", backupDir)
-		for _, f := range files {
-			info, _ := os.Stat(f)
-			size := ""
-			if info != nil {
-				size = fmt.Sprintf("%d KB", info.Size()/1024)
-			}
-			fmt.Printf("  %-45s  %s\n", filepath.Base(f), size)
+		for _, b := range backups {
+			fmt.Printf("  %-45s  %d KB\n", b.Name, b.Size/1024)
 		}
 		return nil
 	},

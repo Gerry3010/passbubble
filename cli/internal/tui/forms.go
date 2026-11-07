@@ -24,6 +24,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	vaultpkg "github.com/Gerry3010/passbubble/cli/internal/vault"
+	"github.com/Gerry3010/passbubble/cli/pkg/backup"
 	"github.com/Gerry3010/passbubble/cli/pkg/totp"
 )
 
@@ -66,6 +68,7 @@ const (
 	ConfirmDeleteFolderForm
 	GeneratorOptionsForm
 	GeneratorDefaultsForm
+	ConfirmRestoreForm
 )
 
 // FormField represents a single input field
@@ -93,6 +96,7 @@ type FormModel struct {
 	FolderID   string  // target folder id (rename/delete)
 	ParentID   *string // parent folder for create/rename
 	FolderName string  // display name for the delete confirmation
+	Backup     *backup.Info // the backup a restore confirmation is about
 	// Check validates the fields together before the form submits.
 	Check func(fields map[string]string) error
 	width int // terminal width, set by caller
@@ -100,16 +104,20 @@ type FormModel struct {
 
 // isConfirm reports whether this form is a yes/no confirmation dialog.
 func (f FormModel) isConfirm() bool {
-	return f.Type == ConfirmDeleteForm || f.Type == ConfirmDeleteFolderForm
+	return f.Type == ConfirmDeleteForm || f.Type == ConfirmDeleteFolderForm || f.Type == ConfirmRestoreForm
 }
 
 // confirmCmd emits the ConfirmationMsg appropriate to the confirm dialog type.
 func (f FormModel) confirmCmd(confirmed bool) tea.Cmd {
 	action := "delete"
 	var data any = f.Entry
-	if f.Type == ConfirmDeleteFolderForm {
+	switch f.Type {
+	case ConfirmDeleteFolderForm:
 		action = "delete_folder"
 		data = f.FolderID
+	case ConfirmRestoreForm:
+		action = "restore_backup"
+		data = f.Backup
 	}
 	return func() tea.Msg {
 		return ConfirmationMsg{Confirmed: confirmed, Action: action, Data: data}
@@ -348,8 +356,11 @@ func CreateAddTOTPToEntryForm(entry Entry) FormModel {
 	}
 }
 
-// CreateEditEntryForm creates a form for editing entries
-func CreateEditEntryForm(entry Entry) FormModel {
+// CreateEditEntryForm creates a form for editing an entry, filled in with its
+// stored values. Secrets stay empty: they keep their value unless replaced.
+func CreateEditEntryForm(entry Entry, data *vaultpkg.EntryData) FormModel {
+	entry.Username = data.Username
+
 	var fields []FormField
 	
 	if entry.Type == "totp" {
@@ -361,12 +372,12 @@ func CreateEditEntryForm(entry Entry) FormModel {
 			},
 			{
 				Label:       "Username/Email",
-				Value:       entry.Username,
+				Value:       data.Username,
 				IsRequired:  false,
 			},
 			{
 				Label:       "Issuer",
-				Value:       "", // Would need to load from keyring metadata
+				Value:       data.Issuer,
 				IsRequired:  false,
 			},
 			{
@@ -382,7 +393,7 @@ func CreateEditEntryForm(entry Entry) FormModel {
 			},
 			{
 				Label:       "Algorithm",
-				Value:       "SHA1", // Default for edit
+				Value:       data.Algorithm,
 				Placeholder: "SHA1, SHA256, SHA512 (leave empty to keep current)",
 				IsRequired:  false,
 				Validator: func(s string) error {
@@ -398,7 +409,7 @@ func CreateEditEntryForm(entry Entry) FormModel {
 			},
 			{
 				Label:       "Length",
-				Value:       "6", // Default for edit
+				Value:       formatOptionalInt(data.Digits),
 				Placeholder: "Code length (6 or 8, leave empty to keep current)",
 				IsRequired:  false,
 				Validator: func(s string) error {
@@ -414,7 +425,7 @@ func CreateEditEntryForm(entry Entry) FormModel {
 			},
 			{
 				Label:       "Period",
-				Value:       "30", // Default for edit
+				Value:       formatOptionalInt(data.Period),
 				Placeholder: "Time period in seconds (leave empty to keep current)",
 				IsRequired:  false,
 				Validator: func(s string) error {
@@ -438,7 +449,7 @@ func CreateEditEntryForm(entry Entry) FormModel {
 			},
 			{
 				Label:       "Username/Email",
-				Value:       entry.Username,
+				Value:       data.Username,
 				IsRequired:  false,
 			},
 			{
@@ -456,6 +467,14 @@ func CreateEditEntryForm(entry Entry) FormModel {
 		Fields: fields,
 		Entry:  &entry,
 	}
+}
+
+// formatOptionalInt renders a stored number for a form field; 0 means unset.
+func formatOptionalInt(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
 }
 
 // CreateConfirmDeleteForm creates a confirmation dialog
@@ -525,6 +544,15 @@ func CreateCreateBackupForm() FormModel {
 				IsRequired:  false,
 			},
 		},
+	}
+}
+
+// CreateConfirmRestoreForm asks before a backup is restored.
+func CreateConfirmRestoreForm(info backup.Info) FormModel {
+	return FormModel{
+		Type:   ConfirmRestoreForm,
+		Title:  fmt.Sprintf("Restore %s?", info.Name),
+		Backup: &info,
 	}
 }
 
@@ -773,9 +801,14 @@ func (f FormModel) View() string {
 	// Handle confirmation dialog differently
 	if f.isConfirm() {
 		var message string
-		if f.Type == ConfirmDeleteFolderForm {
+		note := "This action cannot be undone."
+		switch f.Type {
+		case ConfirmDeleteFolderForm:
 			message = fmt.Sprintf("Are you sure you want to delete the folder '%s'?", f.FolderName)
-		} else {
+		case ConfirmRestoreForm:
+			message = fmt.Sprintf("Are you sure you want to restore '%s'?", f.Backup.Name)
+			note = "Every entry in it is added to the vault. Entries you still have will exist twice."
+		default:
 			message = fmt.Sprintf("Are you sure you want to delete '%s'", f.Entry.Service)
 			if f.Entry.Username != "" {
 				message += fmt.Sprintf(" (%s)", f.Entry.Username)
@@ -791,7 +824,7 @@ func (f FormModel) View() string {
 
 		b.WriteString(lipgloss.NewStyle().
 			Foreground(colMuted).
-			Render("This action cannot be undone."))
+			Render(note))
 		b.WriteString("\n\n")
 
 		b.WriteString(lipgloss.NewStyle().

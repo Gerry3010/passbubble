@@ -16,10 +16,18 @@
 package importers
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
 )
+
+// bitwardenTagsField is the custom field that carries the tags: Bitwarden has
+// none of its own. The exporter and the app write the same name.
+const bitwardenTagsField = "passbubble_tags"
+
+// bitwardenFieldHidden is the field type Bitwarden masks.
+const bitwardenFieldHidden = 1
 
 // Bitwarden JSON export structures (unencrypted individual export format).
 type bitwardenExport struct {
@@ -83,6 +91,7 @@ type bitwardenIdentity struct {
 type bitwardenField struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+	Type  int    `json:"type"`
 }
 
 // ParseBitwarden parses a Bitwarden unencrypted JSON export.
@@ -109,8 +118,12 @@ func ParseBitwarden(data []byte) (*ImportResult, error) {
 			continue
 		}
 		for _, f := range item.Fields {
+			if f.Name == bitwardenTagsField {
+				rec.Tags = append(rec.Tags, splitTags(f.Value, ",")...)
+				continue
+			}
 			if f.Name != "" {
-				rec.CustomFields = append(rec.CustomFields, CustomField{Label: f.Name, Value: f.Value})
+				rec.CustomFields = append(rec.CustomFields, bitwardenCustomField(f))
 			}
 		}
 		rec.CreatedAt = normalizeTimestamp(item.CreationDate)
@@ -122,6 +135,37 @@ func ParseBitwarden(data []byte) (*ImportResult, error) {
 		result.Records = append(result.Records, *rec)
 	}
 	return result, nil
+}
+
+// bitwardenCustomField maps a field to its kind, as far as the format tells it:
+// a hidden field is a password, or a file when it holds a base64 data: URI (how
+// the exporter writes files). Other field types are plain text.
+func bitwardenCustomField(f bitwardenField) CustomField {
+	cf := CustomField{Label: f.Name, Value: f.Value}
+	if f.Type != bitwardenFieldHidden {
+		return cf
+	}
+	if mime, content, ok := splitBase64DataURI(f.Value); ok {
+		return CustomField{Label: f.Name, Value: content, Type: "file", Filename: f.Name, MimeType: mime}
+	}
+	cf.Type = "password"
+	return cf
+}
+
+// splitBase64DataURI splits "data:<mime>;base64,<content>".
+func splitBase64DataURI(value string) (mime, content string, ok bool) {
+	rest, ok := strings.CutPrefix(value, "data:")
+	if !ok {
+		return "", "", false
+	}
+	mime, content, ok = strings.Cut(rest, ";base64,")
+	if !ok {
+		return "", "", false
+	}
+	if _, err := base64.StdEncoding.DecodeString(content); err != nil {
+		return "", "", false
+	}
+	return mime, content, true
 }
 
 // splitFolderName splits a "/"-nested folder name into path segments,
@@ -150,9 +194,7 @@ func convertBitwardenItem(item bitwardenItem) (*EntryRecord, string) {
 			if len(item.Login.URIs) > 0 {
 				rec.URL = item.Login.URIs[0].URI
 			}
-			if rec.TOTPSecret != "" {
-				rec.Type = "totp"
-			}
+			rec.settleLoginType()
 		}
 	case 2: // secure note
 		rec.Type = "note"
@@ -169,6 +211,7 @@ func convertBitwardenItem(item bitwardenItem) (*EntryRecord, string) {
 		rec.Type = "identity"
 		if item.Identity != nil {
 			id := item.Identity
+			rec.Title = id.Title
 			rec.FirstName = id.FirstName
 			rec.LastName = id.LastName
 			rec.Company = id.Company

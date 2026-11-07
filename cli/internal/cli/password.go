@@ -97,7 +97,7 @@ Examples:
 }
 
 var getCmd = &cobra.Command{
-	Use:   "get <name>",
+	Use:   "get <name|id>",
 	Short: "Retrieve a password entry",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -105,24 +105,12 @@ var getCmd = &cobra.Command{
 			return err
 		}
 
-		matches, err := v.SearchEntries(args[0])
+		match, err := resolveEntry(args[0], resolveOptions{})
 		if err != nil {
 			return err
 		}
-		if len(matches) == 0 {
-			return fmt.Errorf("no entry found for '%s'", args[0])
-		}
 
-		// Pick first exact match or first result
-		id := matches[0].ID
-		for _, m := range matches {
-			if m.Name == args[0] {
-				id = m.ID
-				break
-			}
-		}
-
-		entry, err := v.GetEntry(id)
+		entry, err := v.GetEntry(match.ID)
 		if err != nil {
 			return err
 		}
@@ -182,8 +170,12 @@ Examples:
 	},
 }
 
+// promptNewPassword asks for update's new password. A variable so tests do not
+// need a terminal.
+var promptNewPassword = promptPassword
+
 var updateCmd = &cobra.Command{
-	Use:     "update <name>",
+	Use:     "update <name|id>",
 	Aliases: []string{"edit"},
 	Short:   "Update an existing entry",
 	Long: `Update an existing entry.
@@ -217,21 +209,11 @@ Examples:
 			return err
 		}
 
-		matches, err := v.SearchEntries(args[0])
+		match, err := resolveEntry(args[0], resolveOptions{})
 		if err != nil {
 			return err
 		}
-		if len(matches) == 0 {
-			return fmt.Errorf("no entry found for '%s'", args[0])
-		}
-
-		id := matches[0].ID
-		for _, m := range matches {
-			if m.Name == args[0] {
-				id = m.ID
-				break
-			}
-		}
+		id := match.ID
 
 		// Fetch and decrypt current entry
 		entry, err := v.GetEntry(id)
@@ -250,7 +232,7 @@ Examples:
 			if n, _ := promptInput(fmt.Sprintf("Name [%s]: ", entry.Name)); n != "" {
 				newName = n
 			}
-			newPass, err := promptPassword("New password (leave empty to keep current): ")
+			newPass, err := promptNewPassword("New password (leave empty to keep current): ")
 			if err != nil {
 				return err
 			}
@@ -293,7 +275,7 @@ Examples:
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete <name>",
+	Use:   "delete <name|id>",
 	Short: "Delete an entry",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -301,20 +283,9 @@ var deleteCmd = &cobra.Command{
 			return err
 		}
 
-		matches, err := v.SearchEntries(args[0])
+		entry, err := resolveEntry(args[0], resolveOptions{})
 		if err != nil {
 			return err
-		}
-		if len(matches) == 0 {
-			return fmt.Errorf("no entry found for '%s'", args[0])
-		}
-
-		entry := matches[0]
-		for _, m := range matches {
-			if m.Name == args[0] {
-				entry = m
-				break
-			}
 		}
 
 		if !confirm(fmt.Sprintf("Delete entry '%s'?", entry.Name)) {

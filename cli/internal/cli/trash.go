@@ -16,8 +16,8 @@
 // Trash, favorites, and entry version history commands.
 //
 //	pwmgr trash list | restore <name|id> | purge <name|id>
-//	pwmgr favorite <name> [--off]
-//	pwmgr history <name> [--restore <version-id>]
+//	pwmgr favorite <name|id> [--off]
+//	pwmgr history <name|id> [--restore <version-id>]
 
 package cli
 
@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/Gerry3010/passbubble/cli/internal/apiclient"
+	"github.com/Gerry3010/passbubble/cli/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -83,7 +84,8 @@ var trashListCmd = &cobra.Command{
 	},
 }
 
-// trashEntryByArg resolves a trash entry by exact id or (unique) name.
+// trashEntryByArg resolves a trash entry by id or unique exact name. Usernames
+// are not listed for several matches: the server does not hand out trashed blobs.
 func trashEntryByArg(arg string) (*apiclient.EntryResponse, error) {
 	entries, err := v.Client().ListTrash()
 	if err != nil {
@@ -94,17 +96,21 @@ func trashEntryByArg(arg string) (*apiclient.EntryResponse, error) {
 		if e.ID == arg {
 			return &e, nil
 		}
-		if strings.EqualFold(e.Name, arg) {
+		if e.Name == arg {
 			byName = append(byName, e)
 		}
 	}
 	switch len(byName) {
 	case 0:
-		return nil, fmt.Errorf("no trashed entry matches '%s' (see 'pwmgr trash list')", arg)
+		return nil, fmt.Errorf("no trashed entry named exactly '%s' (see 'pwmgr trash list')", arg)
 	case 1:
 		return &byName[0], nil
 	default:
-		return nil, fmt.Errorf("'%s' is ambiguous — use the id from 'pwmgr trash list'", arg)
+		rows := make([]ambiguousRow, len(byName))
+		for i, e := range byName {
+			rows[i] = ambiguousRow{id: e.ID, username: "(in trash)", host: vault.URLHost(e.URL)}
+		}
+		return nil, ambiguousEntryError(arg, rows)
 	}
 }
 
@@ -152,27 +158,8 @@ var trashPurgeCmd = &cobra.Command{
 	},
 }
 
-// entryByNameArg resolves a live entry by name (exact match wins, else first hit).
-func entryByNameArg(arg string) (id, name string, err error) {
-	matches, err := v.SearchEntries(arg)
-	if err != nil {
-		return "", "", err
-	}
-	if len(matches) == 0 {
-		return "", "", fmt.Errorf("no entry found for '%s'", arg)
-	}
-	entry := matches[0]
-	for _, m := range matches {
-		if m.Name == arg {
-			entry = m
-			break
-		}
-	}
-	return entry.ID, entry.Name, nil
-}
-
 var favoriteCmd = &cobra.Command{
-	Use:   "favorite <name>",
+	Use:   "favorite <name|id>",
 	Short: "Mark an entry as favorite (favorites sort first)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -180,11 +167,12 @@ var favoriteCmd = &cobra.Command{
 			return err
 		}
 		off, _ := cmd.Flags().GetBool("off")
-		id, name, err := entryByNameArg(args[0])
+		entry, err := resolveEntry(args[0], resolveOptions{})
 		if err != nil {
 			return err
 		}
-		if err := v.Client().SetFavorite(id, !off); err != nil {
+		name := entry.Name
+		if err := v.Client().SetFavorite(entry.ID, !off); err != nil {
 			return fmt.Errorf("set favorite: %w", err)
 		}
 		if off {
@@ -197,7 +185,7 @@ var favoriteCmd = &cobra.Command{
 }
 
 var historyCmd = &cobra.Command{
-	Use:   "history <name>",
+	Use:   "history <name|id>",
 	Short: "Show an entry's version history (or restore a version)",
 	Long: `Show the version history of an entry. Every change keeps the previous
 state (up to 20 versions). Restore resets the entry to a version — the current
@@ -211,10 +199,11 @@ Examples:
 		if err := ensureAuthenticated(); err != nil {
 			return err
 		}
-		id, name, err := entryByNameArg(args[0])
+		entry, err := resolveEntry(args[0], resolveOptions{})
 		if err != nil {
 			return err
 		}
+		id, name := entry.ID, entry.Name
 
 		restoreID, _ := cmd.Flags().GetString("restore")
 		if restoreID != "" {

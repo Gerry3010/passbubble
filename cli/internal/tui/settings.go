@@ -241,9 +241,35 @@ func (m Model) lockVault() Model {
 	m.authCursor = 0
 	m.authErr = ""
 	m.authBusy = false
-	// Drop loaded data so a locked vault never shows stale entries.
+	// Drop open forms and overlays: they hold what the user typed or a share
+	// link, and would stay on screen in front of the unlock prompt.
+	m.showingForm = false
+	m.form = FormModel{}
 	m.clearGenConfirm()
+	m.showShareMenu = false
+	m.showShareQR = false
+	m.shareURL = ""
+	m.shareQR = ""
+	m.shareEntryID = ""
+	m.shareEntryName = ""
+	m.showMoveMenu = false
+	m.moveEntryID = ""
+	m.moveTargets = nil
+	m.showSortMenu = false
+	m.showHelp = false
+	m.showSearch = false
+	m.filter = ""
+	m.kbCapturing = false
+	// Drop loaded data so a locked vault never shows stale entries.
 	m.generatedPassword = ""
+	m.detailEntry = Entry{}
+	m.detailTags = nil
+	m.password = ""
+	m.detailHasTOTP = false
+	m.maskPasswords = true
+	m.showSecrets = false
+	m.totpCode = ""
+	m.totpRemaining = 0
 	m.allEntries = nil
 	m.folders = nil
 	m.folderStack = nil

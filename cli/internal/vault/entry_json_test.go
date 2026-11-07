@@ -218,3 +218,33 @@ func TestJSONKeys(t *testing.T) {
 		t.Errorf("customFieldKeys = %v, want %v", customFieldKeys, want)
 	}
 }
+
+func TestUnknownFieldsListWhatTheCLIDoesNotModel(t *testing.T) {
+	var d EntryData
+	const stored = `{
+		"username": "octo",
+		"zeta": "text",
+		"alpha": {"nested": [1, 2]},
+		"count": 3,
+		"flag": false,
+		"nothing": null,
+		"empty": "",
+		"custom_fields": [
+			{"label": "PIN", "value": "1", "future_cf": "x"},
+			{"label": "Plain", "value": "2"}
+		]
+	}`
+	if err := json.Unmarshal([]byte(stored), &d); err != nil {
+		t.Fatal(err)
+	}
+	want := []UnknownField{
+		{"alpha", `{"nested": [1, 2]}`},
+		{"count", "3"},
+		{"flag", "false"},
+		{"zeta", "text"},
+		{"PIN.future_cf", "x"},
+	}
+	if got := d.UnknownFields(); !slices.Equal(got, want) {
+		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+}

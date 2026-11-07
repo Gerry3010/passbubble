@@ -18,6 +18,13 @@
 // Call SetGlobal to inject the active vault adapter before starting the TUI.
 package keyring
 
+import "errors"
+
+// ErrAmbiguous is returned when a service and username name several entries.
+// A secret store must not guess: the wrong guess shows or deletes another
+// entry.
+var ErrAmbiguous = errors.New("several entries match")
+
 // SecretType represents the type of secret stored
 type SecretType string
 

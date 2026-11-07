@@ -16,422 +16,393 @@
 package backup
 
 import (
-	"fmt"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/Gerry3010/passbubble/cli/pkg/keyring"
+	"github.com/Gerry3010/passbubble/cli/internal/vault"
 )
 
-// MockKeyring provides a mock implementation for testing
-type MockKeyring struct {
-	entries map[string]keyring.Entry
+// fakeVault is a vault without the server and the crypto: entries by ID, and a
+// record of what a restore creates.
+type fakeVault struct {
+	entries []vault.Entry
+	broken  map[string]bool
+	created []vault.Entry
+	failOn  string
 }
 
-func NewMockKeyring() *MockKeyring {
-	return &MockKeyring{
-		entries: make(map[string]keyring.Entry),
+func (f *fakeVault) ListEntries() ([]vault.Entry, error) {
+	out := make([]vault.Entry, len(f.entries))
+	for i, e := range f.entries {
+		e.Data = nil // the list is metadata only
+		out[i] = e
 	}
+	return out, nil
 }
 
-func (mk *MockKeyring) Store(service, username, password string) error {
-	key := service
-	if username != "" {
-		key = service + ":" + username
+func (f *fakeVault) GetEntry(id string) (*vault.Entry, error) {
+	if f.broken[id] {
+		return nil, errors.New("decrypt failed")
 	}
-	mk.entries[key] = keyring.Entry{
-		Service:    service,
-		Username:   username,
-		Password:   password,
-		SecretType: keyring.SecretTypePassword,
-	}
-	return nil
-}
-
-func (mk *MockKeyring) StoreEntry(entry keyring.Entry) error {
-	key := entry.Service
-	if entry.Username != "" {
-		key = entry.Service + ":" + entry.Username
-	}
-	mk.entries[key] = entry
-	return nil
-}
-
-func (mk *MockKeyring) Get(service, username string) (string, error) {
-	key := service
-	if username != "" {
-		key = service + ":" + username
-	}
-	if entry, exists := mk.entries[key]; exists {
-		return entry.Password, nil
-	}
-	return "", os.ErrNotExist
-}
-
-func (mk *MockKeyring) GetEntry(service, username string) (*keyring.Entry, error) {
-	key := service
-	if username != "" {
-		key = service + ":" + username
-	}
-	if entry, exists := mk.entries[key]; exists {
-		return &entry, nil
+	for i := range f.entries {
+		if f.entries[i].ID == id {
+			return &f.entries[i], nil
+		}
 	}
 	return nil, os.ErrNotExist
 }
 
-func (mk *MockKeyring) Delete(service, username string) error {
-	key := service
-	if username != "" {
-		key = service + ":" + username
+func (f *fakeVault) CreateEntry(name, entryType, url string, data *vault.EntryData, _ *string, _, _ string, _ []string) (*vault.Entry, error) {
+	if name == f.failOn {
+		return nil, errors.New("server says no")
 	}
-	delete(mk.entries, key)
-	return nil
+	f.created = append(f.created, vault.Entry{Name: name, Type: entryType, URL: url, Data: data})
+	return &vault.Entry{}, nil
 }
 
-func (mk *MockKeyring) List() ([]keyring.Entry, error) {
-	var entries []keyring.Entry
-	for _, entry := range mk.entries {
-		entries = append(entries, entry)
+func entryData(t *testing.T, stored string) *vault.EntryData {
+	t.Helper()
+	var d vault.EntryData
+	if err := json.Unmarshal([]byte(stored), &d); err != nil {
+		t.Fatal(err)
 	}
-	return entries, nil
+	return &d
 }
 
-func (mk *MockKeyring) Search(pattern string) ([]keyring.Entry, error) {
-	var matches []keyring.Entry
-	for _, entry := range mk.entries {
-		if entry.Service == pattern || entry.Username == pattern {
-			matches = append(matches, entry)
+func canon(t *testing.T, v any) any {
+	t.Helper()
+	blob, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out any
+	if err := json.Unmarshal(blob, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Everything the weak backup used to lose.
+const fullEntry = `{
+	"username": "octo",
+	"password": "hunter2",
+	"totp_secret": "JBSWY3DPEHPK3PXP",
+	"period": 60,
+	"notes": "my notes",
+	"tags": ["work", "two words"],
+	"card_number": "4111",
+	"iban": "AT00 1234",
+	"future_flag": {"nested": [1, 2]},
+	"custom_fields": [
+		{"label": "PIN", "value": "1234", "type": "password"},
+		{"label": "Scan", "value": "aGVsbG8=", "type": "file", "filename": "scan.png", "mime_type": "image/png", "future_cf": true}
+	]
+}`
+
+func TestBackupKeepsTheWholeEntryThroughARestore(t *testing.T) {
+	src := &fakeVault{entries: []vault.Entry{
+		{ID: "e1", Name: "AWS", Type: "totp", URL: "https://aws.example", Data: entryData(t, fullEntry)},
+	}}
+	path := filepath.Join(t.TempDir(), "backup.json")
+
+	res, err := Create(src, path, Options{Server: "https://pb.example", Email: "max@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Path != path || res.Saved != 1 || res.Total != 1 {
+		t.Errorf("result = %+v", res)
+	}
+
+	file, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.Server != "https://pb.example" || file.Email != "max@example.com" || file.CreatedAt == "" {
+		t.Errorf("header = %+v", file)
+	}
+
+	dst := &fakeVault{}
+	if got := Restore(dst, file, nil); got.Restored != 1 || len(got.Failed) != 0 {
+		t.Fatalf("restore = %+v", got)
+	}
+	created := dst.created[0]
+	if created.Name != "AWS" || created.Type != "totp" || created.URL != "https://aws.example" {
+		t.Errorf("metadata = %+v", created)
+	}
+	if got, want := canon(t, created.Data), canon(t, entryData(t, fullEntry)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("restored data\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestBackupFileIsForItsOwnerOnly(t *testing.T) {
+	src := &fakeVault{entries: []vault.Entry{{ID: "e1", Name: "A", Data: &vault.EntryData{Password: "pw"}}}}
+	dir := t.TempDir()
+
+	t.Run("new file", func(t *testing.T) {
+		path := filepath.Join(dir, "new.json")
+		if _, err := Create(src, path, Options{}); err != nil {
+			t.Fatal(err)
 		}
-	}
-	return matches, nil
-}
-
-func (mk *MockKeyring) IsAvailable() bool {
-	return true
-}
-
-func TestBackupOptions(t *testing.T) {
-	kr := NewMockKeyring()
-
-	// Test with nil options (should use defaults)
-	mgr := New(kr, nil)
-	if mgr.options.MaxBackups != 10 {
-		t.Errorf("Expected default MaxBackups 10, got %d", mgr.options.MaxBackups)
-	}
-
-	homeDir, _ := os.UserHomeDir()
-	expectedDir := filepath.Join(homeDir, "Documents", "pwmgr-backups")
-	if mgr.options.BackupDir != expectedDir {
-		t.Errorf("Expected default BackupDir %s, got %s", expectedDir, mgr.options.BackupDir)
-	}
-
-	// Test with custom options
-	customOpts := &BackupOptions{
-		BackupDir:  "/tmp/test-backups",
-		MaxBackups: 5,
-		UseGPG:     true,
-	}
-
-	mgr2 := New(kr, customOpts)
-	if mgr2.options.BackupDir != "/tmp/test-backups" {
-		t.Errorf("Expected custom BackupDir /tmp/test-backups, got %s", mgr2.options.BackupDir)
-	}
-	if mgr2.options.MaxBackups != 5 {
-		t.Errorf("Expected custom MaxBackups 5, got %d", mgr2.options.MaxBackups)
-	}
-	if !mgr2.options.UseGPG {
-		t.Error("Expected UseGPG to be true")
-	}
-}
-
-func TestCreateAndRestoreBackup(t *testing.T) {
-	// Create temporary directory for test
-	tempDir, err := os.MkdirTemp("", "pwmgr-test-")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
-
-	// Setup mock keyring with test data
-	kr := NewMockKeyring()
-	if err := kr.Store("gmail", "user@example.com", "password123"); err != nil {
-		t.Fatalf("Failed to store gmail password: %v", err)
-	}
-	if err := kr.Store("github", "", "github_token_456"); err != nil {
-		t.Fatalf("Failed to store github password: %v", err)
-	}
-	if err := kr.Store("bank", "john.doe", "secure_banking_789"); err != nil {
-		t.Fatalf("Failed to store bank password: %v", err)
-	}
-
-	// Create backup manager
-	opts := &BackupOptions{
-		BackupDir:  tempDir,
-		MaxBackups: 10,
-	}
-	mgr := New(kr, opts)
-
-	// Create backup
-	backupPath, err := mgr.CreateBackup()
-	if err != nil {
-		t.Fatalf("Failed to create backup: %v", err)
-	}
-
-	// Verify backup file exists
-	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-		t.Fatalf("Backup file not created: %s", backupPath)
-	}
-
-	// Verify backup
-	if err := mgr.VerifyBackup(backupPath); err != nil {
-		t.Fatalf("Backup verification failed: %v", err)
-	}
-
-	// Clear mock keyring
-	kr.entries = make(map[string]keyring.Entry)
-
-	// Restore backup
-	if err := mgr.RestoreBackup(backupPath); err != nil {
-		t.Fatalf("Failed to restore backup: %v", err)
-	}
-
-	// Verify restored data
-	entries, err := kr.List()
-	if err != nil {
-		t.Fatalf("Failed to list entries after restore: %v", err)
-	}
-
-	if len(entries) != 3 {
-		t.Errorf("Expected 3 entries after restore, got %d", len(entries))
-	}
-
-	// Check specific entries
-	password, err := kr.Get("gmail", "user@example.com")
-	if err != nil || password != "password123" {
-		t.Errorf("Gmail password not restored correctly: got %s, err: %v", password, err)
-	}
-
-	password, err = kr.Get("github", "")
-	if err != nil || password != "github_token_456" {
-		t.Errorf("GitHub password not restored correctly: got %s, err: %v", password, err)
-	}
-
-	password, err = kr.Get("bank", "john.doe")
-	if err != nil || password != "secure_banking_789" {
-		t.Errorf("Bank password not restored correctly: got %s, err: %v", password, err)
-	}
-}
-
-func TestListBackups(t *testing.T) {
-	// Create temporary directory for test
-	tempDir, err := os.MkdirTemp("", "pwmgr-test-")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
-
-	kr := NewMockKeyring()
-	opts := &BackupOptions{
-		BackupDir:  tempDir,
-		MaxBackups: 10,
-	}
-	mgr := New(kr, opts)
-
-	// Initially should be empty
-	backups, err := mgr.ListBackups()
-	if err != nil {
-		t.Fatalf("Failed to list backups: %v", err)
-	}
-	if len(backups) != 0 {
-		t.Errorf("Expected 0 backups, got %d", len(backups))
-	}
-
-	// Add some test data and create backups
-	if err := kr.Store("test1", "", "password1"); err != nil {
-		t.Fatalf("Failed to store test1 password: %v", err)
-	}
-
-	backup1, err := mgr.CreateBackup()
-	if err != nil {
-		t.Fatalf("Failed to create first backup: %v", err)
-	}
-
-	// Wait a bit and create another backup
-	time.Sleep(time.Millisecond * 100) // Small delay for different timestamp
-	if err := kr.Store("test2", "", "password2"); err != nil {
-		t.Fatalf("Failed to store test2 password: %v", err)
-	}
-	backup2, err := mgr.CreateBackup()
-	if err != nil {
-		t.Fatalf("Failed to create second backup: %v", err)
-	}
-
-	// List backups
-	backups, err = mgr.ListBackups()
-	if err != nil {
-		t.Fatalf("Failed to list backups: %v", err)
-	}
-
-	if len(backups) < 1 {
-		t.Errorf("Expected at least 1 backup, got %d", len(backups))
-		return
-	}
-
-	// If we have more than one backup, verify sorting
-	if len(backups) >= 2 {
-		if !backups[0].ModTime.After(backups[1].ModTime) {
-			t.Error("Backups are not sorted by newest first")
+		if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+			t.Errorf("mode = %v", info.Mode())
 		}
-	}
+	})
 
-	// Verify backup paths
-	found1, found2 := false, false
-	for _, backup := range backups {
-		if backup.Path == backup1 {
-			found1 = true
+	t.Run("a file with wider permissions is not reused", func(t *testing.T) {
+		path := filepath.Join(dir, "old.json")
+		if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+			t.Fatal(err)
 		}
-		if backup.Path == backup2 {
-			found2 = true
+		if _, err := Create(src, path, Options{}); err != nil {
+			t.Fatal(err)
 		}
-	}
+		if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+			t.Errorf("mode = %v", info.Mode())
+		}
+	})
 
-	if !found1 || !found2 {
-		t.Error("Not all created backups were found in the list")
-	}
-}
-
-func TestCleanOldBackups(t *testing.T) {
-	// Create temporary directory for test
-	tempDir, err := os.MkdirTemp("", "pwmgr-test-")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
-
-	kr := NewMockKeyring()
-	if err := kr.Store("test", "", "password"); err != nil {
-		t.Fatalf("Failed to store test password: %v", err)
-	}
-
-	opts := &BackupOptions{
-		BackupDir:  tempDir,
-		MaxBackups: 2, // Keep only 2 backups
-	}
-	mgr := New(kr, opts)
-
-	// Create 3 backups (we'll keep 2) with unique filenames
-	var backups []string
-	for i := 0; i < 3; i++ {
-		time.Sleep(time.Millisecond * 10) // Small delay
-		filename := filepath.Join(tempDir, fmt.Sprintf("pwmgr-backup-test-%d.tar.gz", i))
-		opts.OutputPath = filename
-		backup, err := mgr.CreateBackup()
+	t.Run("nothing else stays behind", func(t *testing.T) {
+		files, err := os.ReadDir(dir)
 		if err != nil {
-			t.Fatalf("Failed to create backup %d: %v", i, err)
+			t.Fatal(err)
 		}
-		backups = append(backups, backup)
-
-		// Reset OutputPath for next iteration
-		opts.OutputPath = ""
-
-		// Also create a file with proper modification time
-		if i > 0 {
-			// Set different modification times
-			modTime := time.Now().Add(-time.Duration(3-i) * time.Hour)
-			if err := os.Chtimes(backup, modTime, modTime); err != nil {
-				t.Logf("Warning: Failed to set modification time for %s: %v", backup, err)
+		for _, f := range files {
+			if strings.HasPrefix(f.Name(), ".") {
+				t.Errorf("left behind: %s", f.Name())
 			}
 		}
-	}
+	})
 
-	// Verify all 3 backups exist
-	for _, backup := range backups {
-		if _, err := os.Stat(backup); os.IsNotExist(err) {
-			t.Errorf("Backup should exist before cleanup: %s", backup)
+	t.Run("a directory that is not there is an error", func(t *testing.T) {
+		path := filepath.Join(dir, "missing", "backup.json")
+		if _, err := Create(src, path, Options{}); err == nil {
+			t.Fatal("want an error")
+		}
+	})
+}
+
+func TestBackupOfTheRestNamesWhatItSkipped(t *testing.T) {
+	src := &fakeVault{
+		entries: []vault.Entry{
+			{ID: "e1", Name: "Bank", Data: &vault.EntryData{Password: "pw"}},
+			{ID: "e9", Name: "Broken", Data: &vault.EntryData{Password: "pw"}},
+			{ID: "e3", Name: "Empty"},
+		},
+		broken: map[string]bool{"e9": true},
+	}
+	path := filepath.Join(t.TempDir(), "backup.json")
+
+	res, err := Create(src, path, Options{})
+	var incomplete *IncompleteError
+	if !errors.As(err, &incomplete) {
+		t.Fatalf("err = %v, want an IncompleteError", err)
+	}
+	for _, want := range []string{"Broken (id e9)", "decrypt failed", "Empty (id e3)", "NOT in it"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error must mention %q: %v", want, err)
 		}
 	}
-
-	// Clean old backups
-	if err := mgr.CleanOldBackups(); err != nil {
-		t.Fatalf("Failed to clean backups: %v", err)
+	if res.Path != path || res.Saved != 1 || res.Total != 3 {
+		t.Errorf("result = %+v", res)
 	}
-
-	// Verify only 2 backups remain
-	remaining := 0
-	for _, backup := range backups {
-		if _, err := os.Stat(backup); err == nil {
-			remaining++
-		}
-	}
-
-	if remaining != 2 {
-		t.Errorf("Expected 2 backups to remain after cleanup, got %d", remaining)
-	}
-
-	// List remaining backups to verify we kept the right ones
-	remainingBackups, err := mgr.ListBackups()
+	file, err := Read(path)
 	if err != nil {
-		t.Fatalf("Failed to list remaining backups: %v", err)
+		t.Fatalf("the rest should have been written: %v", err)
 	}
-
-	if len(remainingBackups) != 2 {
-		t.Errorf("Expected 2 remaining backups in list, got %d", len(remainingBackups))
+	if len(file.Entries) != 1 || file.Entries[0].Name != "Bank" {
+		t.Fatalf("entries = %+v", file.Entries)
 	}
 }
 
-func TestBackupMetadata(t *testing.T) {
-	// Create temporary directory for test
-	tempDir, err := os.MkdirTemp("", "pwmgr-test-")
+func TestCreateReportsProgress(t *testing.T) {
+	src := &fakeVault{entries: []vault.Entry{
+		{ID: "e1", Name: "A", Data: &vault.EntryData{}},
+		{ID: "e2", Name: "B", Data: &vault.EntryData{}},
+	}}
+	var seen []int
+	_, err := Create(src, filepath.Join(t.TempDir(), "b.json"), Options{Progress: func(done, total int) {
+		if total != 2 {
+			t.Errorf("total = %d", total)
+		}
+		seen = append(seen, done)
+	}})
 	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+		t.Fatal(err)
 	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
+	if !slices.Equal(seen, []int{1, 2}) {
+		t.Errorf("progress = %v", seen)
+	}
+}
 
-	kr := NewMockKeyring()
-	if err := kr.Store("test1", "user1", "password1"); err != nil {
-		t.Fatalf("Failed to store test1 password: %v", err)
-	}
-	if err := kr.Store("test2", "", "password2"); err != nil {
-		t.Fatalf("Failed to store test2 password: %v", err)
-	}
+// Twins are two entries, and the backup must not turn them into one.
+func TestRestoreKeepsTwins(t *testing.T) {
+	file := &File{Entries: []Entry{
+		{Name: "GitHub", Type: "password", Data: &vault.EntryData{Username: "octo", Password: "one"}},
+		{Name: "GitHub", Type: "password", Data: &vault.EntryData{Username: "octo", Password: "two"}},
+	}}
+	dst := &fakeVault{entries: []vault.Entry{{ID: "e1", Name: "GitHub", Data: &vault.EntryData{Username: "octo"}}}}
 
-	opts := &BackupOptions{
-		BackupDir: tempDir,
+	if got := Restore(dst, file, nil); got.Restored != 2 || len(got.Failed) != 0 {
+		t.Fatalf("restore = %+v", got)
 	}
-	mgr := New(kr, opts)
+	if len(dst.created) != 2 || dst.created[0].Data.Password != "one" || dst.created[1].Data.Password != "two" {
+		t.Fatalf("created = %+v", dst.created)
+	}
+}
 
-	backupPath, err := mgr.CreateBackup()
+func TestRestoreGoesOnAfterAFailureAndNamesIt(t *testing.T) {
+	file := &File{Entries: []Entry{
+		{Name: "One", Data: &vault.EntryData{}},
+		{Name: "Bad", Data: &vault.EntryData{}},
+		{Name: "Two", Data: &vault.EntryData{}},
+	}}
+	dst := &fakeVault{failOn: "Bad"}
+
+	got := Restore(dst, file, nil)
+	if got.Restored != 2 || len(got.Failed) != 1 || !strings.Contains(got.Failed[0], "Bad") || !strings.Contains(got.Failed[0], "server says no") {
+		t.Fatalf("restore = %+v", got)
+	}
+}
+
+func TestRestoreDropsAStraySecretAndCopesWithoutData(t *testing.T) {
+	file := &File{Entries: []Entry{
+		{Name: "Old", Data: &vault.EntryData{Password: "pw", TOTPSecret: "pw"}},
+		{Name: "Bare"},
+	}}
+	dst := &fakeVault{}
+	if got := Restore(dst, file, nil); got.Restored != 2 {
+		t.Fatalf("restore = %+v", got)
+	}
+	if dst.created[0].Data.TOTPSecret != "" || dst.created[0].Data.Password != "pw" {
+		t.Errorf("stray = %+v", dst.created[0].Data)
+	}
+	if dst.created[1].Data == nil {
+		t.Error("an entry without data must not be stored as JSON null")
+	}
+}
+
+func TestReadRejectsWhatIsNoBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.tar.gz")
+	if err := os.WriteFile(path, []byte("\x1f\x8b not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(path); err == nil || !strings.Contains(err.Error(), "parse backup file") {
+		t.Errorf("err = %v", err)
+	}
+	if _, err := Read(filepath.Join(t.TempDir(), "missing.json")); err == nil {
+		t.Error("a missing file should fail")
+	}
+}
+
+func TestNewPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sub", "backups")
+
+	auto, err := NewPath(dir, "")
 	if err != nil {
-		t.Fatalf("Failed to create backup: %v", err)
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(filepath.Base(auto), "backup-") || filepath.Ext(auto) != ".json" {
+		t.Errorf("auto name = %s", auto)
+	}
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("dir = %v, %v", info, err)
 	}
 
-	// Read backup to check metadata
-	backupData, err := mgr.readBackup(backupPath)
+	for in, want := range map[string]string{
+		"before-upgrade":      "backup-before-upgrade.json",
+		"before-upgrade.json": "backup-before-upgrade.json",
+		"backup-x":            "backup-x.json",
+		"two words":           "backup-two words.json",
+	} {
+		got, err := NewPath(dir, in)
+		if err != nil {
+			t.Errorf("%q: %v", in, err)
+			continue
+		}
+		if filepath.Base(got) != want || filepath.Dir(got) != dir {
+			t.Errorf("%q = %s", in, got)
+		}
+	}
+
+	for _, bad := range []string{"../evil", "/etc/passwd", `a\b`, "backup-", ".json"} {
+		if got, err := NewPath(dir, bad); err == nil {
+			t.Errorf("%q should be refused, got %s", bad, got)
+		}
+	}
+
+	taken := filepath.Join(dir, "backup-taken.json")
+	if err := os.WriteFile(taken, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewPath(dir, "taken"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestListShowsBackupsNewestFirst(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	for i, name := range []string{"backup-old.json", "backup-new.json", "backup-middle.json"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		age := map[int]time.Duration{0: 3 * time.Hour, 1: 0, 2: time.Hour}[i]
+		if err := os.Chtimes(path, now.Add(-age), now.Add(-age)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, other := range []string{"notes.txt", "pwmgr-backup-old.tar.gz", "backup-x.txt", ".pwmgr-backup-123"} {
+		if err := os.WriteFile(filepath.Join(dir, other), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "backup-dir.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	backups, err := List(dir)
 	if err != nil {
-		t.Fatalf("Failed to read backup: %v", err)
+		t.Fatal(err)
 	}
-
-	// Verify metadata
-	if backupData.Metadata.Version != "2.0.0" {
-		t.Errorf("Expected version 2.0.0, got %s", backupData.Metadata.Version)
+	var names []string
+	for _, b := range backups {
+		names = append(names, b.Name)
+		if b.Path != filepath.Join(dir, b.Name) || b.Size != 2 {
+			t.Errorf("info = %+v", b)
+		}
 	}
-
-	if backupData.Metadata.PasswordCount != 2 {
-		t.Errorf("Expected password count 2, got %d", backupData.Metadata.PasswordCount)
+	if !slices.Equal(names, []string{"backup-new.json", "backup-middle.json", "backup-old.json"}) {
+		t.Fatalf("names = %v", names)
 	}
+}
 
-	if backupData.Metadata.Checksum == "" {
-		t.Error("Checksum should not be empty")
+func TestListOfNoDirectoryIsEmpty(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	backups, err := List(dir)
+	if err != nil || len(backups) != 0 {
+		t.Fatalf("backups %v, err %v", backups, err)
 	}
-
-	if len(backupData.Passwords) != 2 {
-		t.Errorf("Expected 2 passwords in backup, got %d", len(backupData.Passwords))
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("looking must not create the directory")
 	}
+}
 
-	// Verify backup time is recent (within last minute)
-	if time.Since(backupData.Metadata.BackupDate) > time.Minute {
-		t.Error("Backup date seems too old")
+func TestDefaultDirIsUnderTheHomeDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir, err := DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, "Documents", "pwmgr-backups"); dir != want {
+		t.Fatalf("dir = %s, want %s", dir, want)
 	}
 }

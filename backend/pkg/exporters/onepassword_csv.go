@@ -18,16 +18,17 @@ package exporters
 import (
 	"bytes"
 	"encoding/csv"
+	"strings"
 )
 
 // Export1PasswordCSV serialises records in 1Password CSV format:
-// Title, Username, Password, URL, Notes, Type.
+// Title, Username, Password, URL, Notes, Type, Tags.
 // File custom fields are skipped (CSV cannot carry binary data).
 func Export1PasswordCSV(records []EntryRecord) ([]byte, error) {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
-	_ = w.Write([]string{"Title", "Username", "Password", "URL", "Notes", "Type"})
+	_ = w.Write([]string{"Title", "Username", "Password", "URL", "Notes", "Type", "Tags"})
 	for _, rec := range records {
 		_ = w.Write([]string{
 			rec.Name,
@@ -36,6 +37,7 @@ func Export1PasswordCSV(records []EntryRecord) ([]byte, error) {
 			rec.URL,
 			rec.Notes,
 			map1PType(rec.Type),
+			strings.Join(rec.Tags, tagSeparator),
 		})
 	}
 	w.Flush()

@@ -214,7 +214,7 @@ func buildOnePuxItem(rec EntryRecord, now int64, fileBlobs map[string][]byte) on
 		Trashed:   "N",
 		Overview: onePuxOverview{
 			Title: rec.Name,
-			Tags:  []string{},
+			Tags:  append([]string{}, rec.Tags...), // [] rather than null without tags
 		},
 		Details: onePuxDetails{
 			NotesPlain:      rec.Notes,

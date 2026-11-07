@@ -58,12 +58,24 @@ func (v *Vault) ListAllDecrypted() ([]EntryRecord, error) {
 	return out, nil
 }
 
-// IsDuplicate returns the ID of an existing entry if one matches name+username.
-func IsDuplicate(name, username string, existing []EntryRecord) (string, bool) {
+// FindDuplicates returns the IDs of all existing entries a new record of the given
+// type would duplicate: same name and username, in the same type family. An update
+// cannot change an entry's type, so anything else would store the record's fields
+// on an entry typed for something else.
+func FindDuplicates(name, username, entryType string, existing []EntryRecord) []string {
+	var ids []string
 	for _, e := range existing {
-		if strings.EqualFold(e.Name, name) && strings.EqualFold(e.Data.Username, username) {
-			return e.ID, true
+		if strings.EqualFold(e.Name, name) && strings.EqualFold(e.Data.Username, username) && sameTypeFamily(e.Type, entryType) {
+			ids = append(ids, e.ID)
 		}
 	}
-	return "", false
+	return ids
+}
+
+// sameTypeFamily reports whether two entry types can stand in for each other:
+// password, totp and no type at all are one family, the logins, and every other
+// type is its own. Keep in step with the app (flutter_app/lib/core/jobs/job_runner.dart).
+func sameTypeFamily(a, b string) bool {
+	isLogin := func(t string) bool { return t == "" || t == "password" || t == "totp" }
+	return a == b || (isLogin(a) && isLogin(b))
 }

@@ -20,6 +20,8 @@ package vault
 import (
 	"encoding/json"
 	"fmt"
+	neturl "net/url"
+	"strings"
 
 	"github.com/Gerry3010/passbubble/cli/internal/apiclient"
 	"github.com/Gerry3010/passbubble/cli/internal/config"
@@ -380,9 +382,24 @@ func (v *Vault) CreateEntry(name, entryType, url string, data *EntryData, folder
 	}, nil
 }
 
-// UpdateEntry re-encrypts and updates an existing entry. matchPatterns nil keeps
-// the existing patterns; a non-nil (possibly empty) slice replaces them.
+// UpdateEntry re-encrypts and updates an existing entry. An empty url keeps the
+// stored one. matchPatterns nil keeps the existing patterns; a non-nil (possibly
+// empty) slice replaces them.
 func (v *Vault) UpdateEntry(id, name, url string, data *EntryData, matchPatterns []string) error {
+	var urlField *string
+	if url != "" {
+		urlField = &url
+	}
+	return v.updateEntry(id, name, urlField, data, matchPatterns)
+}
+
+// ReplaceEntry is UpdateEntry for when the given state is the whole truth: an
+// empty url clears the stored one. Data key, folder and match patterns stay.
+func (v *Vault) ReplaceEntry(id, name, url string, data *EntryData) error {
+	return v.updateEntry(id, name, &url, data, nil)
+}
+
+func (v *Vault) updateEntry(id, name string, url *string, data *EntryData, matchPatterns []string) error {
 	if !v.IsUnlocked() {
 		return fmt.Errorf("vault is locked")
 	}
@@ -537,5 +554,39 @@ func (v *Vault) decryptEntry(e *apiclient.EntryResponse) (*EntryData, error) {
 	if err := json.Unmarshal(plaintext, &data); err != nil {
 		return nil, fmt.Errorf("unmarshal entry data: %w", err)
 	}
+	data.DropStrayTOTPSecret()
 	return &data, nil
+}
+
+// IsStrayTOTPSecret reports whether a TOTP secret is really just the password:
+// the TUI used to copy the password into totp_secret on every entry it added.
+func IsStrayTOTPSecret(secret, password string) bool {
+	return secret != "" && secret == password
+}
+
+// DropStrayTOTPSecret treats a stray TOTP secret as absent. Every entry the CLI
+// reads passes through here, so no reader sees one, and saving an edit does not
+// write it back: after a password change it would pass for a real secret.
+// Entries nobody edits stay as they are on the server.
+func (d *EntryData) DropStrayTOTPSecret() {
+	if IsStrayTOTPSecret(d.TOTPSecret, d.Password) {
+		d.TOTPSecret = ""
+	}
+}
+
+// URLHost returns the host of an entry's URL, also for one without a scheme, or
+// "" when there is none.
+func URLHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
