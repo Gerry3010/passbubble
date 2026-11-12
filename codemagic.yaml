@@ -96,7 +96,7 @@ workflows:
           export PATH="/usr/local/go/bin:$PATH"
           go version
           # librsvg for the gitignored launcher mipmaps (make launcher-icons)
-          sudo apt-get update && sudo apt-get install -y librsvg2-bin
+          sudo apt-get -o Acquire::Retries=0 update && sudo apt-get -o Acquire::Retries=0 install -y librsvg2-bin
       - name: Resolve Android NDK path
         script: |
           # build.sh reads $ANDROID_NDK_HOME. Pick the newest installed NDK,

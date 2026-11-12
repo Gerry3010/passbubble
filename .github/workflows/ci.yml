@@ -51,7 +51,7 @@ jobs:
       # compiles (tests + golangci-lint below).
       - name: Generate email brand icon
         run: |
-          sudo apt-get update && sudo apt-get install -y librsvg2-bin
+          sudo apt-get -o Acquire::Retries=0 update && sudo apt-get -o Acquire::Retries=0 install -y librsvg2-bin
           make mailer-icon
 
       - name: Run backend tests
