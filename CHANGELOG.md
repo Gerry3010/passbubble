@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Eigenes Rate-Limit für den Token-Refresh** — `/auth/refresh` teilt sich das Limit nicht mehr mit Login und Registrierung und darf 30 Anfragen pro Minute stellen. Die Limits zählen jetzt pro echter Client-IP (letzter `X-Forwarded-For`-Eintrag des vorgeschalteten Proxys) statt pro TCP-Verbindung. Hinter nginx bekam bisher jede Anfrage einen eigenen Zähler, wodurch das Login-Limit wirkungslos war
 
 ### Fixed
+- **App hing beim Start in einer Weiterleitungsschleife** — lag noch eine Sitzung ohne Server-URL im Speicher, etwa unter Linux von einem älteren Build im Schlüsselbund, sprang die App zwischen Einrichtung und Entsperren hin und her und zeigte nur „redirect loop detected“. Ohne Server-URL bleibt sie jetzt bei der Einrichtung, danach geht es zum Login
 - **Geteilte Einträge wurden nach dem Bearbeiten für die Empfänger unlesbar** — App und Extension erzeugten bei jedem Speichern einen neuen Datenschlüssel, den nur die bearbeitende Person lesen konnte. Beide behalten jetzt den vorhandenen Schlüssel, wie es die CLI schon tat. Lässt er sich nicht öffnen, bleibt der Eintrag unverändert. Bereits betroffene Freigaben heilt das nicht
 - **Wiederherstellen einer Version sperrte spätere Empfänger aus** — wer erst nach dieser Version Zugriff bekommen hatte, verlor seinen Schlüssel
 - **Bearbeiten in der App konnte einen Eintrag leeren** — ließ sich der Eintrag beim Öffnen nicht entschlüsseln, überschrieb Speichern ihn mit dem leeren Formular. Das ist jetzt gesperrt

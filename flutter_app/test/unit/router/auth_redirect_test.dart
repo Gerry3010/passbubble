@@ -96,6 +96,23 @@ void main() {
         '/setup',
       );
     });
+
+    test('without a server URL only setup and register stay open', () {
+      final states = {
+        'logged out': _loggedOut,
+        'locked': _locked,
+        'unlocked': _unlocked,
+      };
+      for (final MapEntry(key: name, value: auth) in states.entries) {
+        String? redirect(String location) =>
+            authRedirect(auth, Uri.parse(location), apiConfigured: false);
+        expect(redirect('/setup'), isNull, reason: name);
+        expect(redirect('/register?token=a'), isNull, reason: name);
+        for (final location in ['/entries', '/login', '/unlock']) {
+          expect(redirect(location), '/setup', reason: '$name $location');
+        }
+      }
+    });
   });
 
   group('launchLocation', () {
@@ -127,7 +144,10 @@ void main() {
 
   group('with go_router', () {
     late AuthState auth;
+    late bool configured;
     late ValueNotifier<int> refresh;
+
+    setUp(() => configured = true);
 
     GoRouter build(String initialLocation) {
       refresh = ValueNotifier(0);
@@ -137,8 +157,9 @@ void main() {
         initialLocation: initialLocation,
         refreshListenable: refresh,
         redirect: (_, state) =>
-            authRedirect(auth, state.uri, apiConfigured: true),
+            authRedirect(auth, state.uri, apiConfigured: configured),
         routes: [
+          GoRoute(path: '/setup', builder: (_, _) => page('setup')),
           GoRoute(path: '/login', builder: (_, _) => page('login')),
           GoRoute(path: '/unlock', builder: (_, _) => page('unlock')),
           GoRoute(
@@ -208,6 +229,28 @@ void main() {
 
       // What the Sign Out buttons do: log out, then go to /login.
       await setAuth(tester, _loggedOut);
+      router.go('/login');
+      await tester.pumpAndSettle();
+      expect(location(router), '/login');
+
+      await setAuth(tester, _unlocked);
+      expect(location(router), '/entries');
+    });
+
+    testWidgets('a stored session without a server URL settles on setup',
+        (tester) async {
+      // A desktop keyring entry from an older build: user_id and tokens, but
+      // no server_url. This used to loop /setup → /unlock → /setup.
+      auth = _locked;
+      configured = false;
+      final router = build('/entries');
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+      expect(location(router), '/setup');
+      expect(find.text('setup'), findsOneWidget);
+
+      // What the setup screen does once the server answers.
+      configured = true;
       router.go('/login');
       await tester.pumpAndSettle();
       expect(location(router), '/login');

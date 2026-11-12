@@ -128,8 +128,11 @@ String? authRedirect(AuthState auth, Uri uri, {required bool apiConfigured}) {
   // also self-heals an already-logged-in client that somehow lost its URL
   // (the old session-wipe bug), which would otherwise be stuck on a screen
   // it can never load. Web always has a URL (the serving origin).
-  if (!apiConfigured && !isSetup && !isRegister) {
-    return '/setup';
+  // The auth rules below must not apply then: a stored session without a URL
+  // would bounce /setup → /unlock → /setup (seen with a desktop keyring entry
+  // left over from an older build).
+  if (!apiConfigured) {
+    return isSetup || isRegister ? null : '/setup';
   }
 
   if (!auth.isLoggedIn && !isSetup && !isLogin && !isRegister) {
