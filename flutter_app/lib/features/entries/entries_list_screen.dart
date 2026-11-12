@@ -131,6 +131,11 @@ final searchIndexProvider = FutureProvider<SearchIndex>((ref) async {
   return SearchIndex(text: index, tags: tagIndex);
 });
 
+/// Set to true to put the cursor in the vault search, e.g. by the tray's
+/// "Search vault…". The list takes the request when it next shows, which
+/// may be after the unlock screen.
+final vaultSearchFocusRequestProvider = StateProvider<bool>((_) => false);
+
 /// Folder tree of the current session; same lifecycle as [entriesProvider].
 final foldersProvider = FutureProvider<List<FolderResponse>>((ref) async {
   ref.watch(vaultSessionProvider);
@@ -151,6 +156,7 @@ class EntriesListScreen extends ConsumerStatefulWidget {
 class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
+  final _searchFocus = FocusNode();
   String _searchQuery = '';
 
   // Tags picked in the filter chip row (AND, combined with the search box and
@@ -177,8 +183,18 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
     // One-time autofill intro after the first unlock (no-ops if already
     // enabled / seen / unsupported).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) maybeShowAutofillIntro(context, ref);
+      if (!mounted) return;
+      _takeSearchFocusRequest();
+      maybeShowAutofillIntro(context, ref);
     });
+  }
+
+  void _takeSearchFocusRequest() {
+    if (!ref.read(vaultSearchFocusRequestProvider)) return;
+    ref.read(vaultSearchFocusRequestProvider.notifier).state = false;
+    _searchFocus.requestFocus();
+    _searchCtrl.selection =
+        TextSelection(baseOffset: 0, extentOffset: _searchCtrl.text.length);
   }
 
   // The list page stays mounted below the detail page, so a tag chip tapped
@@ -217,6 +233,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -976,6 +993,9 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(vaultSearchFocusRequestProvider, (_, requested) {
+      if (requested) _takeSearchFocusRequest();
+    });
     final foldersAsync = ref.watch(foldersProvider);
     final entriesAsync = ref.watch(entriesProvider);
     // Load the decrypted index so search can match usernames and tags and the
@@ -1053,6 +1073,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: TextField(
                 controller: _searchCtrl,
+                focusNode: _searchFocus,
                 onChanged: (v) => setState(() => _searchQuery = v),
                 decoration: InputDecoration(
                   hintText: 'grep entries… (#tag)',

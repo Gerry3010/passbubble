@@ -50,6 +50,9 @@ dependencies:
   # Update system
   url_launcher: ^6.3.1
 
+  # Linux tray icon (StatusNotifierItem + dbusmenu over the session bus)
+  dbus: ^0.7.14
+
   # Utilities
   web: ^1.1.0 # browser History API (strip invitation token from URL on web)
   intl: ^0.20.2

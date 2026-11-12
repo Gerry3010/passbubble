@@ -19,6 +19,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_service.dart';
 import '../../core/auth/auto_lock_provider.dart';
+import '../../core/desktop/tray_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
@@ -29,6 +30,7 @@ import 'generator_settings_tile.dart';
 import 'pin_settings_tile.dart';
 import 'post_quantum_tile.dart';
 import 'providers/version_provider.dart';
+import 'tray_settings_tile.dart';
 import 'two_factor_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -126,6 +128,12 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => context.go('/trash'),
           ),
           const GeneratorSettingsTile(),
+
+          if (traySupported) ...[
+            const Divider(),
+            _SectionHeader(title: 'DESKTOP'),
+            const TraySettingsTile(),
+          ],
 
           const Divider(),
 
