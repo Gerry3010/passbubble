@@ -48,7 +48,7 @@ make native-crypto-android  # all Android ABIs → android/app/src/main/jniLibs/
 | Platform | Artifact | How it's loaded / bundled |
 |----------|----------|---------------------------|
 | Android  | `lib*.so` per ABI in `android/app/src/main/jniLibs/` | packaged automatically; `DynamicLibrary.open('libpassbubble_crypto.so')` |
-| Linux    | `lib*.so` | copy into the bundle via `linux/CMakeLists.txt` `install(...)`; `DynamicLibrary.open('libpassbubble_crypto.so')` |
+| Linux    | `lib*.so` | `linux/CMakeLists.txt` installs `passbubble_crypto/build/libpassbubble_crypto.so` into the bundle's `lib/` (if built); the app opens it there by path, next to its executable |
 | Windows  | `*.dll`  | copy next to the runner via `windows/CMakeLists.txt`; `DynamicLibrary.open('passbubble_crypto.dll')` |
 | macOS    | static `.a` / xcframework | link in the Runner target; `DynamicLibrary.process()` |
 | iOS      | static `.a` (`go build -buildmode=c-archive`, per-arch, `lipo`/xcframework) | link in the Runner target; `DynamicLibrary.process()` |
@@ -64,15 +64,16 @@ green anyway because:
 
 - the Docker **server** image embeds the Flutter **web** app, which only needs
   the **committed** `web/passbubble_crypto.js` bundle (no native lib); and
-- the release builds **no Android target at all**, and the desktop (Linux/macOS)
-  release jobs don't yet bundle the native `.so`/`.dylib`.
+- the release builds **no Android target at all**, and the macOS release job
+  doesn't yet link the static lib. The Linux job builds the `.so` (`build.sh host`)
+  before `flutter build linux` and fails if the bundle lacks `lib/libpassbubble_crypto.so`.
 
 When a platform should be fully built _in the pipeline_, wire it in here:
 
 | Pipeline job | Add before `flutter build …` | Needs |
 |---|---|---|
 | Dockerfile `flutter-builder` **+** release `build-flutter-web` | `make web-crypto` (then drop the committed bundle and gitignore it) | Node in the image **and** `COPY packages/` into the build context (entry.mjs imports `../../packages/shared-ts`) |
-| release `build-flutter-linux` / `build-flutter-macos` | `make native-crypto` + a CMake `install()` of the lib into the bundle | gcc/clang + `CGO_ENABLED=1` |
+| release `build-flutter-macos` | `./build.sh macos` + the Runner link flags already on `main` | Xcode + `CGO_ENABLED=1` |
 | **Android/iOS release job (does not exist yet)** | `make native-crypto-android` | `ANDROID_NDK_HOME` + an `apk`/`appbundle` build job |
 
 > ⚠️ **When mobile becomes release-ready:** the Android/iOS builds will most

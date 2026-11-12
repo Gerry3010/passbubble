@@ -23,6 +23,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 // ── C function signatures (see native/passbubble_crypto/libpassbubble_crypto.h)
 
@@ -57,12 +58,23 @@ _Lib? _cached;
 /// Overrides the library path (used by tests to point at the locally-built .so).
 String? mlKemLibraryPathOverride;
 
+/// Where a Linux bundle carries the library: `lib/` next to the executable,
+/// as `flutter build linux` installs it. A bare `dlopen` name would not find
+/// it there, because the executable's RUNPATH does not apply to a library
+/// that the Flutter engine opens.
+@visibleForTesting
+String linuxBundledLibraryPath(String executable) =>
+    '${File(executable).parent.path}/lib/libpassbubble_crypto.so';
+
 _Lib _lib() {
   if (_cached != null) return _cached!;
   final override = mlKemLibraryPathOverride ?? Platform.environment['PASSBUBBLE_CRYPTO_LIB'];
   final DynamicLibrary dl;
   if (override != null && override.isNotEmpty) {
     dl = DynamicLibrary.open(override);
+  } else if (Platform.isLinux &&
+      File(linuxBundledLibraryPath(Platform.resolvedExecutable)).existsSync()) {
+    dl = DynamicLibrary.open(linuxBundledLibraryPath(Platform.resolvedExecutable));
   } else if (Platform.isAndroid || Platform.isLinux) {
     dl = DynamicLibrary.open('libpassbubble_crypto.so');
   } else if (Platform.isWindows) {

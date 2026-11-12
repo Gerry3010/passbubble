@@ -132,7 +132,7 @@ jobs:
     name: Build Flutter Linux
     runs-on: ubuntu-latest
     needs: test
-    timeout-minutes: 5
+    timeout-minutes: 15
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
@@ -160,12 +160,22 @@ jobs:
           VER="${{ github.ref_name }}"
           VER="${VER#v}"
           sed -i "s/^version:.*/version: ${VER}+1/" flutter_app/pubspec.yaml
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+          cache-dependency-path: flutter_app/native/passbubble_crypto/go.sum
+      # The hybrid-KEM library; CMake copies it into the bundle's lib/.
+      - name: Build native crypto library
+        run: ./flutter_app/native/build.sh host
       - name: Build Linux
         working-directory: flutter_app
         run: flutter build linux --release
       - name: Package
         run: |
           cd flutter_app/build/linux/x64/release/bundle
+          # Without it the app cannot open a post-quantum vault.
+          test -f lib/libpassbubble_crypto.so
           tar -czf passbubble-linux-x64.tar.gz *
           mv passbubble-linux-x64.tar.gz ../../../../..
       - uses: actions/upload-artifact@v4

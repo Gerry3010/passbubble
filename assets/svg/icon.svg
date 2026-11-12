@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
 <!--
 Copyright (C) 2026 Gerald Hofbauer <info@geraldhofbauer.net>
 
@@ -19,8 +20,11 @@ Flutter app icon (mobile/desktop/web favicon) — single source of truth.
 Opaque background, scanlines and circuit traces, with a padlock as the
 central glyph. The previous "> _" terminal-prompt design is preserved in
 icon-terminal.svg.
+
+This comment sits inside <svg> on purpose. gdk-pixbuf (and with it GNOME
+Shell) only recognises a file as SVG when "<svg" appears within its first
+bytes; with the comment in front, the Linux desktop showed no app icon.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
     <filter id="glow" x="-15%" y="-15%" width="130%" height="130%">
       <feGaussianBlur stdDeviation="2.5" result="blur"/>

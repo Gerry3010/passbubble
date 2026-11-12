@@ -110,6 +110,19 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     COMPONENT Runtime)
 endforeach(bundled_library)
 
+# The hybrid-KEM crypto library (Go, c-shared). It is built separately with
+# `native/build.sh host`; without it the app cannot open a post-quantum vault.
+# OPTIONAL keeps a plain `flutter build linux` working, so the release job
+# checks for the file itself.
+set(PASSBUBBLE_CRYPTO_LIBRARY
+  "${CMAKE_CURRENT_SOURCE_DIR}/../native/passbubble_crypto/build/libpassbubble_crypto.so")
+if(NOT EXISTS "${PASSBUBBLE_CRYPTO_LIBRARY}")
+  message(WARNING "libpassbubble_crypto.so not found; run native/build.sh host before building")
+endif()
+install(FILES "${PASSBUBBLE_CRYPTO_LIBRARY}" OPTIONAL
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

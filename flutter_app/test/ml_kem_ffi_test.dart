@@ -77,4 +77,9 @@ void main() {
       expect(recovered, equals(dataKey));
     });
   }, skip: libExists ? false : 'native lib not built ($_libPath) — run the go c-shared build');
+
+  test('a Linux bundle carries the library in lib/ next to the executable', () {
+    expect(linuxBundledLibraryPath('/opt/passbubble/passbubble'),
+        '/opt/passbubble/lib/libpassbubble_crypto.so');
+  });
 }
