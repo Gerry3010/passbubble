@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/cloudflare/circl v1.6.3
-	github.com/go-chi/chi/v5 v5.3.0
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-chi/cors v1.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
@@ -13,7 +13,7 @@ require (
 	github.com/pquerna/otp v1.5.0
 	github.com/redis/go-redis/v9 v9.20.1
 	github.com/tobischo/gokeepasslib/v3 v3.6.2
-	golang.org/x/crypto v0.53.0
+	golang.org/x/crypto v0.59.0
 	golang.org/x/time v0.15.0
 )
 
@@ -31,7 +31,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.41.0 // indirect
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )
