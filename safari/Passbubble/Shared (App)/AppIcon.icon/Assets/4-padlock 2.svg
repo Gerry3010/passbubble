@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Passbubble Liquid Glass icon — LAYER 4 (padlock glyph, TRANSPARENT).
+     The central mark. This is the ideal "hero" foreground layer for the
+     Liquid Glass treatment (glass, specular, shadow) in Icon Composer. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <filter id="glow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#glow)">
+    <path d="M 114,123 L 114,105 A 14,14 0 0 1 142,105 L 142,123"
+          fill="none"
+          stroke="#00ff41"
+          stroke-width="5"
+          stroke-linecap="round"/>
+    <rect x="102" y="120" width="52" height="46" rx="8"
+          fill="#00ff41" fill-opacity="0.12"
+          stroke="#00ff41" stroke-width="4"/>
+    <circle cx="128" cy="141" r="6" fill="#00ff41"/>
+    <rect x="125.5" y="141" width="5" height="13" fill="#00ff41"/>
+  </g>
+</svg>

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		6D4C98A7A1D1F41EF306903D /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3CD2D2471DCE911B8B5AD170 /* AppIcon.icon */; };
 		88988DE62FEA05870030D1A6 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DE52FEA05870030D1A6 /* AppDelegate.swift */; };
 		88988DE82FEA05870030D1A6 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88988DE72FEA05870030D1A6 /* SceneDelegate.swift */; };
 		88988DEB2FEA05870030D1A6 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 88988DE92FEA05870030D1A6 /* LaunchScreen.storyboard */; };
@@ -49,6 +50,7 @@
 		88988E4A2FEA05880030D1A6 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 88988E362FEA05880030D1A6 /* manifest.json */; };
 		88988E4B2FEA05880030D1A6 /* fill-iframe in Resources */ = {isa = PBXBuildFile; fileRef = 88988E372FEA05880030D1A6 /* fill-iframe */; };
 		88988E4C2FEA05880030D1A6 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 88988E382FEA05880030D1A6 /* assets */; };
+		F9770079AB7BDCF18BD69FB5 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3CD2D2471DCE911B8B5AD170 /* AppIcon.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -94,6 +96,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		3CD2D2471DCE911B8B5AD170 /* AppIcon.icon */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		88988DD62FEA05860030D1A6 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
 		88988DD72FEA05860030D1A6 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
 		88988DD82FEA05860030D1A6 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
@@ -178,6 +181,7 @@
 				88988DDA2FEA05860030D1A6 /* ViewController.swift */,
 				88988DDB2FEA05870030D1A6 /* Assets.xcassets */,
 				88988DD42FEA05860030D1A6 /* Resources */,
+				3CD2D2471DCE911B8B5AD170 /* AppIcon.icon */,
 			);
 			path = "Shared (App)";
 			sourceTree = "<group>";
@@ -287,8 +291,6 @@
 				88988E032FEA05870030D1A6 /* PBXTargetDependency */,
 			);
 			name = "Passbubble (iOS)";
-			packageProductDependencies = (
-			);
 			productName = "Passbubble (iOS)";
 			productReference = 88988DE22FEA05870030D1A6 /* Passbubble.app */;
 			productType = "com.apple.product-type.application";
@@ -308,8 +310,6 @@
 				88988E0D2FEA05870030D1A6 /* PBXTargetDependency */,
 			);
 			name = "Passbubble (macOS)";
-			packageProductDependencies = (
-			);
 			productName = "Passbubble (macOS)";
 			productReference = 88988DF42FEA05870030D1A6 /* Passbubble.app */;
 			productType = "com.apple.product-type.application";
@@ -327,8 +327,6 @@
 			dependencies = (
 			);
 			name = "Passbubble Extension (iOS)";
-			packageProductDependencies = (
-			);
 			productName = "Passbubble Extension (iOS)";
 			productReference = 88988E002FEA05870030D1A6 /* Passbubble Extension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -346,8 +344,6 @@
 			dependencies = (
 			);
 			name = "Passbubble Extension (macOS)";
-			packageProductDependencies = (
-			);
 			productName = "Passbubble Extension (macOS)";
 			productReference = 88988E0A2FEA05870030D1A6 /* Passbubble Extension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -410,6 +406,7 @@
 				88988E1A2FEA05870030D1A6 /* Assets.xcassets in Resources */,
 				88988DEE2FEA05870030D1A6 /* Main.storyboard in Resources */,
 				88988E142FEA05870030D1A6 /* Style.css in Resources */,
+				6D4C98A7A1D1F41EF306903D /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -423,6 +420,7 @@
 				88988E172FEA05870030D1A6 /* Script.js in Resources */,
 				88988E1B2FEA05870030D1A6 /* Assets.xcassets in Resources */,
 				88988E112FEA05870030D1A6 /* Main.html in Resources */,
+				F9770079AB7BDCF18BD69FB5 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -668,6 +666,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Passbubble Extension";
@@ -684,7 +683,6 @@
 					SafariServices,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari.Extension;
-				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				PRODUCT_NAME = "Passbubble Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -702,6 +700,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Passbubble Extension";
@@ -718,7 +717,6 @@
 					SafariServices,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari.Extension;
-				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				PRODUCT_NAME = "Passbubble Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -739,6 +737,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Passbubble;
@@ -760,7 +759,6 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari;
-				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				PRODUCT_NAME = Passbubble;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -780,6 +778,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Passbubble;
@@ -801,7 +800,6 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari;
-				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				PRODUCT_NAME = Passbubble;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -820,6 +818,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -839,7 +838,6 @@
 					SafariServices,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari.Extension;
-				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				PRODUCT_NAME = "Passbubble Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -856,6 +854,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -875,7 +874,6 @@
 					SafariServices,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari.Extension;
-				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				PRODUCT_NAME = "Passbubble Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -894,6 +892,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -916,7 +915,6 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari;
-				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				PRODUCT_NAME = Passbubble;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -936,6 +934,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -958,7 +957,6 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = net.geraldhofbauer.passbubble.safari;
-				DEVELOPMENT_TEAM = ND9MT2PP6B;
 				PRODUCT_NAME = Passbubble;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
