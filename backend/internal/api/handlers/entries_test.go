@@ -109,6 +109,7 @@ func TestEntryTypeWhitelist(t *testing.T) {
 	validTypes := []string{
 		"password", "totp", "note", "api-key", "ssh-key",
 		"certificate", "credit-card", "bank-account", "identity", "license",
+		"server",
 	}
 
 	for _, typ := range validTypes {

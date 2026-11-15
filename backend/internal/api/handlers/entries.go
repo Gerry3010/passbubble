@@ -378,6 +378,7 @@ var allowedEntryTypes = map[string]bool{
 	"bank-account": true,
 	"identity":     true,
 	"license":      true,
+	"server":       true,
 }
 
 func validEntryType(t string) bool {

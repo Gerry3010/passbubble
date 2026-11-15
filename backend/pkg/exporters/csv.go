@@ -52,10 +52,10 @@ func ExportCSV(records []EntryRecord) ([]byte, error) {
 }
 
 // CSVLeftOut counts what ExportCSV has no column for: how many fields of how many
-// entries stay behind.
+// entries stay behind. Each passkey counts as one field.
 func CSVLeftOut(records []EntryRecord) (fields, entries int) {
 	for _, rec := range records {
-		left := len(rec.fieldsOutside(csvKeys)) + len(rec.CustomFields) + len(rec.UnknownFields)
+		left := len(rec.fieldsOutside(csvKeys)) + len(rec.CustomFields) + len(rec.Passkeys) + len(rec.UnknownFields)
 		if left > 0 {
 			fields += left
 			entries++

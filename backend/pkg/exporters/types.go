@@ -59,11 +59,33 @@ type EntryRecord struct {
 	PurchaseEmail string
 	PurchaseDate  string
 	ExpiresAt     string
+	Host          string
+	Port          string
+	PrivateKey    string
+	KeyPassphrase string
 	CustomFields  []CustomField
 	Tags          []string
+	Passkeys      []Passkey
 	// UnknownFields holds what the entry has beyond the fields above: keys from
 	// other clients or newer versions, whose meaning nobody here can vouch for.
 	UnknownFields []UnknownField
+}
+
+// Passkey is a WebAuthn credential as docs/passkeys.md stores it: credential
+// id, user handle and private key (PKCS#8 DER) as base64url without padding.
+type Passkey struct {
+	CredentialID    string
+	RPID            string
+	RPName          string
+	UserHandle      string
+	UserName        string
+	UserDisplayName string
+	KeyAlgorithm    int // COSE algorithm, -7 = ES256
+	PrivateKey      string
+	SignCount       int
+	Discoverable    bool
+	PRFSecret       string
+	CreatedAt       string // RFC 3339
 }
 
 // UnknownField is a value of an entry under the key it has in the entry JSON.

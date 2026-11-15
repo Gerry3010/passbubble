@@ -18,6 +18,7 @@ package importers
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -55,10 +56,50 @@ type bitwardenItem struct {
 }
 
 type bitwardenLogin struct {
-	Username string              `json:"username"`
-	Password string              `json:"password"`
-	URIs     []bitwardenURI      `json:"uris,omitempty"`
-	TOTP     string              `json:"totp,omitempty"`
+	Username         string           `json:"username"`
+	Password         string           `json:"password"`
+	URIs             []bitwardenURI   `json:"uris,omitempty"`
+	TOTP             string           `json:"totp,omitempty"`
+	Fido2Credentials []bitwardenFido2 `json:"fido2Credentials,omitempty"`
+}
+
+// bitwardenFido2 is a passkey as Bitwarden exports it. The counter is left out
+// on purpose: Passbubble's is always 0 (docs/passkeys.md).
+type bitwardenFido2 struct {
+	CredentialID    string        `json:"credentialId"`
+	KeyType         string        `json:"keyType"`
+	KeyAlgorithm    string        `json:"keyAlgorithm"`
+	KeyCurve        string        `json:"keyCurve"`
+	KeyValue        string        `json:"keyValue"`
+	RPID            string        `json:"rpId"`
+	RPName          string        `json:"rpName"`
+	UserHandle      string        `json:"userHandle"`
+	UserName        string        `json:"userName"`
+	UserDisplayName string        `json:"userDisplayName"`
+	Discoverable    bitwardenBool `json:"discoverable"`
+	CreationDate    string        `json:"creationDate"`
+}
+
+// bitwardenBool reads Bitwarden's "true"/"false" strings, and a JSON boolean
+// from files other tools wrote.
+type bitwardenBool bool
+
+func (b *bitwardenBool) UnmarshalJSON(data []byte) error {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	switch v := v.(type) {
+	case bool:
+		*b = bitwardenBool(v)
+	case string:
+		*b = bitwardenBool(strings.EqualFold(strings.TrimSpace(v), "true"))
+	case nil:
+		*b = false
+	default:
+		return fmt.Errorf("bitwarden: discoverable is %T, want a string", v)
+	}
+	return nil
 }
 
 type bitwardenURI struct {
@@ -109,7 +150,7 @@ func ParseBitwarden(data []byte) (*ImportResult, error) {
 
 	result := &ImportResult{}
 	for _, item := range export.Items {
-		rec, warn := convertBitwardenItem(item)
+		rec, warn, skippedPasskeys := convertBitwardenItem(item)
 		if rec == nil {
 			result.Skipped++
 			if warn != "" {
@@ -117,6 +158,8 @@ func ParseBitwarden(data []byte) (*ImportResult, error) {
 			}
 			continue
 		}
+		result.SkippedPasskeys += len(skippedPasskeys)
+		result.Warnings = append(result.Warnings, skippedPasskeys...)
 		for _, f := range item.Fields {
 			if f.Name == bitwardenTagsField {
 				rec.Tags = append(rec.Tags, splitTags(f.Value, ",")...)
@@ -181,8 +224,11 @@ func splitFolderName(name string) []string {
 	return out
 }
 
-func convertBitwardenItem(item bitwardenItem) (*EntryRecord, string) {
-	rec := &EntryRecord{Name: item.Name, Notes: item.Notes}
+// convertBitwardenItem maps one item. A nil record means the item is skipped,
+// for the reason in warn; skippedPasskeys explains each passkey left out of a
+// record that is kept.
+func convertBitwardenItem(item bitwardenItem) (rec *EntryRecord, warn string, skippedPasskeys []string) {
+	rec = &EntryRecord{Name: item.Name, Notes: item.Notes}
 
 	switch item.Type {
 	case 1: // login
@@ -193,6 +239,15 @@ func convertBitwardenItem(item bitwardenItem) (*EntryRecord, string) {
 			rec.TOTPSecret = item.Login.TOTP
 			if len(item.Login.URIs) > 0 {
 				rec.URL = item.Login.URIs[0].URI
+			}
+			for _, c := range item.Login.Fido2Credentials {
+				pk, err := convertBitwardenPasskey(c)
+				if err != nil {
+					skippedPasskeys = append(skippedPasskeys,
+						fmt.Sprintf("%s: skipped a passkey for %q: %v", bitwardenItemLabel(item), c.RPID, err))
+					continue
+				}
+				rec.Passkeys = append(rec.Passkeys, pk)
 			}
 			rec.settleLoginType()
 		}
@@ -224,14 +279,63 @@ func convertBitwardenItem(item bitwardenItem) (*EntryRecord, string) {
 			rec.Country = id.Country
 		}
 	default:
-		return nil, fmt.Sprintf("skipping unknown Bitwarden item type %d (%s)", item.Type, item.Name)
+		return nil, fmt.Sprintf("skipping unknown Bitwarden item type %d (%s)", item.Type, item.Name), nil
 	}
 
 	if rec.Name == "" {
 		rec.Name = strings.TrimSpace(rec.Username + " " + rec.URL)
 		if rec.Name == "" {
-			return nil, "skipping unnamed entry"
+			return nil, "skipping unnamed entry", nil
 		}
 	}
-	return rec, ""
+	return rec, "", skippedPasskeys
+}
+
+// bitwardenItemLabel names an item in a warning, also one without a name.
+func bitwardenItemLabel(item bitwardenItem) string {
+	if item.Name != "" {
+		return item.Name
+	}
+	if item.Login != nil && item.Login.Username != "" {
+		return item.Login.Username
+	}
+	return "unnamed entry"
+}
+
+// convertBitwardenPasskey maps a Bitwarden passkey to the stored form, along
+// the table in docs/passkeys.md. Anything but ES256 is refused.
+func convertBitwardenPasskey(c bitwardenFido2) (Passkey, error) {
+	if !strings.EqualFold(c.KeyType, "public-key") || !strings.EqualFold(c.KeyAlgorithm, "ECDSA") ||
+		!strings.EqualFold(c.KeyCurve, "P-256") {
+		return Passkey{}, fmt.Errorf("unsupported key (%s %s %s), only ECDSA P-256", c.KeyType, c.KeyAlgorithm, c.KeyCurve)
+	}
+	if strings.TrimSpace(c.RPID) == "" {
+		return Passkey{}, errors.New("no relying party id")
+	}
+	id, err := bitwardenCredentialID(c.CredentialID)
+	if err != nil {
+		return Passkey{}, err
+	}
+	key, err := normalisePasskeyPrivateKey(c.KeyValue)
+	if err != nil {
+		return Passkey{}, err
+	}
+	userHandle := ""
+	if c.UserHandle != "" {
+		if userHandle, err = normaliseBase64URL(c.UserHandle); err != nil {
+			return Passkey{}, fmt.Errorf("user handle is not base64: %w", err)
+		}
+	}
+	return Passkey{
+		CredentialID:    encodeBase64URL(id),
+		RPID:            strings.TrimSpace(c.RPID),
+		RPName:          c.RPName,
+		UserHandle:      userHandle,
+		UserName:        c.UserName,
+		UserDisplayName: c.UserDisplayName,
+		KeyAlgorithm:    coseES256,
+		PrivateKey:      key,
+		Discoverable:    bool(c.Discoverable),
+		CreatedAt:       normalizeTimestamp(c.CreationDate),
+	}, nil
 }

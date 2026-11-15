@@ -40,6 +40,7 @@ var validJobFormats = map[string]bool{
 	"psono":         true,
 	"onepassword":   true,
 	"csv":           true,
+	"cxf":           true,
 }
 
 var validDupStrategies = map[string]bool{

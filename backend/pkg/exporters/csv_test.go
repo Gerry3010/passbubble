@@ -116,6 +116,14 @@ func TestCSVLeftOutCountsWhatHasNoColumn(t *testing.T) {
 			fields: 5, items: 1,
 		},
 		{
+			name: "passkeys and server fields",
+			records: []exporters.EntryRecord{
+				{Type: "password", Name: "Example", Username: "alice", Passkeys: []exporters.Passkey{{RPID: "a.example"}, {RPID: "b.example"}}},
+				{Type: "server", Name: "web01", Username: "root", Password: "pw", Host: "web01", Port: "22", PrivateKey: "k", KeyPassphrase: "p"},
+			},
+			fields: 6, items: 2,
+		},
+		{
 			name: "several entries, the plain one does not count",
 			records: []exporters.EntryRecord{
 				{Type: "credit-card", Name: "Visa", CardNumber: "4111", CVV: "123"},

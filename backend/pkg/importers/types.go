@@ -95,13 +95,36 @@ type EntryRecord struct {
 	// Tags as the source file has them, split but not normalised: the rules
 	// live with the clients, callers normalise before saving. Nil = no tags.
 	Tags []string
+
+	// Passkeys of a login, already in the stored form (docs/passkeys.md).
+	Passkeys []Passkey
+}
+
+// Passkey is a WebAuthn credential in the form docs/passkeys.md stores it:
+// credential id, user handle and key as base64url without padding, the key as
+// PKCS#8 DER in the long form that includes the public key.
+type Passkey struct {
+	CredentialID    string
+	RPID            string
+	RPName          string
+	UserHandle      string
+	UserName        string
+	UserDisplayName string
+	KeyAlgorithm    int // COSE algorithm; only -7 (ES256) is imported
+	PrivateKey      string
+	SignCount       int // always 0
+	Discoverable    bool
+	PRFSecret       string // "" when the source has none
+	CreatedAt       string // RFC 3339 UTC; "" = unknown
 }
 
 // settleLoginType types a login by what it holds, once all its fields are read.
 // A login with a password stays a password entry with a TOTP secret next to it;
-// only a secret without a password makes a TOTP entry. Other types stay.
+// only a secret without a password (and without a passkey) makes a TOTP entry.
+// Other types stay.
 func (r *EntryRecord) settleLoginType() {
-	if r.Type == "password" && r.TOTPSecret != "" && r.Password == "" {
+	// A passkey belongs to a password entry, which may hold no password.
+	if r.Type == "password" && r.TOTPSecret != "" && r.Password == "" && len(r.Passkeys) == 0 {
 		r.Type = "totp"
 	}
 }
@@ -131,7 +154,11 @@ type CustomField struct {
 
 // ImportResult summarises an import run.
 type ImportResult struct {
-	Records  []EntryRecord
-	Skipped  int
-	Warnings []string
+	Records []EntryRecord
+	Skipped int
+	// SkippedPasskeys counts passkeys left out of records that were imported,
+	// for example because of a key type Passbubble does not support. Each one
+	// also has a warning.
+	SkippedPasskeys int
+	Warnings        []string
 }

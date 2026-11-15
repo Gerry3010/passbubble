@@ -124,7 +124,7 @@ type EntryKey struct {
 
 type CreateEntryRequest struct {
 	FolderID      *string    `json:"folder_id,omitempty"`
-	Type          string     `json:"type"` // "password","totp","note","api-key","ssh-key"
+	Type          string     `json:"type"` // "password","totp","note","api-key","ssh-key","certificate","credit-card","bank-account","identity","license","server"
 	Name          string     `json:"name"`
 	URL           string     `json:"url,omitempty"`
 	MatchPatterns []string   `json:"match_patterns,omitempty"` // plaintext autofill URL patterns

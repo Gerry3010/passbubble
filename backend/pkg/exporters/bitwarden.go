@@ -16,8 +16,10 @@
 package exporters
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -63,10 +65,29 @@ type bwItem struct {
 }
 
 type bwLogin struct {
-	URIS     []bwURI `json:"uris,omitempty"`
-	Username string  `json:"username"`
-	Password string  `json:"password"`
-	TOTP     string  `json:"totp,omitempty"`
+	URIS             []bwURI   `json:"uris,omitempty"`
+	Username         string    `json:"username"`
+	Password         string    `json:"password"`
+	TOTP             string    `json:"totp,omitempty"`
+	Fido2Credentials []bwFido2 `json:"fido2Credentials,omitempty"`
+}
+
+// bwFido2 is a passkey as Bitwarden exports it, with its string-typed counter
+// and discoverable flag.
+type bwFido2 struct {
+	CredentialID    string  `json:"credentialId"`
+	KeyType         string  `json:"keyType"`
+	KeyAlgorithm    string  `json:"keyAlgorithm"`
+	KeyCurve        string  `json:"keyCurve"`
+	KeyValue        string  `json:"keyValue"`
+	RPID            string  `json:"rpId"`
+	UserHandle      string  `json:"userHandle"`
+	UserName        string  `json:"userName"`
+	Counter         string  `json:"counter"`
+	RPName          string  `json:"rpName"`
+	UserDisplayName string  `json:"userDisplayName"`
+	Discoverable    string  `json:"discoverable"`
+	CreationDate    *string `json:"creationDate"` // null when unknown
 }
 
 type bwURI struct {
@@ -198,6 +219,9 @@ func ExportBitwarden(records []EntryRecord, opts BitwardenExportOptions) ([]byte
 			if rec.URL != "" {
 				item.Login.URIS = []bwURI{{URI: rec.URL}}
 			}
+			for _, pk := range rec.Passkeys {
+				item.Login.Fido2Credentials = append(item.Login.Fido2Credentials, bitwardenPasskey(pk))
+			}
 		}
 
 		for _, f := range rec.fieldsOutside(placed) {
@@ -234,4 +258,44 @@ func bitwardenCustomFieldType(cfType string) int {
 		return bitwardenFieldText
 	}
 	return bitwardenFieldHidden
+}
+
+// bitwardenPasskey maps a stored passkey along the table in docs/passkeys.md.
+// The credential id always goes out as "b64.<base64url>". The counter is "0",
+// as Passbubble never counts. The PRF secret has no place in the format.
+func bitwardenPasskey(pk Passkey) bwFido2 {
+	var created *string
+	if pk.CreatedAt != "" {
+		created = &pk.CreatedAt
+	}
+	return bwFido2{
+		CredentialID:    "b64." + base64URL(pk.CredentialID),
+		KeyType:         "public-key",
+		KeyAlgorithm:    "ECDSA",
+		KeyCurve:        "P-256",
+		KeyValue:        base64URL(pk.PrivateKey),
+		RPID:            pk.RPID,
+		UserHandle:      base64URL(pk.UserHandle),
+		UserName:        pk.UserName,
+		Counter:         "0",
+		RPName:          pk.RPName,
+		UserDisplayName: pk.UserDisplayName,
+		Discoverable:    strconv.FormatBool(pk.Discoverable),
+		CreationDate:    created,
+	}
+}
+
+// base64URL re-encodes base64 of either alphabet, padded or not, as base64url
+// without padding. Something that is no base64 at all goes out unchanged.
+func base64URL(s string) string {
+	trimmed := strings.TrimRight(s, "=")
+	enc := base64.RawURLEncoding
+	if strings.ContainsAny(trimmed, "+/") {
+		enc = base64.RawStdEncoding
+	}
+	b, err := enc.DecodeString(trimmed)
+	if err != nil {
+		return s
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }

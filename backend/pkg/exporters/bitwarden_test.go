@@ -223,6 +223,21 @@ func TestExportBitwardenKeepsWhatTheFormatHasNoPlaceFor(t *testing.T) {
 			},
 		},
 		{
+			name: "server",
+			rec: exporters.EntryRecord{
+				Type: "server", Name: "web01", Username: "root", Password: "pw",
+				Host: "web01.example.com", Port: "2222", PrivateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\n…\n", KeyPassphrase: "secret",
+			},
+			wantType: 1,
+			want: []exportedField{
+				{"host", "web01.example.com", textField},
+				{"port", "2222", textField},
+				{"private_key", "-----BEGIN OPENSSH PRIVATE KEY-----\n…\n", hiddenField},
+				{"key_passphrase", "secret", hiddenField},
+				{"type", "server", textField},
+			},
+		},
+		{
 			name: "a type this version does not know",
 			rec: exporters.EntryRecord{
 				Type: "future-type", Name: "X", Password: "pw",

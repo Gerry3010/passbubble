@@ -25,7 +25,7 @@ type keyedField struct {
 }
 
 // keyedFields lists the values a format may or may not have a place for: all of
-// a record but its name, notes, tags, custom fields and unknown fields.
+// a record but its name, notes, tags, custom fields, passkeys and unknown fields.
 func (rec EntryRecord) keyedFields() []keyedField {
 	number := func(n int) string {
 		if n == 0 {
@@ -69,6 +69,10 @@ func (rec EntryRecord) keyedFields() []keyedField {
 		{key: "purchase_email", value: rec.PurchaseEmail},
 		{key: "purchase_date", value: rec.PurchaseDate},
 		{key: "expires_at", value: rec.ExpiresAt},
+		{key: "host", value: rec.Host},
+		{key: "port", value: rec.Port},
+		{key: "private_key", value: rec.PrivateKey, secret: true},
+		{key: "key_passphrase", value: rec.KeyPassphrase, secret: true},
 	}
 }
 
