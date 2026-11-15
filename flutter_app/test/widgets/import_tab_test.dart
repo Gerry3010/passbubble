@@ -13,12 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:passbubble/core/importexport/credential_exchange.dart';
 import 'package:passbubble/core/jobs/job_runner.dart';
 import 'package:passbubble/core/jobs/local_job.dart';
 import 'package:passbubble/features/manage/import_tab.dart';
@@ -45,6 +47,7 @@ class _FakePicker extends FilePicker {
 
 class _RecordingRunner extends JobRunner {
   final calls = <({DupStrategy dup, OverwriteMode mode})>[];
+  final imports = <({ImportFormat format, String text})>[];
 
   @override
   Future<void> startImport({
@@ -52,8 +55,10 @@ class _RecordingRunner extends JobRunner {
     required ImportFormat format,
     required DupStrategy dup,
     OverwriteMode overwriteMode = OverwriteMode.merge,
-  }) async =>
-      calls.add((dup: dup, mode: overwriteMode));
+  }) async {
+    calls.add((dup: dup, mode: overwriteMode));
+    imports.add((format: format, text: utf8.decode(bytes, allowMalformed: true)));
+  }
 }
 
 void main() {
@@ -61,10 +66,13 @@ void main() {
 
   setUp(() => FilePicker.platform = _FakePicker());
 
-  Future<_RecordingRunner> pumpTab(WidgetTester tester) async {
+  Future<_RecordingRunner> pumpTab(WidgetTester tester, {String? exchange}) async {
     final runner = _RecordingRunner();
     await tester.pumpWidget(ProviderScope(
-      overrides: [jobRunnerProvider.overrideWith(() => runner)],
+      overrides: [
+        jobRunnerProvider.overrideWith(() => runner),
+        if (exchange != null) pendingCredentialExchangeProvider.overrideWith((_) => exchange),
+      ],
       child: const MaterialApp(
         home: DefaultTabController(length: 4, child: Scaffold(body: ImportTab())),
       ),
@@ -130,5 +138,62 @@ void main() {
 
     await choose(tester, 'Overwrite');
     expect(isChecked(tester), isFalse);
+  });
+
+  group('Credential Exchange hand-over', () {
+    final cxf = jsonEncode({
+      'exporterDisplayName': 'Apple Passwords',
+      'accounts': [
+        {
+          'items': [
+            {'id': 'a', 'credentials': []},
+            {'id': 'b', 'credentials': []},
+          ],
+        },
+      ],
+    });
+    final card = find.byKey(const ValueKey('credential-exchange'));
+
+    ImportFormat shownFormat(WidgetTester tester) => tester
+        .widget<DropdownButtonFormField<ImportFormat>>(
+            find.byType(DropdownButtonFormField<ImportFormat>))
+        .initialValue!;
+
+    testWidgets('no card without data waiting', (tester) async {
+      await pumpTab(tester);
+      expect(card, findsNothing);
+      expect(shownFormat(tester), ImportFormat.csvGeneric);
+    });
+
+    testWidgets('the waiting data is offered with CXF preselected and imports as CXF',
+        (tester) async {
+      final runner = await pumpTab(tester, exchange: cxf);
+      expect(card, findsOneWidget);
+      expect(find.textContaining('2 items from Apple Passwords are ready to import.'),
+          findsOneWidget);
+      expect(shownFormat(tester), ImportFormat.cxf);
+      expect(find.text('Credential Exchange (CXF JSON)'), findsOneWidget);
+
+      await choose(tester, 'Overwrite');
+      await tester.tap(find.byKey(const ValueKey('credential-exchange-import')));
+      await tester.pumpAndSettle();
+
+      expect(runner.imports.single, (format: ImportFormat.cxf, text: cxf));
+      expect(runner.calls.single, (dup: DupStrategy.overwrite, mode: OverwriteMode.merge));
+      expect(card, findsNothing, reason: 'imported data does not wait any more');
+    });
+
+    testWidgets('discard drops it without importing', (tester) async {
+      final runner = await pumpTab(tester, exchange: cxf);
+      await tester.tap(find.byKey(const ValueKey('credential-exchange-discard')));
+      await tester.pumpAndSettle();
+      expect(card, findsNothing);
+      expect(runner.imports, isEmpty);
+    });
+
+    testWidgets('unreadable data says so', (tester) async {
+      await pumpTab(tester, exchange: 'not json');
+      expect(find.textContaining('could not be read'), findsOneWidget);
+    });
   });
 }

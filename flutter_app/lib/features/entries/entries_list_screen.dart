@@ -29,6 +29,7 @@ import '../../core/util/entry_tags.dart';
 import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
 import '../../core/autofill/autofill_service.dart';
+import '../../core/passkeys/passkey.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/pb_button.dart';
 import '../../shared/widgets/prompt_title.dart';
@@ -65,8 +66,8 @@ class SearchIndex {
 }
 
 /// Decrypted, searchable text per entry id — username plus the non-secret
-/// typed fields (email, names, company, phone, notes, custom-field labels/
-/// values, cardholder, IBAN last-4, tags), lowercased and joined — and each
+/// typed fields (email, names, company, phone, server host, notes, custom-field
+/// labels/values, cardholder, IBAN last-4, tags), lowercased and joined — and each
 /// entry's tags. Passwords, CVVs, full card/IBAN numbers and TOTP secrets are
 /// deliberately NOT indexed. In-memory only; recomputed whenever the entry
 /// list is invalidated.
@@ -93,7 +94,7 @@ final searchIndexProvider = FutureProvider<SearchIndex>((ref) async {
         'username', 'account', 'email', 'title', 'first_name', 'last_name',
         'company', 'phone', 'street', 'city', 'postal_code', 'country',
         'holder_name', 'bank_name', 'issuer', 'product_name',
-        'purchase_email', 'notes',
+        'purchase_email', 'host', 'notes',
       ]) {
         final v = data[key];
         if (v is String && v.isNotEmpty) parts.add(v);
@@ -341,7 +342,12 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
             encKey.encryptedKey, authSvc.privX25519!, authSvc.privMLKEM!);
         final data = await VaultCrypto.decryptEntryData(
             full.encryptedData, Uint8List.fromList(dataKey));
-        entries.add({'name': e.name, 'type': e.type, 'url': e.url, 'data': data});
+        entries.add({
+          'name': e.name,
+          'type': e.type,
+          'url': e.url,
+          'data': withoutPasskeys(data),
+        });
       }
       final folders = <Map<String, dynamic>>[];
       for (final child in f.children) {
@@ -513,7 +519,7 @@ class _EntriesListScreenState extends ConsumerState<EntriesListScreen>
       'name': entry.name,
       'type': entry.type,
       'url': entry.url,
-      'data': data,
+      'data': withoutPasskeys(data),
     };
     final linkKey = VaultCrypto.randomKey();
     final encryptedPayload =
@@ -1349,6 +1355,7 @@ class _EntryTile extends StatelessWidget {
       'bank-account' => (Icons.account_balance_outlined, Colors.teal),
       'identity' => (Icons.person_outline, Colors.orange),
       'license' => (Icons.workspace_premium_outlined, Colors.purpleAccent),
+      'server' => (Icons.dns_outlined, Colors.indigoAccent),
       _ => (Icons.lock_outline, AppTheme.onBgDim),
     };
     return Container(

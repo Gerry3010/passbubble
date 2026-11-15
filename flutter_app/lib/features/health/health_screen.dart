@@ -66,15 +66,9 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
               encKey.encryptedKey, privX, privM);
           final data = await VaultCrypto.decryptEntryData(
               e.encryptedData, Uint8List.fromList(dataKey));
-          final password = data['password'];
-          if (password is String && password.isNotEmpty) {
-            items.add(HealthItemInput(
-              id: e.id,
-              name: e.name,
-              password: password,
-              updatedAt: e.updatedAt,
-            ));
-          }
+          final item = healthInputFor(
+              id: e.id, name: e.name, data: data, updatedAt: e.updatedAt);
+          if (item != null) items.add(item);
         } catch (_) {
           // skip entries we cannot read
         }

@@ -38,9 +38,11 @@ import '../crypto/entry_update.dart';
 import '../crypto/vault_crypto.dart';
 import '../importexport/bitwarden_format.dart';
 import '../importexport/csv_format.dart';
+import '../importexport/cxf_format.dart';
 import '../importexport/entry_record.dart';
 import '../importexport/onepassword_format.dart';
 import '../importexport/psono_format.dart';
+import '../passkeys/passkey.dart';
 import '../util/entry_tags.dart';
 import '../util/entry_totp.dart';
 import '../../features/entries/entries_list_screen.dart'
@@ -413,7 +415,9 @@ class JobRunner extends Notifier<List<LocalJob>> {
       case ImportFormat.csv1Password:
         return (records: parseCsv(utf8.decode(bytes), CsvImportFormat.onePassword), warnings: const []);
       case ImportFormat.bitwarden:
-        return (records: parseBitwarden(utf8.decode(bytes)), warnings: const []);
+        return parseBitwardenWithWarnings(utf8.decode(bytes));
+      case ImportFormat.cxf:
+        return parseCxf(utf8.decode(bytes));
       case ImportFormat.psono:
         final r = parsePsono(utf8.decode(bytes));
         return (records: r.records, warnings: r.warnings);
@@ -522,10 +526,11 @@ class JobRunner extends Notifier<List<LocalJob>> {
   /// The decrypted entry JSON for an imported record: what the file holds, with
   /// empty values left out.
   Map<String, dynamic> _recordToPayload(EntryRecord rec) {
-    final m = <String, dynamic>{...rec.dataValues};
+    final m = <String, dynamic>{...rec.extraData, ...rec.dataValues};
     if (rec.customFields.isNotEmpty) {
       m['custom_fields'] = rec.customFields.map((cf) => cf.toJson()).toList();
     }
+    if (rec.passkeys.isNotEmpty) m[passkeysKey] = rec.passkeys;
     putTags(m, rec.tags);
     return m;
   }
@@ -632,6 +637,7 @@ class JobRunner extends Notifier<List<LocalJob>> {
       productName: s('product_name'),
       customFields: customFields,
       extraData: extraEntryData(data),
+      passkeys: passkeyRecordsOf(data),
       tags: tagsOf(data),
     );
   }
@@ -649,11 +655,16 @@ class JobRunner extends Notifier<List<LocalJob>> {
 /// The stored TOTP options go when a different secret comes in without any, as
 /// they belong to the old one. They stay as long as a custom `totp` field with
 /// another key is left, which reads the same options ([TotpOptions.stored]).
+///
+/// Passkeys merge by credential id, see [_mergePasskeys].
 Map<String, dynamic> mergeImportedData(
   Map<String, dynamic> existing,
   Map<String, dynamic> payload,
 ) {
   final merged = {...existing, ...payload};
+  if (payload[passkeysKey] is List) {
+    merged[passkeysKey] = _mergePasskeys(existing, payload);
+  }
   if (isStrayTotpSecret(existing) && !payload.containsKey(totpSecretKey)) {
     merged.remove(totpSecretKey);
   }
@@ -711,6 +722,25 @@ List<dynamic> _mergeCustomFields(Object? existing, List<dynamic> imported) {
       ..remove('filename')
       ..remove('mime_type')
       ..addAll(field);
+  }
+  return merged;
+}
+
+/// The existing passkeys with the imported ones merged in by credential id: an
+/// imported record updates the one with its id and keeps that record's other
+/// keys (a `prf_secret`, say), a new id is appended, and every other passkey
+/// stays.
+List<Map<String, dynamic>> _mergePasskeys(
+    Map<String, dynamic> existing, Map<String, dynamic> payload) {
+  final merged = List<Map<String, dynamic>>.of(passkeyRecordsOf(existing));
+  for (final record in passkeyRecordsOf(payload)) {
+    final id = credentialIdOf(record);
+    final at = merged.indexWhere((r) => credentialIdOf(r) == id);
+    if (at < 0) {
+      merged.add(record);
+    } else {
+      merged[at] = {...merged[at], ...record};
+    }
   }
   return merged;
 }

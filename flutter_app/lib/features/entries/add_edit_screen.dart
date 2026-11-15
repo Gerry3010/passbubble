@@ -27,6 +27,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/crypto/entry_update.dart';
 import '../../core/crypto/vault_crypto.dart';
 import '../../core/importexport/entry_record.dart' show CustomFieldType, CustomFieldTypeX;
+import '../../core/passkeys/passkey.dart' show passkeyRecordsOf;
 import '../../core/theme/app_theme.dart';
 import '../../core/util/entry_tags.dart';
 import '../../core/util/entry_totp.dart';
@@ -97,6 +98,7 @@ const _allTypes = [
   ('bank-account', 'Bank Account', Icons.account_balance_outlined),
   ('identity',     'Identity',     Icons.badge_outlined),
   ('license',      'License',      Icons.confirmation_number_outlined),
+  ('server',       'Server',       Icons.dns_outlined),
 ];
 
 class AddEditScreen extends ConsumerStatefulWidget {
@@ -130,6 +132,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   bool _loading = false;
   bool _obscurePassword = true;
   bool _obscureCvv = true;
+  bool _obscurePassphrase = true;
   String? _error;
 
   String _accountType = 'checking';
@@ -176,6 +179,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     'title', 'first_name', 'last_name', 'company', 'email', 'phone',
     'street', 'city', 'state', 'postal_code', 'country',
     'product_name', 'license_key', 'purchase_email', 'purchase_date', 'expires_at',
+    'host', 'port', 'private_key', 'key_passphrase',
   ];
 
   /// Fields of [_allFields] the entry's metadata holds. Their copies in the
@@ -184,9 +188,14 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   /// that.
   static const _metadataFields = {'name', 'url'};
 
-  /// Fields of [_allFields] saved exactly as typed: a password may have outer
-  /// whitespace, and an SSH private key (in `password` too) ends in a newline.
-  static const _verbatimFields = {'password'};
+  /// Fields of [_allFields] saved exactly as typed: a password or passphrase
+  /// may have outer whitespace, and an SSH private key (in `password` for the
+  /// `ssh-key` type, in `private_key` for `server`) ends in a newline.
+  static const _verbatimFields = {'password', 'private_key', 'key_passphrase'};
+
+  /// How many passkeys the entry holds. They live in [_extraData] (the form
+  /// does not edit them) and are managed on the entry page.
+  int get _passkeyCount => passkeyRecordsOf(_extraData).length;
 
   @override
   void dispose() {
@@ -224,7 +233,9 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         // Fill all controllers from decrypted data
         for (final key in _allFields) {
           if (data.containsKey(key) && !_metadataFields.contains(key)) {
-            _ctrl[key]!.text = (data[key] as String?) ?? '';
+            final v = data[key];
+            // A number (a server port another client wrote as one) reads as text.
+            _ctrl[key]!.text = v is num ? '$v' : (v as String?) ?? '';
           }
         }
         _hasStoredPassword = _ctrl['password']!.text.isNotEmpty;
@@ -599,6 +610,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
       'bank-account' => _bankAccountFields(),
       'identity'     => _identityFields(),
       'license'      => _licenseFields(),
+      'server'       => _serverFields(),
       _              => _passwordFields(),
     };
   }
@@ -614,6 +626,22 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
   List<Widget> _passwordFields() => [
     _field('username', 'Username', Icons.person_outline),
     _passwordField(),
+    if (_passkeyCount > 0)
+      Padding(
+        padding: const EdgeInsets.only(top: 6, left: 12),
+        child: Row(children: [
+          const Icon(Icons.key, size: 14, color: AppTheme.green),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              _passkeyCount == 1
+                  ? '1 passkey · manage it on the entry page'
+                  : '$_passkeyCount passkeys · manage them on the entry page',
+              style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12),
+            ),
+          ),
+        ]),
+      ),
     _field('totp_secret', 'TOTP Secret (optional, base32)', Icons.schedule),
     Padding(
       padding: const EdgeInsets.only(top: 4),
@@ -668,6 +696,31 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     _field('password', 'Private Key', Icons.terminal, maxLines: 6,
         validator: (v) => v!.isEmpty ? 'Required' : null),
     _field('notes', 'Notes / Passphrase', Icons.notes, maxLines: 3),
+  ];
+
+  List<Widget> _serverFields() => [
+    _field('host', 'Host', Icons.dns_outlined,
+        keyboardType: TextInputType.url,
+        validator: (v) => v!.trim().isEmpty ? 'Required' : null),
+    _field('port', 'Port', Icons.numbers,
+        hint: '22',
+        keyboardType: TextInputType.number,
+        validator: (v) {
+          final port = v!.trim();
+          if (port.isEmpty) return null;
+          final n = int.tryParse(port);
+          return n == null || n < 1 || n > 65535 ? 'Port 1–65535' : null;
+        }),
+    _field('username', 'Username', Icons.person_outline),
+    _obscuredField('password', 'Password', Icons.lock_outline,
+        ctrl: 'password', obscure: _obscurePassword,
+        onToggle: () => setState(() => _obscurePassword = !_obscurePassword),
+        showGenerate: true),
+    _field('private_key', 'Private Key', Icons.terminal, maxLines: 6),
+    _obscuredField('key_passphrase', 'Key Passphrase', Icons.key_outlined,
+        ctrl: 'key_passphrase', obscure: _obscurePassphrase,
+        onToggle: () => setState(() => _obscurePassphrase = !_obscurePassphrase)),
+    _field('notes', 'Notes', Icons.notes, maxLines: 3),
   ];
 
   List<Widget> _creditCardFields() => [
@@ -787,6 +840,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
     String label,
     IconData icon, {
     int maxLines = 1,
+    String? hint,
     TextInputType? keyboardType,
     String? Function(String?)? validator,
   }) =>
@@ -794,6 +848,7 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
         padding: const EdgeInsets.only(top: 12),
         child: PbTextField(
           label: label,
+          hint: hint,
           controller: _ctrl[key]!,
           prefixIcon: icon,
           maxLines: maxLines,
@@ -827,7 +882,8 @@ class _AddEditScreenState extends ConsumerState<AddEditScreen> {
           ),
         ],
       ),
-      validator: (v) => v!.isEmpty ? 'Required' : null,
+      // A login may hold a passkey instead of a password.
+      validator: (v) => v!.isEmpty && _passkeyCount == 0 ? 'Required' : null,
     ),
   );
 

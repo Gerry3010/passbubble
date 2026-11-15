@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import '../passkeys/passkey.dart' show passkeysKey;
 import '../util/entry_tags.dart' show tagsKey;
 import '../util/entry_totp.dart';
 
@@ -127,9 +128,15 @@ class EntryRecord {
   final List<CustomFieldRecord> customFields;
 
   /// What the entry's decrypted data holds beyond the fields of this class, by
-  /// JSON key: bank-account fields, other clients' keys. Only an export fills
-  /// this (see [extraEntryData]), for the formats that have room for them.
+  /// JSON key: bank-account fields, other clients' keys. An export fills this
+  /// (see [extraEntryData]) for the formats that have room for them; an import
+  /// may put keys there the format carries but this class has no field for
+  /// (the CXF TOTP options), and they are saved as they are.
   final Map<String, dynamic> extraData;
+
+  /// The entry's passkey records as docs/passkeys.md stores them, in the
+  /// `passkeys` array of the decrypted data. Empty = none.
+  final List<Map<String, dynamic>> passkeys;
   final List<String> tags; // normalised, see core/util/entry_tags.dart; empty = none
   final List<String> folderPath; // root→leaf, e.g. ['Work', 'Dev']; empty = root
   final String createdAt; // RFC3339 UTC, '' = unknown (server uses NOW())
@@ -163,6 +170,7 @@ class EntryRecord {
     this.productName = '',
     this.customFields = const [],
     this.extraData = const {},
+    this.passkeys = const [],
     this.tags = const [],
     this.folderPath = const [],
     this.createdAt = '',
@@ -224,6 +232,7 @@ class EntryRecord {
         productName: productName,
         customFields: customFields,
         extraData: extraData,
+        passkeys: passkeys,
         tags: tags,
         folderPath: folderPath,
         createdAt: createdAt,
@@ -284,6 +293,7 @@ const _recordKeys = {
   'product_name',
   'custom_fields',
   tagsKey,
+  passkeysKey,
 };
 
 /// Everything in the decrypted entry [data] that [EntryRecord] has no place for,

@@ -26,9 +26,12 @@ import '../../core/api/api_client.dart';
 import '../../core/api/models.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/crypto/vault_crypto.dart';
+import '../../core/passkeys/passkey.dart';
+import '../../core/passkeys/passkey_vault.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/util/entry_tags.dart';
 import '../../core/util/entry_totp.dart';
+import '../../core/util/ssh_command.dart';
 import '../../shared/widgets/prompt_title.dart';
 import '../../shared/widgets/share_link_dialog.dart';
 import '../manage/shares_tab.dart' show sharesProvider;
@@ -60,6 +63,8 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
   String? _totpCode;
   int _totpRemaining = 30;
   Timer? _totpTimer;
+  // A passkey write (add, move, delete) is running.
+  bool _passkeyBusy = false;
 
   @override
   void dispose() {
@@ -189,7 +194,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       'name': entry.name,
       'type': entry.type,
       'url': entry.url,
-      'data': data,
+      'data': withoutPasskeys(data),
     };
     // Fresh random link key per link → each shared URL is independent.
     final linkKey = VaultCrypto.randomKey();
@@ -364,7 +369,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
                   ),
           ),
         ] else
-          ..._buildDecryptedFields(entry.type, d),
+          ..._buildDecryptedFields(entry, d),
         const SizedBox(height: 80),
       ],
     );
@@ -397,12 +402,16 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         _ => provider,
       };
 
-  List<Widget> _buildDecryptedFields(String type, Map<String, dynamic> d) {
+  List<Widget> _buildDecryptedFields(EntryResponse entry, Map<String, dynamic> d) {
+    final type = entry.type;
     String? str(String key) {
       final v = d[key];
       if (v is String && v.isNotEmpty) return v;
       return null;
     }
+
+    // A port another client wrote as a number.
+    final port = str('port') ?? (d['port'] is num ? '${d['port']}' : null);
 
     final totpSecret = totpSecretOf(d);
     final customFieldWidgets = <Widget>[];
@@ -451,6 +460,20 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
           if (totpSecret != null) _secretRow('TOTP Secret', totpSecret, id: 'totp_secret'),
           if (str('sign_in_with') != null)
             _infoRow('Sign in with', _ssoLabel(str('sign_in_with')!)),
+          ...common,
+          if (type == 'password') ..._passkeySection(entry, d),
+        ],
+      'server' => [
+          if (str('host') != null) _copyRow('Host', str('host')!),
+          if (port != null) _infoRow('Port', port),
+          if (str('username') != null) _copyRow('User', str('username')!),
+          if (str('host') != null)
+            _copyRow('SSH command', sshCommand(str('host')!, port: port, user: str('username'))),
+          if (str('password') != null) _secretRow('Password', str('password')!, id: 'password'),
+          if (str('private_key') != null)
+            _secretRow('Private key', str('private_key')!, id: 'private_key'),
+          if (str('key_passphrase') != null)
+            _secretRow('Passphrase', str('key_passphrase')!, id: 'key_passphrase'),
           ...common,
         ],
       'totp' => [
@@ -516,6 +539,153 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
           ...common,
         ],
     };
+  }
+
+  // ── Passkeys ──────────────────────────────────────────────────────────────
+
+  /// The entry's passkeys, each with Move and Delete, and Add below them. The
+  /// private key is never shown. A read-only share only lists them.
+  List<Widget> _passkeySection(EntryResponse entry, Map<String, dynamic> d) {
+    final passkeys = passkeysOf(d);
+    final canEdit = entry.permission != 'read';
+    return [
+      if (passkeys.isNotEmpty) ...[
+        const Padding(
+          padding: EdgeInsets.only(top: 16, bottom: 4),
+          child: Text('PASSKEYS',
+              style: TextStyle(color: AppTheme.green, fontSize: 11, letterSpacing: 2)),
+        ),
+        for (final p in passkeys) _passkeyRow(entry, p, canEdit: canEdit),
+      ],
+      if (canEdit)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const ValueKey('add-passkey'),
+            icon: const Icon(Icons.add, size: 16),
+            label: const Text('Add passkey'),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.green),
+            onPressed: _passkeyBusy ? null : () => _addPasskey(entry, d),
+          ),
+        ),
+    ];
+  }
+
+  Widget _passkeyRow(EntryResponse entry, Passkey p, {required bool canEdit}) {
+    final created = p.created;
+    final subtitle = [
+      if (p.userName.isNotEmpty) p.userName,
+      if (created != null) 'added ${_date(created)}',
+    ].join(' · ');
+    return ListTile(
+      key: ValueKey('passkey-${p.credentialId}'),
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.key, color: AppTheme.green),
+      title: Text(p.rpId),
+      subtitle: subtitle.isEmpty
+          ? null
+          : Text(subtitle, style: const TextStyle(color: AppTheme.onBgDim, fontSize: 12)),
+      trailing: canEdit
+          ? PopupMenuButton<String>(
+              tooltip: 'Passkey actions',
+              enabled: !_passkeyBusy,
+              onSelected: (action) => switch (action) {
+                'move' => _movePasskey(entry, p),
+                _ => _deletePasskey(entry, p),
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'move', child: Text('Move to…')),
+                PopupMenuItem(value: 'delete', child: Text('Delete')),
+              ],
+            )
+          : null,
+    );
+  }
+
+  static String _date(DateTime t) =>
+      '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+
+  /// Runs a passkey write, then shows its result and refreshes what depends on
+  /// the entry: the list, this page and the autofill caches.
+  Future<void> _passkeyWrite(
+      Future<Map<String, dynamic>> Function() write, String done) async {
+    setState(() => _passkeyBusy = true);
+    try {
+      final data = await write();
+      if (!mounted) return;
+      setState(() => _decrypted = data);
+      ref.invalidate(_entryDetailProvider(widget.id));
+      ref.invalidate(entriesProvider);
+      ref.read(authServiceProvider).refreshAutofill().ignore();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(done)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _passkeyBusy = false);
+    }
+  }
+
+  Future<void> _addPasskey(EntryResponse entry, Map<String, dynamic> d) async {
+    final record = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => AddPasskeyDialog(
+        rpId: entryHost(entry.url),
+        userName: d['username'] as String? ?? '',
+      ),
+    );
+    if (record == null || !mounted) return;
+    final api = ref.read(apiClientProvider);
+    final auth = ref.read(authServiceProvider);
+    await _passkeyWrite(
+      () async => (await attachPasskey(api, auth, record, entryId: entry.id)).data,
+      'Passkey added',
+    );
+  }
+
+  Future<void> _movePasskey(EntryResponse entry, Passkey p) async {
+    final target = await showDialog<DecryptedEntry>(
+      context: context,
+      builder: (_) => _MoveTargetDialog(excludeId: entry.id),
+    );
+    if (target == null || !mounted) return;
+    final api = ref.read(apiClientProvider);
+    final auth = ref.read(authServiceProvider);
+    await _passkeyWrite(
+      () => movePasskey(api, auth,
+          fromId: entry.id, toId: target.entry.id, credentialId: p.credentialId),
+      'Passkey moved to ${target.entry.name}',
+    );
+  }
+
+  Future<void> _deletePasskey(EntryResponse entry, Passkey p) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete passkey?'),
+        content: Text(
+            'The passkey for ${p.rpId}${p.userName.isEmpty ? '' : ' (${p.userName})'} '
+            'is removed from this entry. You can no longer sign in with it, and the '
+            'site still lists it until you remove it there. It stays in the version '
+            'history until the history is purged.'),
+        actions: [
+          TextButton(onPressed: () => ctx.pop(false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => ctx.pop(true),
+            child: const Text('Delete', style: TextStyle(color: AppTheme.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final api = ref.read(apiClientProvider);
+    final auth = ref.read(authServiceProvider);
+    await _passkeyWrite(
+      () => removePasskey(api, auth, entry.id, p.credentialId),
+      'Passkey deleted',
+    );
   }
 
   String _formatAddress(Map<String, dynamic> d) {
@@ -706,6 +876,209 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Picks the `password` entry a passkey moves to, by name and username. The
+/// entry it comes from and read-only shares are not offered.
+class _MoveTargetDialog extends ConsumerStatefulWidget {
+  final String excludeId;
+  const _MoveTargetDialog({required this.excludeId});
+
+  @override
+  ConsumerState<_MoveTargetDialog> createState() => _MoveTargetDialogState();
+}
+
+class _MoveTargetDialogState extends ConsumerState<_MoveTargetDialog> {
+  late final Future<List<DecryptedEntry>> _targets = _load();
+
+  Future<List<DecryptedEntry>> _load() async {
+    final all = await loadDecryptedEntries(
+        ref.read(apiClientProvider), ref.read(authServiceProvider),
+        type: 'password');
+    return all
+        .where((e) => e.entry.id != widget.excludeId && e.entry.permission != 'read')
+        .toList()
+      ..sort((a, b) => a.entry.name.toLowerCase().compareTo(b.entry.name.toLowerCase()));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Move passkey to…'),
+      content: SizedBox(
+        width: 400,
+        child: FutureBuilder<List<DecryptedEntry>>(
+          future: _targets,
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return Text('${snap.error}', style: const TextStyle(color: AppTheme.error));
+            }
+            final targets = snap.data;
+            if (targets == null) {
+              return const SizedBox(
+                  height: 80, child: Center(child: CircularProgressIndicator()));
+            }
+            if (targets.isEmpty) {
+              return const Text('No other password entry to move it to.');
+            }
+            return ListView(
+              shrinkWrap: true,
+              children: [
+                for (final t in targets)
+                  ListTile(
+                    key: ValueKey('move-target-${t.entry.id}'),
+                    leading: const Icon(Icons.lock_outline),
+                    title: Text(t.entry.name),
+                    subtitle: switch (t.data['username']) {
+                      final String u when u.isNotEmpty => Text(u),
+                      _ => null,
+                    },
+                    onTap: () => Navigator.pop(context, t),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      ],
+    );
+  }
+}
+
+/// Collects a passkey's parts for adding it by hand (docs/passkeys.md, "Adding
+/// a passkey by hand") and checks them. Pops the record, or null on Cancel.
+/// Hand-added passkeys get no `prf_secret`: only a client creating a new key
+/// pair generates one.
+class AddPasskeyDialog extends StatefulWidget {
+  final String rpId;
+  final String userName;
+  const AddPasskeyDialog({super.key, this.rpId = '', this.userName = ''});
+
+  @override
+  State<AddPasskeyDialog> createState() => _AddPasskeyDialogState();
+}
+
+class _AddPasskeyDialogState extends State<AddPasskeyDialog> {
+  final _form = GlobalKey<FormState>();
+  late final _rpId = TextEditingController(text: widget.rpId);
+  late final _userName = TextEditingController(text: widget.userName);
+  final _userHandle = TextEditingController();
+  final _credentialId = TextEditingController();
+  final _privateKey = TextEditingController();
+
+  @override
+  void dispose() {
+    for (final c in [_rpId, _userName, _userHandle, _credentialId, _privateKey]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  static String? _rpIdError(String? v) {
+    final rpId = normalizeRpId(v ?? '');
+    if (rpId.isEmpty) return 'Required';
+    final domain = RegExp(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$');
+    if (!domain.hasMatch(rpId) || (!rpId.contains('.') && rpId != 'localhost')) {
+      return "Enter the site's domain, e.g. example.com";
+    }
+    return null;
+  }
+
+  static String? Function(String?) _bytesError(int max) => (v) {
+        if ((v ?? '').trim().isEmpty) return 'Required';
+        try {
+          final n = decodeBase64Flexible(v!).length;
+          if (n == 0) return 'Required';
+          return n > max ? 'At most $max bytes' : null;
+        } on FormatException {
+          return 'Not base64 or base64url';
+        }
+      };
+
+  static String? _keyError(String? v) {
+    try {
+      normalizePrivateKey(v ?? '');
+      return null;
+    } on PasskeyKeyException catch (e) {
+      return e.message;
+    }
+  }
+
+  void _save() {
+    if (!_form.currentState!.validate()) return;
+    Navigator.pop<Map<String, dynamic>>(context, {
+      'credential_id': normalizeBase64Url(_credentialId.text),
+      'rp_id': normalizeRpId(_rpId.text),
+      'user_handle': normalizeBase64Url(_userHandle.text),
+      'user_name': _userName.text.trim(),
+      'key_algorithm': es256,
+      'private_key': normalizePrivateKey(_privateKey.text),
+      'sign_count': 0,
+      'discoverable': true,
+      'created_at': rfc3339Utc(DateTime.now()),
+    });
+  }
+
+  Widget _input(String key, TextEditingController ctrl, String label,
+          {String? hint, String? Function(String?)? validator, int maxLines = 1}) =>
+      Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: TextFormField(
+          key: ValueKey(key),
+          controller: ctrl,
+          maxLines: maxLines,
+          validator: validator,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: InputDecoration(labelText: label, hintText: hint, errorMaxLines: 3),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add passkey'),
+      content: SizedBox(
+        width: 480,
+        child: Form(
+          key: _form,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'For a passkey exported from another app. Passbubble stores it '
+                  'encrypted and uses it to sign in.',
+                  style: TextStyle(color: AppTheme.onBgDim, fontSize: 12),
+                ),
+                _input('passkey-rp-id', _rpId, 'Website', hint: 'example.com',
+                    validator: _rpIdError),
+                _input('passkey-user-name', _userName, 'User name'),
+                _input('passkey-user-handle', _userHandle, 'User handle',
+                    hint: 'base64url', validator: _bytesError(64)),
+                _input('passkey-credential-id', _credentialId, 'Credential ID',
+                    hint: 'base64url', validator: _bytesError(1023)),
+                _input('passkey-private-key', _privateKey, 'Private key',
+                    hint: '-----BEGIN PRIVATE KEY----- … or base64',
+                    validator: _keyError, maxLines: 5),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          key: const ValueKey('passkey-save'),
+          onPressed: _save,
+          child: const Text('Add'),
+        ),
+      ],
     );
   }
 }

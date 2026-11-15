@@ -14,7 +14,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import 'dart:convert';
+import 'dart:typed_data';
 
+import '../passkeys/passkey.dart';
 import '../util/entry_tags.dart';
 import '../util/entry_totp.dart';
 import 'entry_record.dart';
@@ -27,20 +29,145 @@ const _fieldHidden = 1;
 
 /// Parses a Bitwarden unencrypted JSON export.
 /// Mirrors backend/pkg/importers/bitwarden.go.
-List<EntryRecord> parseBitwarden(String content) {
+List<EntryRecord> parseBitwarden(String content) => parseBitwardenWithWarnings(content).records;
+
+/// [parseBitwarden], with what the file holds that the import leaves out: the
+/// passkeys that are not ES256 or could not be read.
+({List<EntryRecord> records, List<String> warnings}) parseBitwardenWithWarnings(
+    String content) {
   final Map<String, dynamic> json = jsonDecode(content) as Map<String, dynamic>;
   final items = json['items'] as List? ?? [];
   final records = <EntryRecord>[];
+  final skipped = _SkippedPasskeys();
 
   for (final item in items) {
     final m = item as Map<String, dynamic>;
-    final rec = _convertItem(m);
+    final rec = _convertItem(m, skipped);
     if (rec != null) records.add(rec);
   }
-  return records;
+  return (records: records, warnings: skipped.warnings);
 }
 
-EntryRecord? _convertItem(Map<String, dynamic> m) {
+/// Counts the passkeys an import leaves out, by reason.
+class _SkippedPasskeys {
+  int unsupported = 0;
+  int unreadable = 0;
+
+  List<String> get warnings => [
+        if (unsupported > 0)
+          '$unsupported ${unsupported == 1 ? 'passkey was' : 'passkeys were'} skipped: '
+              'only ES256 (P-256) passkeys are supported.',
+        if (unreadable > 0)
+          '$unreadable ${unreadable == 1 ? 'passkey was' : 'passkeys were'} skipped: '
+              'its data could not be read.',
+      ];
+}
+
+/// The bytes of a Bitwarden `credentialId`: a GUID's 16 bytes in the order
+/// written, or what follows `b64.`. Null for anything else.
+Uint8List? _bitwardenCredentialId(String v) {
+  final id = v.trim();
+  final guid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+  if (guid.hasMatch(id)) {
+    final hex = id.replaceAll('-', '');
+    return Uint8List.fromList([
+      for (var i = 0; i < 32; i += 2) int.parse(hex.substring(i, i + 2), radix: 16),
+    ]);
+  }
+  if (id.startsWith('b64.')) {
+    try {
+      final bytes = decodeBase64Flexible(id.substring(4));
+      return bytes.isEmpty ? null : bytes;
+    } on FormatException {
+      return null;
+    }
+  }
+  return null;
+}
+
+/// A Bitwarden `fido2Credentials` item as a passkey record, or null (counted in
+/// [skipped]) when it is not ES256 or cannot be read.
+Map<String, dynamic>? _passkeyOf(Map<String, dynamic> f, _SkippedPasskeys skipped) {
+  String s(String k) => switch (f[k]) {
+        final String v => v,
+        null => '',
+        final v => '$v',
+      };
+  bool isOr(String k, String expected) => s(k).isEmpty || s(k).toUpperCase() == expected.toUpperCase();
+  if (!isOr('keyType', 'public-key') || !isOr('keyAlgorithm', 'ECDSA') || !isOr('keyCurve', 'P-256')) {
+    skipped.unsupported++;
+    return null;
+  }
+  final id = _bitwardenCredentialId(s('credentialId'));
+  final rpId = s('rpId').trim().toLowerCase();
+  String? userHandle;
+  try {
+    userHandle = s('userHandle').isEmpty ? null : normalizeBase64Url(s('userHandle'));
+  } on FormatException {
+    userHandle = null;
+  }
+  if (id == null || rpId.isEmpty || userHandle == null) {
+    skipped.unreadable++;
+    return null;
+  }
+  final String privateKey;
+  try {
+    privateKey = normalizePrivateKey(s('keyValue'));
+  } on PasskeyKeyException catch (e) {
+    if (e.message.contains('Passkeys need a P-256 key')) {
+      skipped.unsupported++;
+    } else {
+      skipped.unreadable++;
+    }
+    return null;
+  }
+  final created = DateTime.tryParse(s('creationDate'));
+  return {
+    'credential_id': base64UrlNoPad(id),
+    'rp_id': rpId,
+    if (s('rpName').isNotEmpty) 'rp_name': s('rpName'),
+    'user_handle': userHandle,
+    'user_name': s('userName'),
+    if (s('userDisplayName').isNotEmpty) 'user_display_name': s('userDisplayName'),
+    'key_algorithm': es256,
+    'private_key': privateKey,
+    'sign_count': 0,
+    'discoverable': s('discoverable').toLowerCase() != 'false',
+    'created_at': rfc3339Utc(created ?? DateTime.now()),
+  };
+}
+
+/// A passkey record as a Bitwarden `fido2Credentials` item. Same shape as
+/// `bitwardenPasskey` in backend/pkg/exporters/bitwarden.go.
+Map<String, dynamic> _fido2CredentialOf(Map<String, dynamic> record) {
+  final p = Passkey.fromJson(record);
+  String b64url(String v) {
+    try {
+      return normalizeBase64Url(v);
+    } on FormatException {
+      return v;
+    }
+  }
+
+  return {
+    'credentialId': 'b64.${b64url(p.credentialId)}',
+    'keyType': 'public-key',
+    'keyAlgorithm': 'ECDSA',
+    'keyCurve': 'P-256',
+    'keyValue': b64url(p.privateKey),
+    'rpId': p.rpId,
+    'userHandle': b64url(p.userHandle),
+    // Strings even when empty, as the server's export writes them.
+    'userName': p.userName,
+    'counter': '0',
+    'rpName': p.rpName,
+    'userDisplayName': p.userDisplayName,
+    'discoverable': p.discoverable ? 'true' : 'false',
+    'creationDate': p.createdAt.isEmpty ? null : p.createdAt,
+  };
+}
+
+EntryRecord? _convertItem(Map<String, dynamic> m, _SkippedPasskeys skipped) {
   final name = m['name'] as String? ?? '';
   final notes = m['notes'] as String? ?? '';
   final type = m['type'] as int? ?? 1;
@@ -66,15 +193,21 @@ EntryRecord? _convertItem(Map<String, dynamic> m) {
       final url = uris.isNotEmpty ? (uris[0] as Map)['uri'] as String? ?? '' : '';
       final password = login?['password'] as String? ?? '';
       final totp = login?['totp'] as String? ?? '';
+      final passkeys = [
+        for (final f in (login?['fido2Credentials'] as List? ?? const []).whereType<Map>())
+          ?_passkeyOf(f.cast<String, dynamic>(), skipped),
+      ];
       return EntryRecord(
         name: name.isNotEmpty ? name : (login?['username'] as String? ?? ''),
         url: url,
-        type: loginType(password, totp),
+        // Passkeys belong to password entries, with or without a password.
+        type: passkeys.isNotEmpty ? 'password' : loginType(password, totp),
         username: login?['username'] as String? ?? '',
         password: password,
         totpSecret: totp,
         notes: notes,
         customFields: fieldsList,
+        passkeys: passkeys,
         tags: tags,
         createdAt: created,
         updatedAt: updated,
@@ -232,6 +365,10 @@ const _knownKeys = <String, bool>{
   'purchase_email': false,
   'purchase_date': false,
   'expires_at': false,
+  'host': false,
+  'port': false,
+  'private_key': true,
+  'key_passphrase': true,
 };
 
 Map<String, dynamic> _field(String name, Object? value, {required bool hidden}) => {
@@ -310,6 +447,8 @@ String exportBitwarden(List<EntryRecord> records, [BitwardenExportOptions opts =
             'uris': [
               {'uri': r.url}
             ],
+          if (r.passkeys.isNotEmpty)
+            'fido2Credentials': r.passkeys.map(_fido2CredentialOf).toList(),
         };
         held = _loginKeys;
     }
@@ -347,6 +486,10 @@ String exportBitwarden(List<EntryRecord> records, [BitwardenExportOptions opts =
       exportedFields.add(_field('type', r.type, hidden: false));
     }
     exportedFields.addAll(_unknownFields(values));
+    // Only a login has a place for passkeys; elsewhere they stay as data.
+    if (item['type'] != 1 && r.passkeys.isNotEmpty) {
+      exportedFields.add(_field(passkeysKey, r.passkeys, hidden: true));
+    }
     final tags = joinTags(r.tags);
     if (tags.isNotEmpty) {
       exportedFields.add({'name': bitwardenTagsField, 'value': tags, 'type': _fieldText});

@@ -162,6 +162,20 @@ class HealthItemInput {
   });
 }
 
+/// What the report checks of one decrypted entry: its password. An entry
+/// without one is left out, so a login holding only a passkey (its password is
+/// empty, see docs/passkeys.md) is neither weak nor reused.
+HealthItemInput? healthInputFor({
+  required String id,
+  required String name,
+  required Map<String, dynamic> data,
+  String updatedAt = '',
+}) {
+  final password = data['password'];
+  if (password is! String || password.isEmpty) return null;
+  return HealthItemInput(id: id, name: name, password: password, updatedAt: updatedAt);
+}
+
 class HealthReport {
   final int total;
   final int score;

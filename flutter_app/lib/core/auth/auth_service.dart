@@ -27,6 +27,8 @@ import '../autofill/autofill_service.dart';
 import '../crypto/vault_crypto.dart';
 import '../crypto/ml_kem.dart';
 import '../crypto/pin_crypto.dart';
+import '../passkeys/passkey.dart';
+import '../passkeys/passkey_vault.dart';
 import '../util/entry_totp.dart';
 
 const _kUserIdKey = 'user_id';
@@ -97,7 +99,8 @@ enum UnlockStatus {
 }
 
 final authServiceProvider = Provider<AuthService>(
-  (ref) => AuthService(ref.watch(apiClientProvider)),
+  (ref) => AuthService(ref.watch(apiClientProvider),
+      autofill: ref.watch(autofillBridgeProvider)),
 );
 
 final authStateProvider = StateNotifierProvider<AuthNotifier, AuthState>(
@@ -304,10 +307,11 @@ class AuthService {
   /// Whether the private keys are in memory, i.e. the vault is usable.
   bool get hasVaultKeys => _privX25519 != null;
 
-  // Android system-autofill bridge (no-op on other platforms).
-  final AutofillBridge _autofill = const AutofillBridge();
+  // System-autofill bridge: Android, iOS and macOS (no-op elsewhere).
+  final AutofillBridge _autofill;
 
-  AuthService(this._api);
+  AuthService(this._api, {AutofillBridge autofill = const AutofillBridge()})
+      : _autofill = autofill;
 
   ApiClient get api => _api;
 
@@ -315,22 +319,37 @@ class AuthService {
   /// create / update / delete / import). Best-effort; never throws.
   Future<void> refreshAutofill() => _syncAutofill();
 
+  /// The sync running now; the next one waits for it, so two of them never
+  /// save the same pending passkey twice.
+  Future<void> _syncing = Future.value();
+
   /// Decrypts every entry and hands the ready-to-fill credentials to the system
-  /// autofill consumers — the Android autofill service and the iOS credential-
-  /// provider extension — which can't do the hybrid-KEM crypto themselves. The
-  /// app owns the crypto; both platforms just read the cached result. No-op while
-  /// locked or when neither platform consumes it. Best-effort; never throws.
-  Future<void> _syncAutofill() async {
-    final privX = _privX25519;
-    final privM = _privMLKEM;
+  /// autofill consumers — the Android autofill service and the iOS/macOS
+  /// credential-provider extensions — which can't do the hybrid-KEM crypto
+  /// themselves. The app owns the crypto; the platforms just read the cached
+  /// result. On iOS and macOS it first saves the passkeys the extension created
+  /// meanwhile, then hands over every passkey of the vault too. No-op while
+  /// locked or when no platform consumes it. Best-effort; never throws.
+  Future<void> _syncAutofill() {
+    final run = _syncing.then((_) => _syncAutofillNow()).onError((_, _) {});
+    _syncing = run;
+    return run;
+  }
+
+  Future<void> _syncAutofillNow() async {
+    final privX = privX25519;
+    final privM = privMLKEM;
     if (privX == null) return; // vault locked
 
+    final apple = _autofill.isApple;
     final androidOk = await _autofill.isSupported();
-    if (!androidOk && !_autofill.isIos) return; // no autofill consumer here
+    if (!androidOk && !apple) return; // no autofill consumer here
+    if (apple) await _savePendingPasskeys();
     try {
       // One round-trip: every entry with its encrypted_data + the caller's key.
       final entries = await _api.listEntriesFull();
       final creds = <Map<String, String>>[];
+      final passkeys = <Map<String, dynamic>>[];
       for (final e in entries) {
         if (e.entryKey == null || e.encryptedData.isEmpty) continue;
         try {
@@ -343,12 +362,16 @@ class AuthService {
             e.encryptedData,
             Uint8List.fromList(dataKey),
           );
+          for (final record in passkeyRecordsOf(data)) {
+            passkeys.add({...record, 'entry_id': e.id, 'entry_name': e.name});
+          }
           final username =
               (data['username'] ?? data['account'] ?? '').toString();
           final password = (data['password'] ?? '').toString();
           final totp = totpSecretOf(data) ?? '';
           // Only credential-bearing entries are useful to system autofill —
-          // a password alone is enough (some logins have no username).
+          // a password alone is enough (some logins have no username). An
+          // entry holding only a passkey is not offered as a password.
           if (password.isEmpty && totp.isEmpty) continue;
           creds.add({
             'id': e.id,
@@ -367,10 +390,39 @@ class AuthService {
       }
       final json = jsonEncode(creds);
       await _autofill.updateCredentials(json); // Android (no-op elsewhere)
-      await _autofill.syncIosCredentials(json); // iOS (no-op elsewhere)
+      await _autofill.syncIosCredentials(json); // iOS + macOS (no-op elsewhere)
+      if (apple) await _autofill.syncPasskeys(jsonEncode(passkeys));
     } catch (_) {
       // Network/other failure: leave the previous cache in place.
     }
+  }
+
+  /// Saves the passkeys the AutoFill extension created into the vault (see
+  /// [attachPasskey]), then tells it which ones it may drop: exactly those
+  /// saved, by the credential id it wrote, so one created meanwhile stays.
+  Future<void> _savePendingPasskeys() async {
+    final List<Object?> pending;
+    try {
+      final decoded = jsonDecode(await _autofill.readPendingPasskeys());
+      if (decoded is! List || decoded.isEmpty) return;
+      pending = decoded;
+    } catch (_) {
+      return;
+    }
+    final saved = <String>[];
+    for (final item in pending) {
+      if (item is! Map) continue;
+      final record = item.cast<String, dynamic>();
+      final id = record['credential_id'];
+      if (id is! String || id.isEmpty) continue;
+      try {
+        await attachPasskey(_api, this, record);
+        saved.add(id);
+      } catch (_) {
+        // Stays pending; the next unlock tries again.
+      }
+    }
+    await _autofill.clearPendingPasskeys(saved);
   }
 
   Future<void> clearLocalSession() async {

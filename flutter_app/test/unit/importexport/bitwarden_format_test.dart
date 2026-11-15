@@ -19,6 +19,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:passbubble/core/importexport/bitwarden_format.dart';
 import 'package:passbubble/core/importexport/entry_record.dart';
 import 'package:passbubble/core/jobs/job_runner.dart';
+import 'package:passbubble/core/importexport/csv_format.dart';
+
+import '../../fixtures/passkey_fixtures.dart';
 
 const _secret = 'JBSWY3DPEHPK3PXP';
 
@@ -32,6 +35,11 @@ CustomFieldRecord _parsedField(Map<String, dynamic> field) => parseBitwarden(jso
         },
       ],
     })).single.customFields.single;
+
+/// base64url without padding of the bytes in [hex].
+String base64UrlNoPadOfHex(String hex) => base64Url
+    .encode([for (var i = 0; i < hex.length; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)])
+    .replaceAll('=', '');
 
 Map<String, dynamic> _item(EntryRecord r) =>
     ((jsonDecode(exportBitwarden([r])) as Map)['items'] as List).single as Map<String, dynamic>;
@@ -363,6 +371,182 @@ void main() {
         expect(item['notes'], 'n', reason: type);
         expect(item.containsKey('fields'), isFalse, reason: type);
       }
+    });
+  });
+
+  group('passkeys (fido2Credentials)', () {
+    Map<String, dynamic> credential(Map<String, dynamic> overrides) => {
+          'credentialId': '0f2c4a1e-77b3-4d41-9a0e-5b6c7d8e9f01',
+          'keyType': 'public-key',
+          'keyAlgorithm': 'ECDSA',
+          'keyCurve': 'P-256',
+          'keyValue': p256Long,
+          'rpId': 'example.com',
+          'userHandle': 'dXNlci0xMjM0',
+          'userName': 'alice@example.com',
+          'counter': '17',
+          'rpName': 'Example',
+          'userDisplayName': 'Alice',
+          'discoverable': 'true',
+          'creationDate': '2026-11-14T03:00:00.000Z',
+          ...overrides,
+        };
+
+    String file(List<Map<String, dynamic>> credentials, {String password = ''}) =>
+        jsonEncode({
+          'items': [
+            {
+              'type': 1,
+              'name': 'Example',
+              'login': {
+                'username': 'alice@example.com',
+                'password': password,
+                'uris': [
+                  {'uri': 'https://example.com/login'}
+                ],
+                'fido2Credentials': credentials,
+              },
+            },
+          ],
+        });
+
+    test('import: a GUID id becomes its 16 bytes, the rest maps by the table', () {
+      final r = parseBitwardenWithWarnings(file([credential({})]));
+      expect(r.warnings, isEmpty);
+      final rec = r.records.single;
+      expect(rec.type, 'password', reason: 'a passkey without a password is still a login');
+      expect(rec.passkeys, [
+        {
+          'credential_id': base64UrlNoPadOfHex('0f2c4a1e77b34d419a0e5b6c7d8e9f01'),
+          'rp_id': 'example.com',
+          'rp_name': 'Example',
+          'user_handle': 'dXNlci0xMjM0',
+          'user_name': 'alice@example.com',
+          'user_display_name': 'Alice',
+          'key_algorithm': -7,
+          'private_key': p256Long,
+          'sign_count': 0,
+          'discoverable': true,
+          'created_at': '2026-11-14T03:00:00Z',
+        },
+      ]);
+    });
+
+    test('import: a b64. id is decoded, a key in another form is normalised', () {
+      final rec = parseBitwarden(file([
+        credential({
+          'credentialId': 'b64.q2D0bQ2u3E7XoWlS1yZbVw==',
+          'keyValue': p256Short,
+          'discoverable': 'false',
+          'rpName': null,
+          'userDisplayName': null,
+        }),
+      ])).single;
+      final p = rec.passkeys.single;
+      expect(p['credential_id'], 'q2D0bQ2u3E7XoWlS1yZbVw');
+      expect(p['private_key'], p256Long);
+      expect(p['discoverable'], false);
+      expect(p.containsKey('rp_name'), isFalse);
+    });
+
+    test('import: non-ES256 and unreadable passkeys are skipped and counted', () {
+      final r = parseBitwardenWithWarnings(file([
+        credential({}),
+        credential({'keyAlgorithm': 'EdDSA', 'keyCurve': 'Ed25519'}),
+        credential({'keyValue': base64.encode(utf8.encode(p384Pem))}),
+        credential({'keyValue': p384Pem}),
+        credential({'credentialId': 'nonsense'}),
+        credential({'keyValue': 'garbage!'}),
+      ]));
+      expect(r.records.single.passkeys, hasLength(1));
+      expect(r.warnings, [
+        '2 passkeys were skipped: only ES256 (P-256) passkeys are supported.',
+        '3 passkeys were skipped: its data could not be read.',
+      ]);
+    });
+
+    test('export: always b64. ids, counter 0, strings for discoverable', () {
+      final item = _item(EntryRecord(
+        name: 'Example',
+        url: 'https://example.com',
+        username: 'alice',
+        passkeys: [
+          {
+            'credential_id': 'q2D0bQ2u3E7XoWlS1yZbVw',
+            'rp_id': 'example.com',
+            'user_handle': 'dXNlci0xMjM0',
+            'user_name': 'alice',
+            'key_algorithm': -7,
+            'private_key': p256Long,
+            'sign_count': 0,
+            'discoverable': true,
+            'prf_secret': 'c2VjcmV0',
+            'created_at': '2026-11-14T03:00:00Z',
+          },
+        ],
+      ));
+      expect(item['login']['fido2Credentials'], [
+        {
+          'credentialId': 'b64.q2D0bQ2u3E7XoWlS1yZbVw',
+          'keyType': 'public-key',
+          'keyAlgorithm': 'ECDSA',
+          'keyCurve': 'P-256',
+          'keyValue': p256Long,
+          'rpId': 'example.com',
+          'userHandle': 'dXNlci0xMjM0',
+          'userName': 'alice',
+          'counter': '0',
+          'rpName': '',
+          'userDisplayName': '',
+          'discoverable': 'true',
+          'creationDate': '2026-11-14T03:00:00Z',
+        },
+      ]);
+      expect(item.containsKey('fields'), isFalse,
+          reason: 'passkeys are not dumped a second time as a hidden field');
+    });
+
+    test('round trip: GUID and b64. ids come back the same', () {
+      final first = parseBitwarden(file([
+        credential({}),
+        credential({'credentialId': 'b64.q2D0bQ2u3E7XoWlS1yZbVw', 'userHandle': 'AQID'}),
+      ])).single;
+      final again = parseBitwarden(exportBitwarden([first])).single;
+      expect(again.passkeys, first.passkeys);
+      expect(again.username, first.username);
+      expect(again.url, first.url);
+    });
+
+    test('CSV counts each passkey as left out', () {
+      final rec = parseBitwarden(file([credential({})], password: 'pw')).single;
+      expect(csvLeftOutFields(rec), 1);
+    });
+  });
+
+  group('server entries', () {
+    test('host and port are text fields, key and passphrase hidden, the type kept', () {
+      const key = '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----\n';
+      final item = _item(const EntryRecord(
+        name: 'Box',
+        type: 'server',
+        username: 'root',
+        password: 'pw',
+        extraData: {
+          'host': 'box.example.com',
+          'port': '2222',
+          'private_key': key,
+          'key_passphrase': ' pass ',
+        },
+      ));
+      expect(item['type'], 1);
+      expect(item['login']['username'], 'root');
+      expect(_fields(item), {
+        'host': ('box.example.com', 0),
+        'port': ('2222', 0),
+        'private_key': (key, 1),
+        'key_passphrase': (' pass ', 1),
+        'type': ('server', 0),
+      });
     });
   });
 }

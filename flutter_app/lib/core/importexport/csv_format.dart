@@ -141,7 +141,8 @@ const _csvDataColumns = {'username', 'password', 'notes'};
 int csvLeftOutFields(EntryRecord r) =>
     r.dataValues.keys.where((k) => !_csvDataColumns.contains(k)).length +
     r.customFields.length +
-    r.extraData.length;
+    r.extraData.length +
+    r.passkeys.length;
 
 String _to1PType(String t) => switch (t) {
       'note' => 'Secure Note',

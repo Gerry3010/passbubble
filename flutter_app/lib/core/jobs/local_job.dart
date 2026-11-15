@@ -26,6 +26,9 @@ enum ImportFormat {
   bitwarden,
   psono,
   onepassword1pux,
+
+  /// FIDO Credential Exchange Format, e.g. from Apple Passwords.
+  cxf,
 }
 
 /// Supported export formats. Shared by [ExportTab] and the [JobRunner].
@@ -53,6 +56,7 @@ extension ImportFormatX on ImportFormat {
         ImportFormat.bitwarden => 'Bitwarden JSON',
         ImportFormat.psono => 'Psono JSON',
         ImportFormat.onepassword1pux => '1Password (1PUX)',
+        ImportFormat.cxf => 'Credential Exchange (CXF JSON)',
       };
 
   /// Format identifier sent to the server job ledger (POST /jobs).
@@ -64,6 +68,7 @@ extension ImportFormatX on ImportFormat {
         ImportFormat.bitwarden => 'bitwarden',
         ImportFormat.psono => 'psono',
         ImportFormat.onepassword1pux => 'onepassword',
+        ImportFormat.cxf => 'cxf',
       };
 }
 

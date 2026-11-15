@@ -105,5 +105,33 @@ void main() {
       expect(report.reused, isEmpty);
       expect(report.old, isEmpty);
     });
+
+    test('a login holding only a passkey is not an empty or weak password', () async {
+      final passkeyOnly = {
+        'username': 'alice',
+        'password': '',
+        'passkeys': [
+          {'credential_id': 'AAAA', 'rp_id': 'example.com'},
+        ],
+      };
+      expect(healthInputFor(id: '1', name: 'passkey-only', data: passkeyOnly), isNull);
+      expect(
+          healthInputFor(id: '2', name: 'no key at all', data: const {'passkeys': []}), isNull);
+      final withPassword =
+          healthInputFor(id: '3', name: 'both', data: {...passkeyOnly, 'password': 'abc'});
+      expect(withPassword?.password, 'abc');
+
+      final report = await computeHealthReport(
+        [
+          ?healthInputFor(id: '1', name: 'passkey-only', data: passkeyOnly),
+          const HealthItemInput(
+              id: '4', name: 'fine', password: 'T0tally-F1ne!Pass', updatedAt: '2026-06-01T00:00:00Z'),
+        ],
+        now: now,
+      );
+      expect(report.total, 1);
+      expect(report.weak, isEmpty);
+      expect(report.score, 100);
+    });
   });
 }

@@ -37,6 +37,8 @@ import 'package:passbubble/core/importexport/onepassword_format.dart';
 import 'package:passbubble/core/jobs/job_runner.dart';
 import 'package:passbubble/core/jobs/local_job.dart';
 
+import '../../fixtures/passkey_fixtures.dart';
+
 const _libPath = 'native/passbubble_crypto/build/libpassbubble_crypto.so';
 
 typedef EntryRecordView = ({bool hasTotpKey, String secret});
@@ -978,6 +980,166 @@ void main() {
         expect(job.log.where((l) => l.startsWith('CSV has no column')), isEmpty,
             reason: format.name);
       }
+    });
+  }, skip: libExists ? false : 'native crypto lib not built ($_libPath)');
+
+  group('passkeys', () {
+    Map<String, dynamic> passkey(String id, {String handle = 'dXNlcg', Map<String, dynamic>? extra}) => {
+          'credential_id': id,
+          'rp_id': 'example.com',
+          'user_handle': handle,
+          'user_name': 'alice',
+          'key_algorithm': -7,
+          'private_key': p256Long,
+          'sign_count': 0,
+          'discoverable': true,
+          'created_at': '2026-11-14T03:00:00Z',
+          ...?extra,
+        };
+
+    String bitwarden(List<String> credentialIds, {String password = ''}) => jsonEncode({
+          'items': [
+            {
+              'type': 1,
+              'name': 'Mail',
+              'login': {
+                'username': 'alice',
+                'password': password,
+                'fido2Credentials': [
+                  for (final id in credentialIds)
+                    {
+                      'credentialId': 'b64.$id',
+                      'keyType': 'public-key',
+                      'keyAlgorithm': 'ECDSA',
+                      'keyCurve': 'P-256',
+                      'keyValue': p256Short,
+                      'rpId': 'example.com',
+                      'userHandle': 'dXNlcg',
+                      'userName': 'alice',
+                      'counter': '5',
+                      'discoverable': 'true',
+                      'creationDate': '2026-11-14T03:00:00Z',
+                    },
+                ],
+              },
+            },
+          ],
+        });
+
+    test('a new entry from Bitwarden holds the passkeys, keys normalised', () async {
+      final shared = await sharedEntry(const {'username': 'bob', 'password': 'x'});
+      final api = _FakeApi(shared.entry);
+      final job = await import(api, bitwarden(['AAAA', 'BBBB']),
+          format: ImportFormat.bitwarden, dup: DupStrategy.skip);
+      expect(job.createdItems, 1);
+      expect(api.created!.type, 'password');
+      final data = await createdData(api);
+      expect(data['passkeys'], [passkey('AAAA'), passkey('BBBB')]);
+      expect(data.containsKey('password'), isFalse, reason: 'a passkey needs no password');
+    });
+
+    test('a merging import combines passkeys by credential id', () async {
+      final shared = await sharedEntry({
+        'username': 'alice',
+        'password': 'pw',
+        'passkeys': [
+          passkey('AAAA', extra: {'prf_secret': 'cHJm', 'rp_name': 'Old'}),
+          passkey('CCCC'),
+        ],
+      });
+      final api = _FakeApi(shared.entry);
+      final job = await import(api, bitwarden(['AAAA', 'BBBB']), format: ImportFormat.bitwarden);
+      expect(job.updatedItems, 1);
+      final seen = await seenByOther(api, shared);
+      expect(seen['password'], 'pw', reason: 'no password in the file leaves it alone');
+      expect(seen['passkeys'], [
+        passkey('AAAA', extra: {'prf_secret': 'cHJm', 'rp_name': 'Old'}),
+        passkey('CCCC'),
+        passkey('BBBB'),
+      ]);
+    });
+
+    test('merge keeps the passkeys when the file has none', () {
+      final existing = {
+        'password': 'pw',
+        'passkeys': [passkey('AAAA')],
+      };
+      expect(mergeImportedData(existing, {'password': 'new'}), {
+        'password': 'new',
+        'passkeys': [passkey('AAAA')],
+      });
+    });
+
+    test('an export keeps the passkeys in Bitwarden, not as a hidden field', () async {
+      final shared = await sharedEntry({
+        'username': 'alice',
+        'password': '',
+        'passkeys': [passkey('q2D0bQ2u3E7XoWlS1yZbVw')],
+      });
+      final container = containerFor(_FakeApi(shared.entry));
+      await container.read(jobRunnerProvider.notifier).startExport(format: ExportFormat.bitwarden);
+      final job = container.read(jobRunnerProvider).single;
+      final item = ((jsonDecode(utf8.decode(job.resultBytes!)) as Map)['items'] as List).single
+          as Map<String, dynamic>;
+      expect((item['login']['fido2Credentials'] as List).single['credentialId'],
+          'b64.q2D0bQ2u3E7XoWlS1yZbVw');
+      expect(item['fields'], isNull);
+      expect(parseBitwarden(utf8.decode(job.resultBytes!)).single.passkeys,
+          [passkey('q2D0bQ2u3E7XoWlS1yZbVw')]);
+    });
+
+    test('a CSV export counts the passkeys as left out', () async {
+      final shared = await sharedEntry({
+        'username': 'alice',
+        'password': 'pw',
+        'passkeys': [passkey('AAAA'), passkey('BBBB')],
+      });
+      final container = containerFor(_FakeApi(shared.entry));
+      await container.read(jobRunnerProvider.notifier).startExport(format: ExportFormat.csv);
+      expect(container.read(jobRunnerProvider).single.log,
+          contains(startsWith('CSV has no column for 2 fields of 1 entry')));
+    });
+
+    test('a CXF import creates the login with its passkey and TOTP options', () async {
+      final shared = await sharedEntry(const {'username': 'bob', 'password': 'x'});
+      final api = _FakeApi(shared.entry);
+      final job = await import(
+          api,
+          jsonEncode({
+            'accounts': [
+              {
+                'items': [
+                  {
+                    'id': 'aQ',
+                    'title': 'Example',
+                    'credentials': [
+                      {'type': 'basic-auth', 'username': 'alice', 'password': 'pw'},
+                      {
+                        'type': 'passkey',
+                        'credentialId': 'AAAA',
+                        'rpId': 'example.com',
+                        'username': 'alice',
+                        'userHandle': 'dXNlcg',
+                        'key': p256Long,
+                      },
+                      {'type': 'totp', 'secret': 'JBSWY3DPEHPK3PXP', 'digits': 8},
+                      {'type': 'wifi'},
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
+          format: ImportFormat.cxf,
+          dup: DupStrategy.skip);
+      expect(job.createdItems, 1);
+      expect(job.warnings, ['Not imported (no matching entry type yet): 1× wifi.']);
+      final data = await createdData(api);
+      expect(data['password'], 'pw');
+      expect(data['totp_secret'], 'JBSWY3DPEHPK3PXP');
+      expect(data['digits'], 8);
+      expect((data['passkeys'] as List).single['credential_id'], 'AAAA');
+      expect(api.created!.url, 'https://example.com');
     });
   }, skip: libExists ? false : 'native crypto lib not built ($_libPath)');
 }
