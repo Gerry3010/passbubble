@@ -179,6 +179,20 @@ the same method names, including the existing `iosSyncCredentials` and
   The extension removes exactly those, so a passkey created in between is not
   lost.
 
+Method arguments on the channel:
+
+| Method | Direction | Arguments | Returns |
+|---|---|---|---|
+| `iosSyncCredentials` | app → native | `{"credentials": <JSON string>}` | nothing |
+| `iosClearVault` | app → native | none | nothing |
+| `syncPasskeys` | app → native | `{"passkeys": <JSON string>}` | nothing |
+| `readPendingPasskeys` | app → native | none | JSON string, `"[]"` when empty |
+| `clearPendingPasskeys` | app → native | `{"ids": [<credential_id>, …]}`, ids exactly as the extension wrote them | nothing |
+| `credentialExchangeReceived` | native → app | the CXF JSON string (a map `{"json": …}` is accepted too) | nothing |
+
+The app ignores `NotImplemented` and errors from every app → native call, so a
+platform without the native side simply does nothing.
+
 ## Adding a passkey by hand
 
 The app can add a passkey to a `password` entry from its parts: rp id, user
