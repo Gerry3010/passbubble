@@ -58,6 +58,7 @@ import {
   getLastFilledEntry,
   getLoginFrameHost,
   getSession,
+  listingStamp,
   readStoredSession,
   setEntriesCache,
   setEntryTagsCache,
@@ -85,6 +86,7 @@ import { applyEntryEdit, type EntryEdit } from '../shared/entry-edit.js';
 import { matchEntriesForUrl } from './autofill-service.js';
 import { deleteSsoRecord, getSsoRecord, noteSsoCandidate } from './sso-memory.js';
 import { persistSsoToEntries, ssoFromEntries } from './sso-entry.js';
+import { passkeyHandlers } from './passkey-service.js';
 import type { SsoProvider } from '../shared/sso.js';
 import type { EntryData, EntryResponse, SessionInfo, UnlockedSession } from '@passbubble/shared-ts';
 
@@ -262,16 +264,6 @@ async function entriesForMatching(session: UnlockedSession): Promise<EntryRespon
   }
 }
 
-/** Fingerprint of an entry listing for the tags cache. It changes whenever an
- * entry is added, removed or has its data rewritten (the server bumps
- * updated_at), here or on another device. */
-function listingStamp(entries: EntryResponse[]): string {
-  return entries
-    .map((e) => `${e.id}@${e.updated_at}`)
-    .sort()
-    .join('|');
-}
-
 // Gets fresh tokens (persisting the rotated refresh token first), builds the
 // unlocked session (memory + storage.session) and arms the auto-lock. Shared by
 // the master-password and PIN unlock paths.
@@ -364,10 +356,15 @@ async function setSaveBadge(on: boolean): Promise<void> {
   }
 }
 
-/** Minimal shape of the message sender we rely on (frame URL + tab id). */
+/** Shape of the message sender we rely on: tab, frame and URL, plus what
+ * Chrome adds for the passkey checks (origin, documentId, documentLifecycle). */
 interface MessageSender {
   tab?: { id?: number };
+  frameId?: number;
   url?: string;
+  origin?: string;
+  documentId?: string;
+  documentLifecycle?: string;
 }
 
 type Handler = (payload: Record<string, unknown>, sender: MessageSender) => Promise<unknown>;
@@ -394,6 +391,9 @@ const SESSION_EXPIRED_MESSAGE = 'Your session has expired — please log in agai
 
 export function buildHandlers(): Record<string, Handler> {
   return withLockHandling({
+    // Passkeys (passkey-service.ts).
+    ...passkeyHandlers(),
+
     [MessageType.GET_SESSION]: async () => {
       const account = await loadAccount();
       const session = getSession();
@@ -715,6 +715,8 @@ export function buildHandlers(): Record<string, Handler> {
           // malformed secret — fill username/password anyway
         }
       }
+      // A passkey-only entry has no password: the content script then fills
+      // the username only and leaves a typed password alone.
       return { username: data.username ?? '', password: data.password ?? '', totpCode };
     },
 

@@ -116,6 +116,15 @@ const TYPE_FIELDS: Record<string, FieldSpec[]> = {
     { key: 'country', label: 'Country' },
     NOTES,
   ],
+  server: [
+    { key: 'host', label: 'Host' },
+    { key: 'port', label: 'Port' },
+    { key: 'username', label: 'User' },
+    { key: 'password', label: 'Password', secret: true, generate: true },
+    { key: 'private_key', label: 'Private key', secret: true, rows: 6 },
+    { key: 'key_passphrase', label: 'Key passphrase', secret: true },
+    NOTES,
+  ],
   license: [
     { key: 'product_name', label: 'Product name' },
     { key: 'license_key', label: 'License key', secret: true },
@@ -132,7 +141,10 @@ function fieldsFor(type: string): FieldSpec[] {
 }
 
 // Like the app, these types have no URL field.
-const TYPES_WITHOUT_URL = new Set(['identity', 'bank-account']);
+const TYPES_WITHOUT_URL = new Set(['identity', 'bank-account', 'server']);
+
+// Stored exactly as typed (see cleaned()).
+const VERBATIM_FIELDS = new Set(['password', 'private_key']);
 
 // ─── Custom fields ───────────────────────────────────────────────────────────
 
@@ -234,7 +246,8 @@ function modelFromEntry(entry: EntryResponse, data: EntryData): FormModel {
   for (const { key } of fieldsFor(entry.type)) {
     // A stray copy of the password in totp_secret reads as no secret at all.
     const value = key === 'totp_secret' ? totpSecretOf(data) : raw[key];
-    fields[key] = typeof value === 'string' ? value : '';
+    // A port another client stored as a number shows (and stays) as it is.
+    fields[key] = typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
   }
   const tags = tagsOf(data);
   const customFields: unknown[] = Array.isArray(raw.custom_fields) ? raw.custom_fields : [];
@@ -278,7 +291,7 @@ function changedFields(type: string, baseline: Baseline, state: FormState): NonN
       }
       continue;
     }
-    out[key] = cleaned(value, key === 'password');
+    out[key] = cleaned(value, VERBATIM_FIELDS.has(key));
   }
   return out;
 }

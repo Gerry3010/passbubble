@@ -66,7 +66,8 @@ describe('fill-iframe message listener', () => {
     injectFillIframe(anchorAt(10, 40, 10), {}, { ...noHandlers, onUseGenerated: first });
     injectFillIframe(anchorAt(10, 40, 10), {}, { ...noHandlers, onUseGenerated: second });
 
-    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, data: { type: 'FILL_USE_GENERATED', password: 'pw' } }));
+    const source = iframeEl().contentWindow;
+    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, source, data: { type: 'FILL_USE_GENERATED', password: 'pw' } }));
 
     expect(second).toHaveBeenCalledWith('pw');
     expect(first).not.toHaveBeenCalled();
@@ -75,11 +76,39 @@ describe('fill-iframe message listener', () => {
   it('goes away when the box is removed from outside', () => {
     const onDismiss = vi.fn();
     injectFillIframe(anchorAt(10, 40, 10), {}, { ...noHandlers, onDismiss });
+    const source = iframeEl().contentWindow;
     removeFillIframe();
 
-    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, data: { type: 'FILL_DISMISS' } }));
+    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, source, data: { type: 'FILL_DISMISS' } }));
 
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('answers only its own iframe, not other frames of the extension origin', () => {
+    const onDismiss = vi.fn();
+    injectFillIframe(anchorAt(10, 40, 10), {}, { ...noHandlers, onDismiss });
+    const other = document.createElement('iframe');
+    document.body.appendChild(other);
+
+    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, source: other.contentWindow, data: { type: 'FILL_DISMISS' } }));
+    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, source: window, data: { type: 'FILL_DISMISS' } }));
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new MessageEvent('message', { ...FROM_EXTENSION, source: iframeEl().contentWindow, data: { type: 'FILL_DISMISS' } }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes inside an open modal dialog, where the page is not inert', () => {
+    const dialog = document.createElement('dialog');
+    document.body.appendChild(dialog);
+    // jsdom has no showModal / :modal; pretend the dialog is modal.
+    dialog.setAttribute('open', '');
+    const matches = dialog.matches.bind(dialog);
+    dialog.matches = (sel: string) => (sel === ':modal' ? true : matches(sel));
+
+    injectFillIframe(anchorAt(10, 40, 10), {}, noHandlers);
+
+    expect(iframeEl().parentElement).toBe(dialog);
   });
 });
 

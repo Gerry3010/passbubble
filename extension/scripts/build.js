@@ -50,7 +50,7 @@ if (existsSync(wasmDir)) {
 // HTML entry points: Vite emits them under dist/<browser>/src/<name>/index.html
 // (mirroring the rollup input paths), but the manifest references them at
 // <name>/index.html. Move them up and drop the leftover src/ dir.
-for (const name of ['popup', 'options', 'fill-iframe']) {
+for (const name of ['popup', 'options', 'fill-iframe', 'passkey-dialog']) {
   const from = join(outDir, 'src', name, 'index.html');
   const to = join(outDir, name, 'index.html');
   if (existsSync(from)) {

@@ -33,12 +33,19 @@ const ACTIVITY_MESSAGES = new Set<string>([
   MessageType.GENERATE,
   MessageType.FILL_ENTRY,
   MessageType.GET_FILL_HOST,
+  // A passkey decision from the dialog or the fill box. The request itself
+  // (PASSKEY_BEGIN) comes from the page and does not count.
+  MessageType.PASSKEY_COMPLETE,
 ]);
+
+// Counted only when an extension page sent them: a content script acts on
+// what the page does, which the page controls.
+const EXTENSION_PAGE_ONLY = new Set<string>([MessageType.GET_SESSION, MessageType.PASSKEY_COMPLETE]);
 
 /** Whether a message restarts the idle countdown. The content script asks for
  * the session whenever a login field gets the focus, which a page can trigger
  * by itself, so only the extension's own pages count there. */
 export function countsAsActivity(type: string, sender: { url?: string }, extensionOrigin: string): boolean {
   if (!ACTIVITY_MESSAGES.has(type)) return false;
-  return type !== MessageType.GET_SESSION || !!sender.url?.startsWith(extensionOrigin);
+  return !EXTENSION_PAGE_ONLY.has(type) || !!sender.url?.startsWith(extensionOrigin);
 }

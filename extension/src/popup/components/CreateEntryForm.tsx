@@ -29,6 +29,7 @@ const ENTRY_TYPES = [
   { value: 'credit-card', label: 'Card' },
   { value: 'identity', label: 'Identity' },
   { value: 'note', label: 'Note' },
+  { value: 'server', label: 'Server' },
 ] as const;
 
 type EntryType = (typeof ENTRY_TYPES)[number]['value'];
@@ -109,6 +110,14 @@ export function CreateEntryForm({
         );
       case 'note':
         return pick('notes');
+      case 'server': {
+        // A private key is stored as pasted: its final newline is part of it.
+        const key = f('private_key');
+        return {
+          ...pick('host', 'port', 'username', 'password', 'key_passphrase', 'notes'),
+          ...(key.trim() ? { private_key: key } : {}),
+        };
+      }
     }
   }
 
@@ -116,6 +125,10 @@ export function CreateEntryForm({
     e.preventDefault();
     if (!name.trim()) {
       setError('Name is required');
+      return;
+    }
+    if (type === 'server' && !f('host').trim()) {
+      setError('Host is required');
       return;
     }
     const data = buildData();
@@ -246,9 +259,54 @@ export function CreateEntryForm({
           </>
         )}
 
-        {(type === 'note' || type === 'credit-card') && (
+        {type === 'server' && (
+          <>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input style={{ ...half, flex: 3 }} placeholder="Host" aria-label="Host" value={f('host')} onChange={setF('host')} />
+              <input
+                style={half}
+                placeholder="Port"
+                aria-label="Port"
+                inputMode="numeric"
+                value={f('port')}
+                onChange={setF('port')}
+              />
+            </div>
+            <input style={input} placeholder="Username" aria-label="Username" value={f('username')} onChange={setF('username')} />
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input style={input} placeholder="Password" aria-label="Password" value={f('password')} onChange={setF('password')} />
+              <button
+                type="button"
+                onClick={() => setGeneratorOpen(true)}
+                style={{ ...buttonGhost, padding: '0 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+              >
+                Generate
+              </button>
+            </div>
+            <textarea
+              style={{ ...input, minHeight: '80px', resize: 'vertical' }}
+              placeholder="Private key (optional)"
+              aria-label="Private key"
+              spellCheck={false}
+              value={f('private_key')}
+              onChange={setF('private_key')}
+            />
+            <input
+              style={input}
+              type="password"
+              autoComplete="new-password"
+              placeholder="Key passphrase (optional)"
+              aria-label="Key passphrase"
+              value={f('key_passphrase')}
+              onChange={setF('key_passphrase')}
+            />
+          </>
+        )}
+
+        {(type === 'note' || type === 'credit-card' || type === 'server') && (
           <textarea
             style={{ ...input, minHeight: type === 'note' ? '80px' : '40px', resize: 'vertical' }}
+            aria-label="Notes"
             placeholder="Notes"
             value={f('notes')}
             onChange={setF('notes')}

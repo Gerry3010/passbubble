@@ -18,6 +18,7 @@ export * from './api/errors.js';
 export * from './crypto/index.js';
 export * from './generator/generator.js';
 export * from './health/index.js';
+export * from './passkey/index.js';
 export type * from './types/api.js';
 export type * from './types/vault.js';
 export * from './vault/vault.js';

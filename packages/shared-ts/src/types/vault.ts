@@ -66,6 +66,15 @@ export interface EntryData {
   purchase_email?: string;
   purchase_date?: string;
   expires_at?: string;
+  // server (SSH / remote login). `port` is stored as text; readers accept a
+  // number too. `private_key` is kept verbatim (its final newline matters).
+  host?: string;
+  port?: string;
+  private_key?: string;
+  key_passphrase?: string;
+  // Passkeys of a `password` entry (docs/passkeys.md). Clients that do not
+  // handle passkeys keep this key unchanged.
+  passkeys?: PasskeyRecord[];
   // universal
   // type as set by the app: 'text' (default), 'password', 'ssh', 'totp', 'file';
   // file fields also carry filename + mime_type. Writers must keep keys they
@@ -74,6 +83,28 @@ export interface EntryData {
   // Free-form labels for filtering, normalised on save (see vault/tags.ts).
   // The key is omitted when an entry has no tags.
   tags?: string[];
+}
+
+// One stored passkey (docs/passkeys.md, "Storage"). Ids and keys are base64url
+// without padding. Unknown keys written by other clients are kept.
+export interface PasskeyRecord {
+  credential_id: string;
+  rp_id: string;
+  rp_name?: string;
+  user_handle: string;
+  user_name: string;
+  user_display_name?: string;
+  /** COSE algorithm; only -7 (ES256). */
+  key_algorithm: number;
+  /** PKCS#8 DER of the P-256 private key. */
+  private_key: string;
+  /** Always 0. */
+  sign_count: number;
+  discoverable: boolean;
+  prf_secret?: string;
+  /** RFC 3339, UTC. */
+  created_at: string;
+  [key: string]: unknown;
 }
 
 // In-memory session state held in the background service worker.

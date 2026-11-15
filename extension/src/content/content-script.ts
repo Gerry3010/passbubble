@@ -32,7 +32,14 @@ import {
 } from './flutter.js';
 import { CC_KINDS, classifyField, classifyOtpField, type FieldKind } from './field-classifier.js';
 import { providerFromText, SSO_PROVIDER_LABELS, type SsoProvider } from '../shared/sso.js';
-import { injectFillIframe, removeFillIframe, isFillIframeShown, isLockedBoxShown, type TypedFillData } from './fill-ui.js';
+import {
+  injectFillIframe,
+  removeFillIframe,
+  isFillIframeShown,
+  isLockedBoxShown,
+  type PasskeySuggestions,
+  type TypedFillData,
+} from './fill-ui.js';
 import { initSaveDetector, recoverPendingSave } from './save-detector.js';
 
 // Fill a form field in a way that works with React / Vue SPAs.
@@ -156,6 +163,26 @@ function autofillConfirmField(form: DetectedForm, password: string): void {
   setTimeout(() => obs.disconnect(), 5000);
 }
 
+// A field the page marked for passkey autofill (autocomplete="… webauthn").
+// Only the top frame: the bridge and Passbubble's passkeys serve it alone.
+function isWebauthnField(el: unknown): el is HTMLInputElement {
+  if (!(el instanceof HTMLInputElement) || window.top !== window) return false;
+  return /(^|\s)webauthn(\s|$)/i.test(el.getAttribute('autocomplete') ?? '');
+}
+
+// Passkeys for the page's pending conditional request, or null (none open,
+// nothing stored, vault locked). `locked` reports the last case.
+async function passkeySuggestions(): Promise<{ passkeys: PasskeySuggestions | null; locked: boolean }> {
+  const resp = await safeSend<{ token?: string; rows?: PasskeySuggestions['rows']; locked?: boolean }>({
+    type: MessageType.PASSKEY_SUGGESTIONS,
+    payload: {},
+  });
+  if (resp?.token && Array.isArray(resp.rows) && resp.rows.length > 0) {
+    return { passkeys: { token: resp.token, rows: resp.rows }, locked: false };
+  }
+  return { passkeys: null, locked: !!resp?.locked };
+}
+
 // The generated password the user picked is cached per origin so re-showing the
 // box on the same site (e.g. when the confirm field is focused) offers it again
 // instead of a fresh one — otherwise the confirm field would never match.
@@ -224,7 +251,8 @@ async function showFillFor(form: DetectedForm): Promise<void> {
     return;
   }
 
-  const [matchResp, ssoResp] = await Promise.all([
+  const webauthn = isWebauthnField(usernameField) || isWebauthnField(passwordField);
+  const [matchResp, ssoResp, passkeyResp] = await Promise.all([
     safeSend<unknown>({
       type: MessageType.GET_MATCHES_FOR_URL,
       payload: { url: location.href },
@@ -233,13 +261,15 @@ async function showFillFor(form: DetectedForm): Promise<void> {
       type: MessageType.SSO_GET,
       payload: { host: pageHost(), url: location.href },
     }),
+    webauthn ? passkeySuggestions() : Promise.resolve(null),
   ]);
   const matches = Array.isArray(matchResp) ? matchResp : [];
   const ssoProvider = ssoResp?.record?.provider;
   const sso = ssoProvider
     ? { provider: ssoProvider, label: SSO_PROVIDER_LABELS[ssoProvider] ?? ssoProvider }
     : undefined;
-  if (matches.length === 0 && !sso) return;
+  const passkeys = passkeyResp?.passkeys ?? undefined;
+  if (matches.length === 0 && !sso && !passkeys) return;
   if (!stillFocused()) return;
 
   // Where the focused Flutter field sits on the canvas, for tapping it again.
@@ -248,26 +278,29 @@ async function showFillFor(form: DetectedForm): Promise<void> {
 
   injectFillIframe(
     anchor,
-    { matches, sso },
+    { matches, sso, passkeys },
     {
       onFillMatch: (username, password) => {
         // The press on the box took the focus after all (the iframe holds it
         // back, but a browser may still hand it over): Flutter has ended its
         // text input, and writing to the dormant inputs would change nothing.
         // Keep the values and tap the field again; focusin fills the live input.
+        // An entry with a passkey and no password has nothing for the
+        // password field, and must not wipe what the user typed there.
+        const pw = password || undefined;
         if (isFlutterField(anchor) && !live(usernameField) && !live(passwordField)) {
-          rememberPendingFill({ username: flutterTextEntered() ? undefined : username, password });
+          rememberPendingFill({ username: flutterTextEntered() ? undefined : username, password: pw });
           tapFlutterField(anchorRect);
           return;
         }
         if (usernameField) fillField(usernameField, username);
-        if (passwordField) fillField(passwordField, password);
+        if (passwordField && pw) fillField(passwordField, pw);
         // Flutter without an AutofillGroup: the other field is not in the DOM
         // yet — fill it when the user focuses it (see flutter.ts).
         if (isFlutterField(anchor)) {
           rememberPendingFill({
             username: usernameField || flutterTextEntered() ? undefined : username,
-            password: passwordField ? undefined : password,
+            password: passwordField ? undefined : pw,
           });
         }
       },
@@ -340,6 +373,21 @@ async function showTotpFor(field: HTMLInputElement): Promise<void> {
       onDismiss: () => {},
     },
   );
+}
+
+// A username-only field marked for passkey autofill: offer the passkeys of
+// the page's pending conditional request (or the unlock box while locked).
+async function showPasskeysFor(field: HTMLInputElement): Promise<void> {
+  if (isFillIframeShown(field)) return;
+  const { passkeys, locked } = await passkeySuggestions();
+  const root = field.getRootNode() as Document | ShadowRoot;
+  if (root.activeElement !== field) return;
+  const noop = { onFillMatch: () => {}, onUseGenerated: () => {}, onDismiss: () => {} };
+  if (locked) {
+    injectFillIframe(field, { locked: true, loggedIn: true }, noop);
+    return;
+  }
+  if (passkeys) injectFillIframe(field, { passkeys }, noop);
 }
 
 // The value a typed entry provides for a classified field kind.
@@ -487,6 +535,10 @@ function offerFor(target: EventTarget | null): void {
     void showTotpFor(target);
     return;
   }
+  if (isWebauthnField(target)) {
+    void showPasskeysFor(target);
+    return;
+  }
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) {
     const kind = classifyField(target);
     // Only offer typed fill on fields specific enough to signal a card/address
@@ -504,7 +556,7 @@ function offerFor(target: EventTarget | null): void {
 function onDocumentPointerDown(e: MouseEvent): void {
   if (extensionAlive()) maybeReportSsoClick(e);
   const target = eventTarget(e) as HTMLElement | null;
-  if (!target || target.tagName === 'IFRAME' || loginFormFor(target)) return;
+  if (!target || target.tagName === 'IFRAME' || loginFormFor(target) || isWebauthnField(target)) return;
   removeFillIframe();
 }
 

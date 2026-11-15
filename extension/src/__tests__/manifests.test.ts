@@ -24,12 +24,25 @@ const CSP = "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';";
 const BUNDLE = 'background/service-worker.js';
 const MANIFESTS: Record<string, string> = { chrome, firefox, safari };
 
+interface ContentScript {
+  matches: string[];
+  js: string[];
+  run_at?: string;
+  world?: string;
+  all_frames?: boolean;
+}
+
 function manifest(browser: string) {
   return JSON.parse(MANIFESTS[browser]) as {
     background: { service_worker?: string; scripts?: string[]; type?: string };
     content_security_policy: unknown;
+    content_scripts: ContentScript[];
+    web_accessible_resources: Array<{ resources: string[]; matches: string[] }>;
   };
 }
+
+const scriptWith = (browser: string, file: string) => manifest(browser).content_scripts.find((c) => c.js.includes(file));
+const accessible = (browser: string) => manifest(browser).web_accessible_resources.flatMap((w) => w.resources);
 
 describe('manifests', () => {
   // Firefox refuses to install an add-on with only background.service_worker.
@@ -47,5 +60,42 @@ describe('manifests', () => {
 
   it.each(['firefox', 'chrome', 'safari'])('%s uses the MV3 object form of the CSP, allowing WASM', (browser) => {
     expect(manifest(browser).content_security_policy).toEqual({ extension_pages: CSP });
+  });
+
+  describe('passkeys', () => {
+    it.each(['chrome', 'firefox'])('%s injects the page script into the MAIN world of the top frame at document_start', (browser) => {
+      expect(scriptWith(browser, 'content/webauthn-page.js')).toEqual({
+        matches: ['<all_urls>'],
+        js: ['content/webauthn-page.js'],
+        run_at: 'document_start',
+        world: 'MAIN',
+        all_frames: false,
+      });
+    });
+
+    it.each(['chrome', 'firefox'])('%s runs the bridge in the isolated world of the top frame at document_start', (browser) => {
+      const bridge = scriptWith(browser, 'content/webauthn-bridge.js');
+      expect(bridge).toEqual({
+        matches: ['<all_urls>'],
+        js: ['content/webauthn-bridge.js'],
+        run_at: 'document_start',
+        all_frames: false,
+      });
+      expect(bridge?.world).toBeUndefined();
+    });
+
+    it.each(['chrome', 'firefox'])('%s lets pages embed the passkey dialog', (browser) => {
+      expect(accessible(browser)).toContain('passkey-dialog/index.html');
+    });
+
+    it('Safari has none of it', () => {
+      expect(scriptWith('safari', 'content/webauthn-page.js')).toBeUndefined();
+      expect(scriptWith('safari', 'content/webauthn-bridge.js')).toBeUndefined();
+      expect(accessible('safari')).not.toContain('passkey-dialog/index.html');
+    });
+
+    it.each(['chrome', 'firefox', 'safari'])('%s keeps the main content script in every frame', (browser) => {
+      expect(scriptWith(browser, 'content/content-script.js')).toMatchObject({ run_at: 'document_idle', all_frames: true });
+    });
   });
 });

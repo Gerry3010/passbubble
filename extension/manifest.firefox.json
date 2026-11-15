@@ -46,6 +46,27 @@
         "<all_urls>"
       ],
       "js": [
+        "content/webauthn-page.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/webauthn-bridge.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
         "content/content-script.js"
       ],
       "run_at": "document_idle",
@@ -56,6 +77,7 @@
     {
       "resources": [
         "fill-iframe/index.html",
+        "passkey-dialog/index.html",
         "icons/*",
         "wasm/*"
       ],

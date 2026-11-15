@@ -14,7 +14,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import browser from 'webextension-polyfill';
 import type { EntryResponse, GeneratorOptions } from '@passbubble/shared-ts';
+import { MessageType } from '../shared/constants.js';
 import { term, link, withDisabled } from '../shared/theme.js';
 import { GeneratorOptionsForm } from '../shared/GeneratorOptionsForm.js';
 import { GeneratorPreview } from '../shared/GeneratorPreview.js';
@@ -43,6 +45,20 @@ interface TotpInfo {
 interface TypedInfo {
   entryType: string;
   items: { id: string; name: string; hint: string }[];
+}
+
+interface PasskeyInfo {
+  token: string;
+  rows: Array<{ credentialId: string; userName: string; entryName: string }>;
+}
+
+const BIDI_CONTROLS = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+const clean = (s: unknown) => (typeof s === 'string' ? s.replace(BIDI_CONTROLS, '') : '');
+
+function validPasskeys(value: unknown): PasskeyInfo | undefined {
+  const p = value as Partial<PasskeyInfo> | null | undefined;
+  if (!p || typeof p.token !== 'string' || !Array.isArray(p.rows) || p.rows.length === 0) return undefined;
+  return { token: p.token, rows: p.rows.filter((r) => r && typeof r.credentialId === 'string') };
 }
 
 const primaryButton = {
@@ -119,6 +135,9 @@ export function FillSuggestion() {
   const [totp, setTotp] = useState<TotpInfo | undefined>(undefined);
   const [typed, setTyped] = useState<TypedInfo | undefined>(undefined);
   const [sso, setSso] = useState<{ provider: string; label: string } | undefined>(undefined);
+  const [passkeys, setPasskeys] = useState<PasskeyInfo | undefined>(undefined);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [remaining, setRemaining] = useState(0);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -142,7 +161,7 @@ export function FillSuggestion() {
     const h = rootRef.current?.getBoundingClientRect().height ?? 0;
     if (h > 0) window.parent.postMessage({ type: 'FILL_RESIZE', height: h }, '*');
   };
-  useLayoutEffect(reportHeight, [matches, generate, generatePassword, totp, typed, sso, copiedCode, locked]);
+  useLayoutEffect(reportHeight, [matches, generate, generatePassword, totp, typed, sso, passkeys, passkeyError, copiedCode, locked]);
   // Content that changes size on its own (the generator's options, a longer
   // password or an error) is caught by observing the card itself.
   useEffect(() => {
@@ -182,6 +201,7 @@ export function FillSuggestion() {
         totp?: TotpInfo;
         typed?: TypedInfo;
         sso?: { provider: string; label: string };
+        passkeys?: unknown;
         code?: string;
         locked?: boolean;
         loggedIn?: boolean;
@@ -194,6 +214,8 @@ export function FillSuggestion() {
         setTotp(msg.totp);
         setTyped(msg.typed);
         setSso(msg.sso);
+        setPasskeys(validPasskeys(msg.passkeys));
+        setPasskeyError(null);
         setRemaining(msg.totp?.remainingSeconds ?? 0);
         setLocked(!!msg.locked);
         setLoggedIn(!!msg.loggedIn);
@@ -241,6 +263,29 @@ export function FillSuggestion() {
     if (!totp) return;
     navigator.clipboard?.writeText(totp.code).catch(() => {});
     window.parent.postMessage({ type: 'FILL_TOTP_SELECTED', code: totp.code }, '*');
+  }
+
+  // A passkey goes straight to the background with the token; the page only
+  // hears that the box is done.
+  async function selectPasskey(credentialId: string) {
+    if (!passkeys || passkeyBusy) return;
+    setPasskeyBusy(true);
+    setPasskeyError(null);
+    try {
+      const resp = (await browser.runtime.sendMessage({
+        type: MessageType.PASSKEY_COMPLETE,
+        payload: { token: passkeys.token, choice: { action: 'select', credentialId } },
+      })) as { ok?: boolean; error?: string; locked?: boolean } | null;
+      if (resp?.ok) {
+        dismiss();
+        return;
+      }
+      setPasskeyError(resp?.locked ? 'Passbubble is locked.' : (resp?.error ?? 'Could not sign in with this passkey.'));
+    } catch (err) {
+      setPasskeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPasskeyBusy(false);
+    }
   }
 
   function selectTyped(entryId: string) {
@@ -451,8 +496,49 @@ export function FillSuggestion() {
               </button>
             </div>
           )}
+          {passkeys && (
+            <ul aria-label="Passkeys" style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {passkeys.rows.map((p) => (
+                <li key={p.credentialId}>
+                  <button
+                    onClick={() => void selectPasskey(p.credentialId)}
+                    disabled={passkeyBusy}
+                    title="Sign in with this passkey"
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '6px 8px',
+                      border: `1px solid ${term.border}`,
+                      borderRadius: '4px',
+                      background: term.surface,
+                      color: term.green,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px',
+                      fontFamily: term.font,
+                    }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = term.green)}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = term.border)}
+                  >
+                    <span style={{ fontWeight: 700, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                      🔑 {clean(p.userName) || '(no user name)'}
+                    </span>
+                    <span style={{ color: term.muted, fontSize: '11px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                      passkey · {clean(p.entryName)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {passkeyError && (
+            <p role="alert" style={{ color: term.red, fontSize: '11px', margin: 0 }}>
+              {passkeyError}
+            </p>
+          )}
           {matches.length === 0 ? (
-            !sso && <p style={{ color: term.muted, fontSize: '12px', margin: 0 }}>No matching entries</p>
+            !sso && !passkeys && <p style={{ color: term.muted, fontSize: '12px', margin: 0 }}>No matching entries</p>
           ) : (
         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {matches.map((m) => (

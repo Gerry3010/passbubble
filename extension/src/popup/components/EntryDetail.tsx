@@ -16,11 +16,12 @@
 import { Fragment, useEffect, useState } from 'react';
 import browser from 'webextension-polyfill';
 import { customFieldTotp, generateTotp, tagsOf, totpOptionsOf, totpSecretOf } from '@passbubble/shared-ts';
-import type { EntryData, EntryResponse, TotpOptions } from '@passbubble/shared-ts';
+import type { EntryData, EntryResponse, PasskeyRecord, TotpOptions } from '@passbubble/shared-ts';
 import { MessageType } from '../../shared/constants.js';
 import { handleLockedResponse } from '../store/session.js';
 import { isSsoProvider, SSO_PROVIDER_LABELS } from '../../shared/sso.js';
 import { term, link, muted, errorText, tagChip } from '../../shared/theme.js';
+import { PasskeyList } from './PasskeyList.js';
 
 export function EntryDetail({
   entry,
@@ -129,7 +130,13 @@ export function EntryDetail({
 
       {data && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {data.username && <Field label="Username" value={data.username} onCopy={() => copy(data.username!)} />}
+          {SERVER_FIELDS.map(([key, label]) => {
+            const value = textOf(data, key);
+            return value ? <Field key={key} label={label} value={value} onCopy={() => copy(value)} /> : null;
+          })}
+          {data.username && (
+            <Field label={entry.type === 'server' ? 'User' : 'Username'} value={data.username} onCopy={() => copy(data.username!)} />
+          )}
           {isSsoProvider(data.sign_in_with) && (
             <div style={{ color: term.muted, fontSize: '12px' }}>
               → Signs in with <b style={{ color: term.text }}>{SSO_PROVIDER_LABELS[data.sign_in_with]}</b>
@@ -151,8 +158,8 @@ export function EntryDetail({
             />
           )}
           {TYPED_FIELDS.map(([key, label, secret]) => {
-            const value = data[key];
-            if (typeof value !== 'string' || !value) return null;
+            const value = textOf(data, key);
+            if (!value) return null;
             return (
               <Field
                 key={key}
@@ -186,7 +193,18 @@ export function EntryDetail({
               </Fragment>
             );
           })}
+          {(() => {
+            const command = sshCommand(data);
+            return command ? <Field label="SSH command" value={command} onCopy={() => copy(command)} /> : null;
+          })()}
           {data.notes && <Field label="Notes" value={data.notes} onCopy={() => copy(data.notes!)} />}
+          <PasskeyList
+            entryId={entry.id}
+            passkeys={passkeysIn(data)}
+            onDeleted={(credentialId) =>
+              setData((prev) => prev && { ...prev, passkeys: passkeysIn(prev).filter((p) => p.credential_id !== credentialId) })
+            }
+          />
         </div>
       )}
     </div>
@@ -211,6 +229,44 @@ function totpSourcesOf(data: EntryData): Array<{ id: string; secret: string; opt
     if (custom) sources.push({ id: `cf-${i}`, ...custom });
   });
   return sources;
+}
+
+// A field as text: strings as they are, numbers (a port written by another
+// client) as digits.
+function textOf(data: EntryData, key: string): string {
+  const value = (data as Record<string, unknown>)[key];
+  if (typeof value === 'string') return value;
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+}
+
+function passkeysIn(data: EntryData): PasskeyRecord[] {
+  return Array.isArray(data.passkeys)
+    ? data.passkeys.filter((p): p is PasskeyRecord => typeof p === 'object' && p !== null && typeof p.credential_id === 'string')
+    : [];
+}
+
+// Server entries show where to connect first.
+const SERVER_FIELDS: Array<[string, string]> = [
+  ['host', 'Host'],
+  ['port', 'Port'],
+];
+
+// A value as one shell word: as it is when harmless, else single-quoted, so a
+// pasted command cannot run anything a (shared) entry smuggled in.
+function shellWord(value: string): string {
+  return /^[A-Za-z0-9._@%+=:,\/[\]-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** `ssh [-p PORT] [user@]host` for an entry with a host; '' otherwise. */
+export function sshCommand(data: EntryData): string {
+  const host = textOf(data, 'host').trim();
+  if (!host) return '';
+  const port = textOf(data, 'port').trim();
+  const user = (data.username ?? '').trim();
+  const parts = ['ssh'];
+  if (port && port !== '22') parts.push('-p', shellWord(port));
+  parts.push(user ? shellWord(`${user}@${host}`) : shellWord(host));
+  return parts.join(' ');
 }
 
 // Non-login fields rendered when present, in display order. `secret` fields
@@ -242,6 +298,8 @@ const TYPED_FIELDS: Array<[keyof EntryData & string, string, boolean?]> = [
   ['purchase_email', 'Purchase email'],
   ['purchase_date', 'Purchased'],
   ['expires_at', 'Expires'],
+  ['private_key', 'Private key', true],
+  ['key_passphrase', 'Passphrase', true],
 ];
 
 // What the `password` key holds for the types where it is not a password.

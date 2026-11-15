@@ -12,10 +12,12 @@ export default defineConfig({
         'popup/index': resolve(__dirname, 'src/popup/index.html'),
         'options/index': resolve(__dirname, 'src/options/index.html'),
         'fill-iframe/index': resolve(__dirname, 'src/fill-iframe/index.html'),
+        'passkey-dialog/index': resolve(__dirname, 'src/passkey-dialog/index.html'),
         'background/service-worker': resolve(__dirname, 'src/background/service-worker.ts'),
         // NOTE: the content script is built separately (vite.config.content.ts)
         // as a classic IIFE — MV3 injects content_scripts as non-module scripts,
-        // so it must not contain ESM `import` statements.
+        // so it must not contain ESM `import` statements. The passkey page
+        // script and bridge are built the same way (vite.config.webauthn-*.ts).
       },
       output: {
         entryFileNames: '[name].js',

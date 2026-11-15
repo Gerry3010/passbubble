@@ -32,7 +32,7 @@ let activeCleanup: (() => void) | null = null;
 // mutation — injecting the iframe is itself a mutation, which would otherwise
 // loop and make the box flash.
 export function isFillIframeShown(anchor?: HTMLInputElement): boolean {
-  if (!activeIframe || !document.body.contains(activeIframe)) return false;
+  if (!activeIframe || !activeIframe.isConnected) return false;
   return anchor ? activeAnchor === anchor : true;
 }
 
@@ -55,6 +55,27 @@ export interface TypedSuggestion {
 
 export type TypedFillData = Record<string, string>;
 
+/** Passkeys offered for a pending conditional request (autocomplete
+ * "webauthn"). The iframe sends the user's pick straight to the background
+ * with the token; the page never sees either. */
+export interface PasskeySuggestions {
+  token: string;
+  rows: Array<{ credentialId: string; userName: string; entryName: string }>;
+}
+
+/** The open modal <dialog> the page shows, if any: everything outside it is
+ * inert, so the box has to go inside. */
+export function openModalDialog(doc: Document = document): HTMLDialogElement | null {
+  for (const dialog of Array.from(doc.querySelectorAll<HTMLDialogElement>('dialog[open]'))) {
+    try {
+      if (dialog.matches(':modal')) return dialog;
+    } catch {
+      // no :modal support in this engine
+    }
+  }
+  return null;
+}
+
 export interface FillPayload {
   // Match mode: existing entries to offer for a login form.
   matches?: EntryResponse[];
@@ -70,6 +91,8 @@ export interface FillPayload {
   typed?: TypedSuggestion;
   // "You sign in here with <label>" badge on login forms.
   sso?: { provider: string; label: string };
+  // Passkeys for a pending conditional request, shown above the matches.
+  passkeys?: PasskeySuggestions;
   // Locked mode: the vault is locked / logged out, so offer an "unlock" button
   // (which opens the toolbar popup) instead of suggestions.
   locked?: boolean;
@@ -117,7 +140,7 @@ export function injectFillIframe(
     'background: transparent',
   ].join(';');
   positionIframe(iframe, anchorField);
-  document.body.appendChild(iframe);
+  (openModalDialog() ?? document.body).appendChild(iframe);
   activeIframe = iframe;
   activeAnchor = anchorField;
   activeLocked = payload.locked ?? false;
@@ -146,6 +169,7 @@ export function injectFillIframe(
         totp: payload.totp,
         typed: payload.typed,
         sso: payload.sso,
+        passkeys: payload.passkeys,
         locked: payload.locked ?? false,
         loggedIn: payload.loggedIn ?? false,
       },
@@ -156,8 +180,10 @@ export function injectFillIframe(
   iframe.addEventListener('load', postInit);
 
   function handler(event: MessageEvent) {
-    // Only accept messages from our extension
+    // Only messages from our own iframe: the origin proves it is an extension
+    // page, the source that it is this box (and not another frame of ours).
     if (event.origin !== new URL(browser.runtime.getURL('')).origin) return;
+    if (event.source !== iframe.contentWindow) return;
     const msg = event.data as { type: string; entryId?: string; height?: number; password?: string; code?: string };
     if (msg.type === 'FILL_READY') {
       postInit();

@@ -38,4 +38,12 @@ describe('countsAsActivity', () => {
   it('ignores passive traffic', () => {
     expect(countsAsActivity(MessageType.OFFER_SAVE, PAGE, ORIGIN)).toBe(false);
   });
+
+  it('counts a passkey decision from the dialog, but not the page asking for one', () => {
+    const dialog = { url: `${ORIGIN}passkey-dialog/index.html`, tab: { id: 1 } };
+    expect(countsAsActivity(MessageType.PASSKEY_COMPLETE, dialog, ORIGIN)).toBe(true);
+    expect(countsAsActivity(MessageType.PASSKEY_COMPLETE, PAGE, ORIGIN)).toBe(false);
+    expect(countsAsActivity(MessageType.PASSKEY_BEGIN, PAGE, ORIGIN)).toBe(false);
+    expect(countsAsActivity(MessageType.PASSKEY_SUGGESTIONS, PAGE, ORIGIN)).toBe(false);
+  });
 });

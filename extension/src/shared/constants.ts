@@ -81,6 +81,23 @@ export const MessageType = {
   BLOCKLIST_GET: 'BLOCKLIST_GET',
   BLOCKLIST_ADD: 'BLOCKLIST_ADD',
   BLOCKLIST_REMOVE: 'BLOCKLIST_REMOVE',
+  // Passkeys (WebAuthn; Passbubble is the authenticator, see docs/passkeys.md).
+  // Bridge → background: a page called navigator.credentials.create/get. The
+  // answer is "native", "ui" (open the dialog), "conditional" or an error.
+  PASSKEY_BEGIN: 'PASSKEY_BEGIN',
+  // Bridge → background: the page gave up (abort, navigation, dialog removed).
+  PASSKEY_CANCEL: 'PASSKEY_CANCEL',
+  // Passkey dialog → background: what to show for its one-time token.
+  PASSKEY_UI_STATE: 'PASSKEY_UI_STATE',
+  // Passkey dialog / fill iframe → background: the user's decision.
+  PASSKEY_COMPLETE: 'PASSKEY_COMPLETE',
+  // Content script (top frame) → background: passkeys to offer in the fill
+  // box for a pending conditional request.
+  PASSKEY_SUGGESTIONS: 'PASSKEY_SUGGESTIONS',
+  // Background → bridge (tabs.sendMessage, frame 0): the request's outcome.
+  PASSKEY_RESULT: 'PASSKEY_RESULT',
+  // Popup: remove one stored passkey from an entry.
+  PASSKEY_DELETE: 'PASSKEY_DELETE',
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -108,6 +125,10 @@ export const STORAGE_KEYS = {
   // Per-host "signs in with <provider>" records ({ [host]: { provider,
   // lastUsed, hits } }). Deliberately not synced — browsing metadata.
   SSO_MEMORY: 'sso_memory',
+  // Passkeys: Passbubble answers WebAuthn requests (default on; false turns it
+  // off) and the hosts/domains where it never does (the browser handles them).
+  PASSKEYS_ENABLED: 'passkeys_enabled',
+  PASSKEY_BLOCKLIST: 'passkey_blocklist',
   // Login state (account-store.ts): the refresh token (single source of truth —
   // rotated in place after every refresh) plus the already-encrypted key material
   // and user info needed to unlock with the master password. Survives browser
@@ -153,6 +174,10 @@ export const STORAGE_KEYS = {
   // Note: older versions kept the login state (REFRESH_TOKEN … PUB_MLKEM) here;
   // account-store.ts migrates it to storage.local.
   DISMISSED_SAVE_HOSTS: 'dismissed_save_hosts',
+  // Open passkey requests ({ [id]: PendingPasskey }, see passkey-service.ts).
+  // No secrets: the request options, the page's origin and the one-time token
+  // of its dialog. Content scripts cannot read storage.session.
+  PASSKEY_PENDING: 'passkey_pending',
   PENDING_SAVE: 'pending_save',
   // In-progress login draft + 2FA state, so closing the popup mid-login
   // (e.g. to fetch a TOTP code) does not discard what the user already entered.

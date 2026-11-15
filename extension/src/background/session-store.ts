@@ -33,6 +33,7 @@ import { recordPersistFailure } from './lock-log.js';
 let session: UnlockedSession | null = null;
 let entriesCache: EntryResponse[] | null = null;
 let entryTagsCache: EntryTagsCache | null = null;
+let passkeyIndexCache: PasskeyIndexCache | null = null;
 
 // JSON-safe shape of an UnlockedSession in storage.session (byte arrays as base64).
 interface StoredSession {
@@ -117,12 +118,13 @@ export async function setSession(s: UnlockedSession): Promise<void> {
   }
 }
 
-/** Lock: drop the session from memory AND storage.session, plus the entries
- * and tags caches. */
+/** Lock: drop the session from memory AND storage.session, plus the entries,
+ * tags and passkey index caches. */
 export async function clearSession(): Promise<void> {
   session = null;
   entriesCache = null;
   entryTagsCache = null;
+  passkeyIndexCache = null;
   try {
     await browser.storage.session.remove(STORAGE_KEYS.UNLOCKED_SESSION);
   } catch {
@@ -176,6 +178,41 @@ export function setEntryTagsCache(cache: EntryTagsCache): void {
 /** Drop the tags cache after an entry's encrypted data was written. */
 export function clearEntryTagsCache(): void {
   entryTagsCache = null;
+}
+
+/** Fingerprint of an entry listing for the tags and passkey caches. It changes
+ * whenever an entry is added, removed or has its data rewritten (the server
+ * bumps updated_at), here or on another device. */
+export function listingStamp(entries: EntryResponse[]): string {
+  return entries
+    .map((e) => `${e.id}@${e.updated_at}`)
+    .sort()
+    .join('|');
+}
+
+// Where the vault's passkeys are (memory only): rp id, credential id, user
+// name and the entry holding each — never a key. Built by passkey-index.ts for
+// the listing `stamp`; `checkedAt` is when the listing was last fetched.
+export interface PasskeyIndexRow {
+  entryId: string;
+  entryName: string;
+  credentialId: string;
+  rpId: string;
+  userName: string;
+}
+
+export interface PasskeyIndexCache {
+  stamp: string;
+  checkedAt: number;
+  rows: PasskeyIndexRow[];
+}
+
+export function getPasskeyIndexCache(): PasskeyIndexCache | null {
+  return passkeyIndexCache;
+}
+
+export function setPasskeyIndexCache(cache: PasskeyIndexCache | null): void {
+  passkeyIndexCache = cache;
 }
 
 // Host of the frame that has a login form, per tab. The login form often lives

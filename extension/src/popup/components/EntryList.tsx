@@ -435,7 +435,7 @@ function EntryItem({
       <div style={{ display: 'flex', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
         {/* Username/password shortcuts only for login-ish types — cards,
             identities and notes have neither. */}
-        {['password', 'api-key', 'ssh-key', 'totp'].includes(entry.type) && (
+        {['password', 'api-key', 'ssh-key', 'totp', 'server'].includes(entry.type) && (
           <>
             <CopyButton
               label={isCopiedUser ? 'Copied!' : 'Username'}
@@ -519,6 +519,8 @@ function typeIcon(type: string): string {
     case 'api-key':
     case 'ssh-key':
       return '⚙ ';
+    case 'server':
+      return '🖥 ';
     default:
       return '';
   }

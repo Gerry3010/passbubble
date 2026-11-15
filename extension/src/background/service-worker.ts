@@ -32,6 +32,7 @@ import { initSsoMemory, setSsoRecordedHook } from './sso-memory.js';
 import { persistSsoToEntries } from './sso-entry.js';
 import { recordSessionGone } from './lock-log.js';
 import { countsAsActivity } from './activity.js';
+import { dropPendingForTab } from './passkey-service.js';
 import { MessageType, STORAGE_KEYS, AUTO_LOCK_ALARM, TOKEN_REFRESH_ALARM } from '../shared/constants.js';
 
 const handlers = buildHandlers();
@@ -88,6 +89,16 @@ browser.tabs.onUpdated.addListener((tabId, info) => {
 browser.tabs.onRemoved.addListener((tabId) => {
   clearLoginFrameHost(tabId);
   clearLastFilledEntry(tabId);
+  void dropPendingForTab(tabId).catch(() => undefined);
+});
+
+// An open passkey request belongs to the document that made it: once the top
+// frame commits another document (not a pushState navigation), drop it, so a
+// late decision can never answer the next page.
+browser.webNavigation?.onCommitted.addListener((details) => {
+  if (details.frameId !== 0) return;
+  const { documentId } = details as { documentId?: string };
+  void dropPendingForTab(details.tabId, { documentId, before: details.timeStamp }).catch(() => undefined);
 });
 
 // The browser wipes storage.session in these two cases, so they are the likely

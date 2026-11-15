@@ -17,6 +17,7 @@ import { ServerUrlForm } from './components/ServerUrlForm.js';
 import { AccountSection } from './components/AccountSection.js';
 import { ImportSection } from './components/ImportSection.js';
 import { BlocklistSection } from './components/BlocklistSection.js';
+import { PasskeySection } from './components/PasskeySection.js';
 import { PinSection } from './components/PinSection.js';
 import { AutoLockSection } from './components/AutoLockSection.js';
 import { GeneratorSection } from './components/GeneratorSection.js';
@@ -35,6 +36,7 @@ export function App() {
       <GeneratorSection />
       <ImportSection />
       <BlocklistSection />
+      <PasskeySection />
       <section style={{ color: term.muted, fontSize: '13px' }}>
         <h2 style={{ fontSize: '16px', fontWeight: 700, color: term.green, marginBottom: '8px', fontFamily: term.font }}>
           # security

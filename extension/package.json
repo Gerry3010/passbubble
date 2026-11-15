@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:chrome": "vite build --config vite.config.ts && vite build --config vite.config.content.ts && node scripts/build.js chrome",
-    "build:firefox": "vite build --config vite.config.firefox.ts && vite build --config vite.config.content.firefox.ts && node scripts/build.js firefox",
+    "build:chrome": "vite build --config vite.config.ts && vite build --config vite.config.content.ts && vite build --config vite.config.webauthn-page.ts && vite build --config vite.config.webauthn-bridge.ts && node scripts/build.js chrome",
+    "build:firefox": "vite build --config vite.config.firefox.ts && vite build --config vite.config.content.firefox.ts && vite build --config vite.config.webauthn-page.firefox.ts && vite build --config vite.config.webauthn-bridge.firefox.ts && node scripts/build.js firefox",
     "build:safari": "vite build --config vite.config.safari.ts && vite build --config vite.config.content.safari.ts && node scripts/build.js safari",
     "build": "npm run build:chrome && npm run build:firefox && npm run build:safari",
     "dev:chrome": "vite build --watch --config vite.config.ts",
@@ -15,6 +15,7 @@
     "@passbubble/shared-ts": "file:../packages/shared-ts",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "tldts": "7.4.19",
     "webextension-polyfill": "^0.12.0",
     "zustand": "^5.0.0"
   },
