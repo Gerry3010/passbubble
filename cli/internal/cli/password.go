@@ -20,8 +20,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/Gerry3010/passbubble/cli/internal/vault"
 	"github.com/spf13/cobra"
@@ -35,10 +37,13 @@ func init() {
 	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(searchCmd)
 
-	addCmd.Flags().StringP("type", "t", "password", "Entry type (password, totp, note, api-key, ssh-key, credit-card, bank-account, identity, license)")
+	addCmd.Flags().StringP("type", "t", "password", "Entry type (password, totp, note, api-key, ssh-key, certificate, server, credit-card, bank-account, identity, license)")
 	addCmd.Flags().StringP("url", "u", "", "URL / website")
 	addCmd.Flags().StringP("notes", "n", "", "Notes")
 	addCmd.Flags().StringArray("tag", nil, "Tag the entry (repeatable; comma-separated values also work)")
+	addCmd.Flags().String("host", "", "Server host name or address (--type server)")
+	addCmd.Flags().String("port", "", "SSH port, 1-65535; empty means 22 (--type server)")
+	addCmd.Flags().String("key-file", "", "Read the private key from this file instead of pasting it (--type server)")
 	updateCmd.Flags().StringP("url", "u", "", "URL / website")
 	updateCmd.Flags().StringP("notes", "n", "", "Notes")
 	updateCmd.Flags().StringArray("add-tag", nil, "Add a tag (repeatable; comma-separated values also work)")
@@ -52,16 +57,34 @@ var addCmd = &cobra.Command{
 	Short: "Add a new entry",
 	Long: `Add a new password entry to your vault.
 
+A server entry (-t server) holds an SSH login for 'pwmgr ssh': host, port,
+username, and a password, a private key or both. The key is pasted or read
+with --key-file and stored as it is.
+
 Examples:
   pwmgr add gmail john@gmail.com
   pwmgr add github -t password --tag work --tag dev
-  pwmgr add my-note -t note --tag "personal, ideas"`,
+  pwmgr add my-note -t note --tag "personal, ideas"
+  pwmgr add web01 root -t server --host web01.example.com --port 2222 --key-file ~/.ssh/id_ed25519`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rawTags, _ := cmd.Flags().GetStringArray("tag")
 		tags, err := vault.NormalizeTags(splitTagArgs(rawTags))
 		if err != nil {
 			return err
+		}
+		entryType, _ := cmd.Flags().GetString("type")
+		srvFlags := serverFlags{}
+		srvFlags.host, _ = cmd.Flags().GetString("host")
+		srvFlags.port, _ = cmd.Flags().GetString("port")
+		srvFlags.keyFile, _ = cmd.Flags().GetString("key-file")
+		if entryType != "server" {
+			for _, f := range []string{"host", "port", "key-file"} {
+				if cmd.Flags().Changed(f) {
+					cmd.SilenceUsage = false
+					return fmt.Errorf("--%s only goes with --type server", f)
+				}
+			}
 		}
 		if err := ensureUnlocked(); err != nil {
 			return err
@@ -72,11 +95,21 @@ Examples:
 		if len(args) > 1 {
 			username = args[1]
 		}
-		entryType, _ := cmd.Flags().GetString("type")
 		url, _ := cmd.Flags().GetString("url")
 		notes, _ := cmd.Flags().GetString("notes")
 
-		data, err := collectEntryData(entryType, username, notes, name)
+		var data *vault.EntryData
+		if entryType == "server" {
+			srvFlags.username, srvFlags.hasUsername = username, len(args) > 1
+			data, err = collectServerData(prompter{
+				in: bufio.NewReader(os.Stdin), out: os.Stdout, secret: promptSecret,
+			}, srvFlags)
+			if err == nil {
+				data.Notes = notes
+			}
+		} else {
+			data, err = collectEntryData(entryType, username, notes, name)
+		}
 		if errors.Is(err, errCancelled) {
 			fmt.Println("Cancelled.")
 			return nil
@@ -173,6 +206,10 @@ Examples:
 // promptNewPassword asks for update's new password. A variable so tests do not
 // need a terminal.
 var promptNewPassword = promptPassword
+
+// promptSecret asks for a hidden value while adding an entry. A variable so
+// tests do not need a terminal.
+var promptSecret = promptPassword
 
 var updateCmd = &cobra.Command{
 	Use:     "update <name|id>",
@@ -472,10 +509,26 @@ func printEntry(e *vault.Entry) {
 		}
 	}
 
+	// Server
+	printField("Host", d.Host)
+	printField("Port", d.Port)
+
 	// Common
 	printField("Username", d.Username)
 	printField("Password", d.Password)
 	printField("Sign in with", d.SignInWith)
+
+	// Server: the key's passphrase, how to connect, and the key itself
+	printField("Key passphrase", d.KeyPassphrase)
+	if e.Type == "server" && d.Host != "" {
+		printField("SSH", sshCommandLine(d))
+	}
+	if d.PrivateKey != "" {
+		fmt.Printf("Private key:\n%s", d.PrivateKey)
+		if !strings.HasSuffix(d.PrivateKey, "\n") {
+			fmt.Println()
+		}
+	}
 
 	// TOTP
 	printField("TOTP Secret", d.TOTPSecret)
@@ -531,6 +584,29 @@ func printEntry(e *vault.Entry) {
 		}
 		printField(cf.Label, cf.Value)
 	}
+
+	printPasskeys(os.Stdout, d.Passkeys)
+}
+
+// printPasskeys lists where the passkeys sign in. Their private keys and PRF
+// secrets are never printed: the CLI does not sign with them, so nobody needs
+// them on a terminal.
+func printPasskeys(w io.Writer, passkeys []vault.Passkey) {
+	if len(passkeys) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "Passkeys:")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	orDash := func(s string) string {
+		if s == "" {
+			return "-"
+		}
+		return s
+	}
+	for _, p := range passkeys {
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\n", orDash(p.RPID), orDash(p.UserName), orDash(p.CreatedAt))
+	}
+	_ = tw.Flush()
 }
 
 // describeFileField summarises a file custom field instead of dumping its

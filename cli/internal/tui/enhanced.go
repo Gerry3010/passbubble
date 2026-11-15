@@ -35,8 +35,16 @@ type TOTPUpdateMsg struct {
 type SecretLoadMsg struct {
 	EntryID  string
 	Password string
-	HasTOTP  bool // the entry holds a TOTP secret
+	HasTOTP  bool          // the entry holds a TOTP secret
+	Server   *serverDetail // what a server entry connects to; nil for other types
 	Error    error
+}
+
+// serverDetail is what the detail screen of a server entry shows besides the
+// password: where to connect, as whom, and whether a key is stored.
+type serverDetail struct {
+	Host, Port, User string
+	HasKey           bool
 }
 
 // Enhanced methods with real integrations. Both go by the entry's ID: names are
@@ -82,7 +90,8 @@ func (m Model) detailShowsCode() bool {
 // loadPasswordReal loads the password and what the detail screen needs to know
 // about the TOTP secret. Both kinds of login can hold both.
 func (m Model) loadPasswordReal() tea.Cmd {
-	if m.detailEntry.Type != "password" && m.detailEntry.Type != "totp" {
+	entryType := m.detailEntry.Type
+	if entryType != "password" && entryType != "totp" && entryType != "server" {
 		return nil
 	}
 	v, id := m.vault, m.detailEntry.ID
@@ -93,7 +102,14 @@ func (m Model) loadPasswordReal() tea.Cmd {
 			return SecretLoadMsg{EntryID: id, Error: fmt.Errorf("failed to load password: %w", err)}
 		}
 
-		return SecretLoadMsg{EntryID: id, Password: full.Data.Password, HasTOTP: full.Data.TOTPSecret != ""}
+		msg := SecretLoadMsg{EntryID: id, Password: full.Data.Password, HasTOTP: full.Data.TOTPSecret != ""}
+		if entryType == "server" {
+			msg.Server = &serverDetail{
+				Host: full.Data.Host, Port: full.Data.Port, User: full.Data.Username,
+				HasKey: full.Data.PrivateKey != "",
+			}
+		}
+		return msg
 	}
 }
 

@@ -525,7 +525,11 @@ func TestBackupAndRestoreCommandsKeepTheEntry(t *testing.T) {
 	resetFlags(t, restoreCmd)
 	const stored = `{"username":"octo","password":"hunter2","totp_secret":"JBSWY3DPEHPK3PXP","iban":"AT00",
 		"tags":["work"],"future_flag":{"nested":true},
-		"custom_fields":[{"label":"PIN","value":"1234","type":"password","future_cf":1}]}`
+		"custom_fields":[{"label":"PIN","value":"1234","type":"password","future_cf":1}],
+		"host":"web01","port":"2222","private_key":"KEY\n","key_passphrase":"pp",
+		"passkeys":[{"credential_id":"AQID","rp_id":"a.example","rp_name":"A","user_handle":"BAUG","user_name":"octo",
+			"key_algorithm":-7,"private_key":"MIGH","sign_count":0,"discoverable":true,"prf_secret":"prf",
+			"created_at":"2026-01-01T00:00:00Z","future_pk":{"x":1}}]}`
 	s := newCommandVault(t, `{"password":"pw"}`)
 	s.addEntry(t, apiclient.EntryResponse{ID: "e2", Name: "AWS", Type: "totp", URL: "https://aws.example"}, stored)
 

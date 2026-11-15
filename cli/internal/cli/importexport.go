@@ -17,6 +17,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"slices"
@@ -276,7 +277,7 @@ func warnAboutCSVLeftOut(records []exporters.EntryRecord) {
 	if entries == 1 {
 		entryWord = "entry"
 	}
-	fmt.Fprintf(os.Stderr, "Warning: CSV has no column for %d %s of %d %s (TOTP secrets, card and bank data, custom fields and the like), so they are NOT in the file. --format bitwarden keeps them.\n",
+	fmt.Fprintf(os.Stderr, "Warning: CSV has no column for %d %s of %d %s (TOTP secrets, passkeys, card and bank data, custom fields and the like), so they are NOT in the file. --format bitwarden keeps them.\n",
 		fields, fieldWord, entries, entryWord)
 }
 
@@ -407,10 +408,75 @@ func mergeImportedData(existing, imported vault.EntryData) vault.EntryData {
 		merged.Period, merged.Digits, merged.Algorithm = imported.Period, imported.Digits, imported.Algorithm
 	}
 	merged.CustomFields = mergeCustomFields(existing.CustomFields, imported.CustomFields)
+	merged.Passkeys = mergePasskeys(existing.Passkeys, imported.Passkeys)
 	if len(imported.Tags) > 0 {
 		merged.Tags = imported.Tags
 	}
 	return merged
+}
+
+// mergePasskeys combines passkeys by credential id instead of replacing the
+// list (docs/passkeys.md): the existing ones first, in their order, a passkey
+// from the file with a known id in that one's place, new ids appended. A
+// replaced record keeps what the file has no value for, the PRF secret above
+// all (no import format carries it), and keys the CLI does not model.
+func mergePasskeys(existing, imported []vault.Passkey) []vault.Passkey {
+	if len(imported) == 0 {
+		return existing
+	}
+	merged := slices.Clone(existing)
+	for _, in := range imported {
+		slot := slices.IndexFunc(merged, func(p vault.Passkey) bool { return samePasskeyID(p.CredentialID, in.CredentialID) })
+		if slot < 0 {
+			merged = append(merged, in)
+			continue
+		}
+		cur := &merged[slot]
+		for _, f := range []struct {
+			dst *string
+			src string
+		}{
+			{&cur.CredentialID, in.CredentialID},
+			{&cur.RPID, in.RPID},
+			{&cur.RPName, in.RPName},
+			{&cur.UserHandle, in.UserHandle},
+			{&cur.UserName, in.UserName},
+			{&cur.UserDisplayName, in.UserDisplayName},
+			{&cur.PrivateKey, in.PrivateKey},
+			{&cur.PRFSecret, in.PRFSecret},
+			{&cur.CreatedAt, in.CreatedAt},
+		} {
+			if f.src != "" {
+				*f.dst = f.src
+			}
+		}
+		if in.KeyAlgorithm != 0 {
+			cur.KeyAlgorithm = in.KeyAlgorithm
+		}
+		cur.SignCount = in.SignCount
+		cur.Discoverable = in.Discoverable
+	}
+	return merged
+}
+
+// samePasskeyID compares credential ids by their bytes: readers accept standard
+// base64 too, so one id can be written two ways.
+func samePasskeyID(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ab, errA := decodeAnyBase64(a)
+	bb, errB := decodeAnyBase64(b)
+	return errA == nil && errB == nil && len(ab) > 0 && bytes.Equal(ab, bb)
+}
+
+// decodeAnyBase64 decodes base64url or standard base64, padded or not.
+func decodeAnyBase64(s string) ([]byte, error) {
+	s = strings.TrimRight(s, "=")
+	if strings.ContainsAny(s, "+/") {
+		return base64.RawStdEncoding.DecodeString(s)
+	}
+	return base64.RawURLEncoding.DecodeString(s)
 }
 
 // mergeCustomFields merges by exact label: a field with a known label replaces
@@ -493,7 +559,59 @@ func importerRecordToEntryData(rec importers.EntryRecord) vault.EntryData {
 		ProductName:  rec.ProductName,
 		CustomFields: cfs,
 		Tags:         rec.Tags,
+		Passkeys:     importedPasskeys(rec.Passkeys),
 	}
+}
+
+// importedPasskeys maps the parsers' passkeys to entry records. Nil stays nil,
+// so an entry without passkeys gets no passkeys key.
+func importedPasskeys(in []importers.Passkey) []vault.Passkey {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]vault.Passkey, len(in))
+	for i, p := range in {
+		out[i] = vault.Passkey{
+			CredentialID:    p.CredentialID,
+			RPID:            p.RPID,
+			RPName:          p.RPName,
+			UserHandle:      p.UserHandle,
+			UserName:        p.UserName,
+			UserDisplayName: p.UserDisplayName,
+			KeyAlgorithm:    p.KeyAlgorithm,
+			PrivateKey:      p.PrivateKey,
+			SignCount:       p.SignCount,
+			Discoverable:    p.Discoverable,
+			PRFSecret:       p.PRFSecret,
+			CreatedAt:       p.CreatedAt,
+		}
+	}
+	return out
+}
+
+// exportedPasskeys maps an entry's passkeys for the exporters.
+func exportedPasskeys(in []vault.Passkey) []exporters.Passkey {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]exporters.Passkey, len(in))
+	for i, p := range in {
+		out[i] = exporters.Passkey{
+			CredentialID:    p.CredentialID,
+			RPID:            p.RPID,
+			RPName:          p.RPName,
+			UserHandle:      p.UserHandle,
+			UserName:        p.UserName,
+			UserDisplayName: p.UserDisplayName,
+			KeyAlgorithm:    p.KeyAlgorithm,
+			PrivateKey:      p.PrivateKey,
+			SignCount:       p.SignCount,
+			Discoverable:    p.Discoverable,
+			PRFSecret:       p.PRFSecret,
+			CreatedAt:       p.CreatedAt,
+		}
+	}
+	return out
 }
 
 // vaultEntriesToExporterRecords hands the exporters everything an entry holds. What
@@ -548,8 +666,13 @@ func vaultEntriesToExporterRecords(entries []vault.EntryRecord) []exporters.Entr
 			PurchaseEmail: e.Data.PurchaseEmail,
 			PurchaseDate:  e.Data.PurchaseDate,
 			ExpiresAt:     e.Data.ExpiresAt,
+			Host:          e.Data.Host,
+			Port:          e.Data.Port,
+			PrivateKey:    e.Data.PrivateKey,
+			KeyPassphrase: e.Data.KeyPassphrase,
 			CustomFields:  cfs,
 			Tags:          e.Data.Tags,
+			Passkeys:      exportedPasskeys(e.Data.Passkeys),
 			UnknownFields: unknown,
 		}
 	}

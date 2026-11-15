@@ -22,8 +22,12 @@ import (
 )
 
 func main() {
-	// Cobra has already printed the error.
+	// ssh runs pwmgr as its askpass program during 'pwmgr ssh'.
+	if code, ran := cli.RunAskpassIfRequested(); ran {
+		os.Exit(code)
+	}
+	// Cobra has already printed the error; ssh's exit status is passed on.
 	if err := cli.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }

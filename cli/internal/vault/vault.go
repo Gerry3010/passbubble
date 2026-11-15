@@ -98,10 +98,39 @@ type EntryData struct {
 	PurchaseDate  string `json:"purchase_date,omitempty"`
 	ExpiresAt     string `json:"expires_at,omitempty"`
 
+	// ── server (SSH) ─────────────────────────────────────────────────────────
+	// Username and Password above are the login; Port is a string, "" = 22.
+	Host          string `json:"host,omitempty"`
+	Port          string `json:"port,omitempty"`
+	PrivateKey    string `json:"private_key,omitempty"`    // OpenSSH/PEM text, verbatim
+	KeyPassphrase string `json:"key_passphrase,omitempty"` // of PrivateKey; "" = none stored
+
 	// ── universal ────────────────────────────────────────────────────────────
 	CustomFields []CustomField `json:"custom_fields,omitempty"`
 	// Tags in the user's order, normalised on save (see NormalizeTags).
 	Tags []string `json:"tags,omitempty"`
+	// Passkeys of a password entry (docs/passkeys.md). The CLI shows and keeps
+	// them but does not sign with them.
+	Passkeys []Passkey `json:"passkeys,omitempty"`
+
+	extra map[string]json.RawMessage // unknown keys, re-emitted on encode
+}
+
+// Passkey is a WebAuthn credential in the record format of docs/passkeys.md.
+// Unknown keys survive a decode/encode round trip, like those of CustomField.
+type Passkey struct {
+	CredentialID    string `json:"credential_id"` // base64url, no padding
+	RPID            string `json:"rp_id"`
+	RPName          string `json:"rp_name,omitempty"`
+	UserHandle      string `json:"user_handle"` // base64url, no padding
+	UserName        string `json:"user_name"`
+	UserDisplayName string `json:"user_display_name,omitempty"`
+	KeyAlgorithm    int    `json:"key_algorithm"` // COSE, -7 = ES256
+	PrivateKey      string `json:"private_key"`   // PKCS#8 DER, base64url
+	SignCount       int    `json:"sign_count"`    // always 0
+	Discoverable    bool   `json:"discoverable"`
+	PRFSecret       string `json:"prf_secret,omitempty"`
+	CreatedAt       string `json:"created_at"` // RFC 3339, UTC
 
 	extra map[string]json.RawMessage // unknown keys, re-emitted on encode
 }

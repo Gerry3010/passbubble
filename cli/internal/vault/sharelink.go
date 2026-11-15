@@ -47,7 +47,7 @@ func (v *Vault) CreateEntryShareLink(entryID string, validity time.Duration) (st
 		"name": entry.Name,
 		"type": entry.Type,
 		"url":  entry.URL,
-		"data": entry.Data,
+		"data": shareableData(entry.Data),
 	}, func(req apiclient.CreateShareLinkRequest) (*apiclient.ShareLinkResponse, error) {
 		return v.client.CreateEntryShareLink(entryID, req)
 	})
@@ -77,7 +77,7 @@ func (v *Vault) CreateFolderShareLink(folderID, folderName string, validity time
 			"name": full.Name,
 			"type": full.Type,
 			"url":  full.URL,
-			"data": full.Data,
+			"data": shareableData(full.Data),
 		})
 	}
 	if len(entries) == 0 {
@@ -130,4 +130,15 @@ func (v *Vault) buildShareLink(
 	k := base64.URLEncoding.EncodeToString(linkKey)
 	base := strings.TrimRight(v.cfg.ServerURL, "/")
 	return fmt.Sprintf("%s/web/#/share/%s?k=%s", base, resp.Token, url.QueryEscape(k)), nil
+}
+
+// shareableData is d without its passkeys. The share viewer cannot show or use
+// a passkey, so its private key stays out of the link.
+func shareableData(d *EntryData) *EntryData {
+	if d == nil || len(d.Passkeys) == 0 {
+		return d
+	}
+	c := *d
+	c.Passkeys = nil
+	return &c
 }

@@ -266,6 +266,7 @@ func (m Model) lockVault() Model {
 	m.detailTags = nil
 	m.password = ""
 	m.detailHasTOTP = false
+	m.detailServer = nil
 	m.maskPasswords = true
 	m.showSecrets = false
 	m.totpCode = ""

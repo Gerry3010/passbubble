@@ -97,6 +97,27 @@ func TestEntryDataRoundTrip(t *testing.T) {
 				"custom_fields":[{"label":"f","value":"aGk=","type":"file","filename":"hi.txt","mime_type":"text/plain","sha256":"abc"}]}`,
 		},
 		{
+			name: "server fields",
+			in:   `{"username":"root","password":"pw","host":"web01.example.com","port":"2222","private_key":"-----BEGIN OPENSSH PRIVATE KEY-----\nb3Bl\n-----END OPENSSH PRIVATE KEY-----\n","key_passphrase":"secret"}`,
+		},
+		{
+			name: "passkey with only known keys",
+			in:   `{"username":"alice@example.com","password":"","passkeys":[` + docsPasskey + `]}`,
+			want: `{"username":"alice@example.com","passkeys":[` + docsPasskey + `]}`,
+		},
+		{
+			name: "passkey without the optional keys, not discoverable",
+			in: `{"passkeys":[{"credential_id":"AQID","rp_id":"b.example","user_handle":"BAUG","user_name":"bob",
+				"key_algorithm":-7,"private_key":"MIGH","sign_count":0,"discoverable":false,"created_at":"2026-01-01T00:00:00Z"}]}`,
+		},
+		{
+			name: "unknown keys at entry level and inside passkeys",
+			in: `{"username":"u","future":{"v":2},"passkeys":[
+				{"credential_id":"AQID","rp_id":"b.example","user_handle":"BAUG","user_name":"bob",
+				 "key_algorithm":-7,"private_key":"MIGH","sign_count":0,"discoverable":true,"created_at":"2026-01-01T00:00:00Z",
+				 "backup_state":true,"transports":["internal","hybrid"],"meta":{"by":"app"},"nothing":null}]}`,
+		},
+		{
 			name: "key differing only in case stays a separate key",
 			in:   `{"username":"lower","Username":"Upper","TAGS":["shout"]}`,
 		},
@@ -121,6 +142,62 @@ func TestEntryDataRoundTrip(t *testing.T) {
 				t.Fatalf("round trip changed the data\n got: %s\nwant: %s", out, want)
 			}
 		})
+	}
+}
+
+// docsPasskey is the example record of docs/passkeys.md.
+const docsPasskey = `{
+	"credential_id": "q2D0bQ2u3E7XoWlS1yZbVw",
+	"rp_id": "example.com",
+	"rp_name": "Example",
+	"user_handle": "dXNlci0xMjM0",
+	"user_name": "alice@example.com",
+	"user_display_name": "Alice",
+	"key_algorithm": -7,
+	"private_key": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg",
+	"sign_count": 0,
+	"discoverable": true,
+	"prf_secret": "3q2-7wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	"created_at": "2026-11-14T03:00:00Z"
+}`
+
+func TestPasskeyDecodesEveryDocumentedKey(t *testing.T) {
+	d, _ := roundTrip(t, `{"passkeys":[`+docsPasskey+`]}`)
+	want := Passkey{
+		CredentialID: "q2D0bQ2u3E7XoWlS1yZbVw", RPID: "example.com", RPName: "Example",
+		UserHandle: "dXNlci0xMjM0", UserName: "alice@example.com", UserDisplayName: "Alice",
+		KeyAlgorithm: -7, PrivateKey: "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg",
+		SignCount: 0, Discoverable: true, PRFSecret: "3q2-7wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		CreatedAt: "2026-11-14T03:00:00Z",
+	}
+	if len(d.Passkeys) != 1 || !reflect.DeepEqual(d.Passkeys[0], want) {
+		t.Fatalf("passkeys = %+v", d.Passkeys)
+	}
+	if d.Passkeys[0].extra != nil {
+		t.Errorf("a record of known keys has no extras: %v", d.Passkeys[0].extra)
+	}
+	if len(d.UnknownFields()) != 0 {
+		t.Errorf("passkeys are modelled, not unknown: %+v", d.UnknownFields())
+	}
+}
+
+// An edit of a passkey's known field leaves its unknown keys alone.
+func TestPasskeyEditKeepsUnknownKeys(t *testing.T) {
+	d, _ := roundTrip(t, `{"passkeys":[{"credential_id":"AQID","rp_id":"a.example","user_handle":"","user_name":"u",
+		"key_algorithm":-7,"private_key":"k","sign_count":0,"discoverable":true,"created_at":"","future_pk":[1]}]}`)
+	d.Passkeys[0].RPName = "A"
+	d.Passkeys = append(d.Passkeys, Passkey{CredentialID: "BAUG", RPID: "b.example", KeyAlgorithm: -7})
+	out, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"passkeys":[
+		{"credential_id":"AQID","rp_id":"a.example","rp_name":"A","user_handle":"","user_name":"u",
+		 "key_algorithm":-7,"private_key":"k","sign_count":0,"discoverable":true,"created_at":"","future_pk":[1]},
+		{"credential_id":"BAUG","rp_id":"b.example","user_handle":"","user_name":"",
+		 "key_algorithm":-7,"private_key":"","sign_count":0,"discoverable":false,"created_at":""}]}`
+	if got, exp := canon(t, string(out)), canon(t, want); !reflect.DeepEqual(got, exp) {
+		t.Fatalf("\n got: %s\nwant: %s", out, want)
 	}
 }
 
@@ -196,7 +273,8 @@ func TestEntryDataNull(t *testing.T) {
 }
 
 func TestEntryDataInvalid(t *testing.T) {
-	for _, in := range []string{`[]`, `"x"`, `{"period":"thirty"}`, `{"custom_fields":[1]}`, `{`} {
+	for _, in := range []string{`[]`, `"x"`, `{"period":"thirty"}`, `{"custom_fields":[1]}`, `{`,
+		`{"passkeys":[1]}`, `{"passkeys":[{"key_algorithm":"ES256"}]}`, `{"port":22}`} {
 		var d EntryData
 		if err := json.Unmarshal([]byte(in), &d); err == nil {
 			t.Errorf("%s: expected an error", in)
@@ -205,13 +283,22 @@ func TestEntryDataInvalid(t *testing.T) {
 }
 
 func TestJSONKeys(t *testing.T) {
-	for _, k := range []string{"username", "sign_in_with", "custom_fields", "tags", "expires_at"} {
+	for _, k := range []string{"username", "sign_in_with", "custom_fields", "tags", "expires_at",
+		"host", "port", "private_key", "key_passphrase", "passkeys"} {
 		if !entryDataKeys[k] {
 			t.Errorf("entryDataKeys misses %q", k)
 		}
 	}
-	if entryDataKeys["extra"] || customFieldKeys["extra"] {
+	if entryDataKeys["extra"] || customFieldKeys["extra"] || passkeyKeys["extra"] {
 		t.Error("the unexported extras map must not count as a key")
+	}
+	wantPasskey := map[string]bool{
+		"credential_id": true, "rp_id": true, "rp_name": true, "user_handle": true, "user_name": true,
+		"user_display_name": true, "key_algorithm": true, "private_key": true, "sign_count": true,
+		"discoverable": true, "prf_secret": true, "created_at": true,
+	}
+	if !reflect.DeepEqual(passkeyKeys, wantPasskey) {
+		t.Errorf("passkeyKeys = %v, want %v", passkeyKeys, wantPasskey)
 	}
 	want := map[string]bool{"label": true, "value": true, "type": true, "filename": true, "mime_type": true}
 	if !reflect.DeepEqual(customFieldKeys, want) {

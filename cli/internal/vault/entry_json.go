@@ -25,13 +25,14 @@ import (
 )
 
 // The app and the extension write keys into the encrypted entry JSON that the
-// CLI does not model (and future clients will add more). EntryData and
-// CustomField therefore keep every unknown key in an unexported map and write
+// CLI does not model (and future clients will add more). EntryData, CustomField
+// and Passkey therefore keep every unknown key in an unexported map and write
 // it back on encode, so editing an entry from the CLI never drops data.
 
 var (
 	entryDataKeys   = jsonKeys(reflect.TypeFor[EntryData]())
 	customFieldKeys = jsonKeys(reflect.TypeFor[CustomField]())
+	passkeyKeys     = jsonKeys(reflect.TypeFor[Passkey]())
 )
 
 // UnmarshalJSON decodes the modelled keys into the struct and keeps the rest.
@@ -78,6 +79,28 @@ func (cf CustomField) MarshalJSON() ([]byte, error) {
 	return encodeWithExtra(plain(cf), cf.extra, customFieldKeys)
 }
 
+// UnmarshalJSON decodes the modelled keys into the struct and keeps the rest.
+func (p *Passkey) UnmarshalJSON(b []byte) error {
+	if isJSONNull(b) {
+		return nil
+	}
+	type plain Passkey
+	var pl plain
+	extra, err := decodeKnown(b, passkeyKeys, &pl)
+	if err != nil {
+		return err
+	}
+	pl.extra = extra
+	*p = Passkey(pl)
+	return nil
+}
+
+// MarshalJSON encodes the struct plus the unknown keys kept from decoding.
+func (p Passkey) MarshalJSON() ([]byte, error) {
+	type plain Passkey
+	return encodeWithExtra(plain(p), p.extra, passkeyKeys)
+}
+
 // UnknownField is a key of the entry JSON the CLI does not model, with its value
 // as text: a string as it is, anything else as its JSON.
 type UnknownField struct {
@@ -88,7 +111,9 @@ type UnknownField struct {
 // UnknownFields lists what the entry holds beyond the modelled keys, for formats
 // that have to write it down, sorted by key. An unknown key of a custom field
 // follows as "<label>.<key>". A key without a value (null or "") has nothing to
-// keep and is left out.
+// keep and is left out. Passkeys are modelled, so they are not listed, and
+// neither are unknown keys inside them: formats with a place for passkeys
+// write the documented fields only.
 func (d EntryData) UnknownFields() []UnknownField {
 	out := unknownFields("", d.extra)
 	for _, cf := range d.CustomFields {

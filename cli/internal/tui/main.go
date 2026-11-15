@@ -195,8 +195,9 @@ type Model struct {
 	totpCode      string
 	totpRemaining int
 	password      string
-	detailHasTOTP bool     // the decrypted entry holds a TOTP secret; false until SecretLoadMsg arrives
-	detailTags    []string // decrypted on open; nil until EntryTagsMsg arrives
+	detailHasTOTP bool          // the decrypted entry holds a TOTP secret; false until SecretLoadMsg arrives
+	detailTags    []string      // decrypted on open; nil until EntryTagsMsg arrives
+	detailServer  *serverDetail // a server entry's target; nil until SecretLoadMsg arrives
 
 	// List scroll state
 	listOffset int
@@ -564,6 +565,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.password = msg.Password
 		m.detailHasTOTP = msg.HasTOTP
+		m.detailServer = msg.Server
 		return m, nil
 
 	case EntryTagsMsg:
@@ -1076,7 +1078,7 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Toggle password masking, or the code on an entry that has one. An entry
 		// holding both shows and hides them together.
 		if !m.detailShowsCode() {
-			if m.detailEntry.Type == "password" {
+			if m.detailEntry.Type == "password" || m.detailEntry.Type == "server" {
 				m.maskPasswords = !m.maskPasswords
 			}
 			return m, nil
@@ -1111,6 +1113,17 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "u":
+		// The username of a server entry, from its decrypted data.
+		if m.detailEntry.Type == "server" {
+			if m.detailServer != nil && m.detailServer.User != "" {
+				return m, copyWithClear(m.detailServer.User, "Username")
+			}
+			m.status = "No username stored"
+			m.statusType = "info"
+		}
+		return m, nil
+
 	case "c":
 		switch m.detailEntry.Type {
 		case "password":
@@ -1118,6 +1131,15 @@ func (m Model) handleDetailScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, copyWithClear(m.password, "Password")
 			}
 			m.status = "Password not loaded yet"
+			m.statusType = "info"
+		case "server":
+			if m.password != "" {
+				return m, copyWithClear(m.password, "Password")
+			}
+			m.status = "No password stored"
+			if m.detailServer == nil {
+				m.status = "Password not loaded yet"
+			}
 			m.statusType = "info"
 		case "totp":
 			if m.totpCode != "" {
@@ -1375,7 +1397,8 @@ func (m Model) renderDetailScreen() string {
 	var details []string
 	details = append(details, fmt.Sprintf("Service: %s", m.detailEntry.Service))
 
-	if m.detailEntry.Username != "" {
+	// A server entry shows its user next to host and port.
+	if m.detailEntry.Username != "" && m.detailEntry.Type != "server" {
 		details = append(details, fmt.Sprintf("Username: %s", m.detailEntry.Username))
 	}
 
@@ -1385,9 +1408,14 @@ func (m Model) renderDetailScreen() string {
 		details = append(details, fmt.Sprintf("Tags: %s", strings.Join(m.detailTags, ", ")))
 	}
 
-	// Always show password field for password entries, and for TOTP entries that
-	// hold one
-	if m.detailEntry.Type == "password" || (m.detailEntry.Type == "totp" && m.password != "") {
+	if m.detailEntry.Type == "server" {
+		details = append(details, m.serverDetailLines()...)
+	}
+
+	// Always show password field for password entries, and for TOTP and server
+	// entries that hold one
+	if m.detailEntry.Type == "password" || (m.detailEntry.Type == "totp" && m.password != "") ||
+		(m.detailEntry.Type == "server" && m.password != "") {
 		details = append(details, "")
 		if m.password != "" {
 			if m.maskPasswords {
@@ -1443,6 +1471,8 @@ func (m Model) renderDetailScreen() string {
 		helpText = "s: show/hide  c: copy code  p: copy password  e: edit  esc/q: back"
 	case m.detailEntry.Type == "totp":
 		helpText = "s: show/hide TOTP  c: copy code  e: edit  esc/q: back"
+	case m.detailEntry.Type == "server":
+		helpText = "s: show/hide  c: copy password  u: copy user  e: edit  esc/q: back"
 	default:
 		helpText = "e: edit  esc/q: back"
 	}
@@ -1583,6 +1613,34 @@ func shortEntryID(id string) string {
 	return "#" + id
 }
 
+// serverDetailLines describes where a server entry connects to, once its data
+// is decrypted. The port shows ssh's default when none is stored.
+func (m Model) serverDetailLines() []string {
+	if m.detailServer == nil {
+		return []string{"", m.hiddenStyle.Render("Loading server…")}
+	}
+	orNone := func(s string) string {
+		if s == "" {
+			return m.helpStyle.Render("(none)")
+		}
+		return s
+	}
+	port := m.detailServer.Port
+	if port == "" {
+		port = "22 " + m.helpStyle.Render("(default)")
+	}
+	lines := []string{
+		"",
+		fmt.Sprintf("Host: %s", orNone(m.detailServer.Host)),
+		fmt.Sprintf("Port: %s", port),
+		fmt.Sprintf("User: %s", orNone(m.detailServer.User)),
+	}
+	if m.detailServer.HasKey {
+		lines = append(lines, "Private key: stored "+m.helpStyle.Render("(pwmgr ssh "+m.detailEntry.Service+")"))
+	}
+	return lines
+}
+
 // getTypeIcon returns an icon for the entry type
 func (m Model) getTypeIcon(entryType string) string {
 	switch entryType {
@@ -1592,6 +1650,10 @@ func (m Model) getTypeIcon(entryType string) string {
 		return "[2fa]"
 	case "api-key":
 		return "[key]"
+	case "ssh-key":
+		return "[ssh]"
+	case "server":
+		return "[S]"
 	case "note":
 		return "[txt]"
 	default:
@@ -1882,6 +1944,7 @@ func (m Model) openDetail(entry Entry) (tea.Model, tea.Cmd) {
 	m.showSecrets = false
 	m.password = ""
 	m.detailHasTOTP = false
+	m.detailServer = nil
 	m.totpCode = ""
 	m.totpRemaining = 0
 	m.detailTags = nil

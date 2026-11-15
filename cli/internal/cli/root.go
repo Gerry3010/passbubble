@@ -46,6 +46,7 @@ Usage:
   pwmgr add       Add a new password
   pwmgr get       Retrieve a password
   pwmgr list      List all entries
+  pwmgr ssh       Connect to a server entry with ssh
   pwmgr tags      List tags with entry counts
   pwmgr generate  Generate a secure password`,
 	// Cobra gets here once flags and arguments are accepted, so usage stays on

@@ -103,6 +103,16 @@ const fullEntry = `{
 	"custom_fields": [
 		{"label": "PIN", "value": "1234", "type": "password"},
 		{"label": "Scan", "value": "aGVsbG8=", "type": "file", "filename": "scan.png", "mime_type": "image/png", "future_cf": true}
+	],
+	"host": "web01.example.com",
+	"port": "2222",
+	"private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3Bl\n-----END OPENSSH PRIVATE KEY-----\n",
+	"key_passphrase": "s3cret",
+	"passkeys": [
+		{"credential_id": "q2D0bQ2u3E7XoWlS1yZbVw", "rp_id": "example.com", "rp_name": "Example",
+		 "user_handle": "dXNlci0xMjM0", "user_name": "octo", "user_display_name": "Octo",
+		 "key_algorithm": -7, "private_key": "MIGHAgEA", "sign_count": 0, "discoverable": true,
+		 "prf_secret": "3q2-7w", "created_at": "2026-11-14T03:00:00Z", "future_pk": ["internal"]}
 	]
 }`
 

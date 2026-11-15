@@ -189,6 +189,11 @@ func (m Model) finishEdit(msg EntryEditedMsg) (tea.Model, tea.Cmd) {
 		m.password = msg.Password
 		m.totpCode = ""
 		m.totpRemaining = 0
+		if m.detailServer != nil { // the form edits the username, not host or key
+			server := *m.detailServer
+			server.User = msg.Entry.Username
+			m.detailServer = &server
+		}
 	}
 	m.status = fmt.Sprintf("Entry %s", msg.Entry.Service)
 	if msg.Entry.Username != "" {

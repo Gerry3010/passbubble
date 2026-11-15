@@ -178,3 +178,24 @@ func TestBuildShareLink_NeverExpiry(t *testing.T) {
 		t.Errorf("never-expiry should be far future, got %s", captured.ExpiresAt)
 	}
 }
+
+func TestShareableDataLeavesPasskeysOut(t *testing.T) {
+	d := &EntryData{
+		Username: "alice",
+		Password: "pw",
+		Passkeys: []Passkey{{CredentialID: "AAAA", RPID: "example.com", PrivateKey: "secret"}},
+	}
+	got := shareableData(d)
+	if len(got.Passkeys) != 0 {
+		t.Fatalf("share link data still holds %d passkeys", len(got.Passkeys))
+	}
+	if got.Username != "alice" || got.Password != "pw" {
+		t.Fatalf("other fields lost: %+v", got)
+	}
+	if len(d.Passkeys) != 1 {
+		t.Fatal("the entry itself lost its passkey")
+	}
+	if shareableData(nil) != nil {
+		t.Fatal("nil data must stay nil")
+	}
+}
