@@ -106,6 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **App-Edit verlor unbekannte Datenfelder** — der Bearbeiten-Screen der App trägt jetzt alle Felder, die das Formular nicht verwaltet (z.B. TOTP-Metadaten anderer Clients), beim Speichern unverändert weiter
 
 - **Ausfüllen überschrieb getippte Passwörter mit nichts** — hatte der gewählte Eintrag kein Passwort, leerte die Extension beim Ausfüllen das Passwortfeld. Sie füllt jetzt nur, was der Eintrag hat
+- **2FA-Codes in der iPhone-AutoFill bei `otpauth://`-Links** — manche Importe speichern das 2FA-Secret als ganzen `otpauth://`-Link. Die AutoFill-Extension bekam bisher diesen Link und konnte daraus keinen Code berechnen. Jetzt gibt ihr die App den reinen Schlüssel
 ### Security
 - **Fill-Box nahm Nachrichten fremder Frames an** — eine Seite, die selbst eine Kopie der Extension-Seite einbettet, konnte dem Content-Script Nachrichten im Namen der Box schicken. Es nimmt jetzt nur noch Nachrichten aus dem Frame an, den es selbst geöffnet hat
 - **Private Keys und 2FA-Secrets bleiben verborgen** — der Private Key von SSH-Einträgen und das Secret eigener 2FA-Felder standen in der Detailansicht im Klartext. In App und Extension sind sie jetzt maskiert, bis man sie aufdeckt

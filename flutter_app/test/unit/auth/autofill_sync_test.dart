@@ -121,6 +121,31 @@ void main() {
       expect(api.updates, isEmpty);
     });
 
+    test('the detail fields go to the Apple extension only', () async {
+      final login = await keys.encryptEntry({
+        'username': 'alice',
+        'password': 'pw',
+        'notes': 'Door code',
+        'custom_fields': [
+          {'label': 'PIN', 'type': 'password', 'value': '4711'},
+        ],
+      }, id: 'e1');
+      final api = FakeVaultApi([login]);
+      final bridge = FakeAppleBridge(android: true);
+      await FakeVaultAuth(api, keys, autofill: bridge, realSync: true).refreshAutofill();
+
+      final apple = (jsonDecode(bridge.syncedCredentials!) as List).single as Map;
+      expect(apple['password'], 'pw');
+      expect(apple['notes'], 'Door code');
+      expect(apple['fields'], [
+        {'label': 'PIN', 'type': 'password', 'value': '4711'},
+      ]);
+      expect(apple['favorite'], isFalse);
+      final android = (jsonDecode(bridge.androidCredentials!) as List).single as Map;
+      expect(android.keys,
+          unorderedEquals(['id', 'url', 'name', 'type', 'username', 'password', 'totp']));
+    });
+
     test('elsewhere (not Apple, no Android autofill) nothing is read or synced', () async {
       final api = FakeVaultApi([]);
       final bridge = FakeAppleBridge(isApple: false, pending: jsonEncode([_pending('AAAA')]));

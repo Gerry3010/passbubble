@@ -23,13 +23,13 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
+import '../autofill/autofill_payload.dart';
 import '../autofill/autofill_service.dart';
 import '../crypto/vault_crypto.dart';
 import '../crypto/ml_kem.dart';
 import '../crypto/pin_crypto.dart';
 import '../passkeys/passkey.dart';
 import '../passkeys/passkey_vault.dart';
-import '../util/entry_totp.dart';
 
 const _kUserIdKey = 'user_id';
 const _kEmailKey = 'email';
@@ -348,7 +348,8 @@ class AuthService {
     try {
       // One round-trip: every entry with its encrypted_data + the caller's key.
       final entries = await _api.listEntriesFull();
-      final creds = <Map<String, String>>[];
+      final creds = <Map<String, Object>>[];
+      final appleCreds = <Map<String, Object>>[];
       final passkeys = <Map<String, dynamic>>[];
       for (final e in entries) {
         if (e.entryKey == null || e.encryptedData.isEmpty) continue;
@@ -365,33 +366,20 @@ class AuthService {
           for (final record in passkeyRecordsOf(data)) {
             passkeys.add({...record, 'entry_id': e.id, 'entry_name': e.name});
           }
-          final username =
-              (data['username'] ?? data['account'] ?? '').toString();
-          final password = (data['password'] ?? '').toString();
-          final totp = totpSecretOf(data) ?? '';
-          // Only credential-bearing entries are useful to system autofill —
-          // a password alone is enough (some logins have no username). An
-          // entry holding only a passkey is not offered as a password.
-          if (password.isEmpty && totp.isEmpty) continue;
-          creds.add({
-            'id': e.id,
-            'url': e.url,
-            'name': e.name,
-            // Entry type so the native side can rank/filter (e.g. prefer
-            // logins over api-keys for browser fields).
-            'type': e.type,
-            'username': username,
-            'password': password,
-            'totp': totp,
-          });
+          final cred = autofillCredential(e, data);
+          if (cred == null) continue;
+          creds.add(cred);
+          if (apple) appleCreds.add({...cred, ...appleCredentialDetails(e, data)});
         } catch (_) {
           // Skip entries that fail to decrypt rather than aborting the sync.
         }
       }
-      final json = jsonEncode(creds);
-      await _autofill.updateCredentials(json); // Android (no-op elsewhere)
-      await _autofill.syncIosCredentials(json); // iOS + macOS (no-op elsewhere)
-      if (apple) await _autofill.syncPasskeys(jsonEncode(passkeys));
+      // Android (no-op elsewhere)
+      await _autofill.updateCredentials(jsonEncode(creds));
+      if (apple) {
+        await _autofill.syncIosCredentials(jsonEncode(appleCreds));
+        await _autofill.syncPasskeys(jsonEncode(passkeys));
+      }
     } catch (_) {
       // Network/other failure: leave the previous cache in place.
     }

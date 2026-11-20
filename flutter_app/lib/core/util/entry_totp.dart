@@ -89,27 +89,42 @@ class TotpOptions {
       };
 }
 
-/// The code for [secret] at [timeMs] and the seconds it stays valid, or null
-/// when [secret] cannot produce one. [secret] may be a base32 secret, grouped or
+/// The bare base32 key in [secret] and the options its codes use, or null when
+/// [secret] holds no key. [secret] may be a base32 secret, grouped or
 /// lowercase, or a whole otpauth:// URL as importers store it, whose parameters
 /// then override [stored].
-({String code, int remaining})? totpCodeAt(
+({String key, TotpOptions options})? resolveTotp(
   String secret,
   TotpOptions stored,
-  int timeMs,
 ) {
   try {
     var key = secret.trim();
     var options = stored;
     if (key.toLowerCase().startsWith('otpauth://')) {
-      final uri = Uri.parse(key);
-      final q = uri.queryParameters;
+      final q = Uri.parse(key).queryParameters;
       key = q['secret'] ?? '';
       options = TotpOptions._parse(q['period'], q['digits'], q['algorithm']);
     }
     key = _bareKey(key);
     // An empty key would produce a valid-looking code.
     if (key.isEmpty) return null;
+    return (key: key, options: options);
+  } catch (_) {
+    return null; // a broken URL
+  }
+}
+
+/// The code for [secret] at [timeMs] and the seconds it stays valid, or null
+/// when [secret] cannot produce one. [secret] is read as in [resolveTotp].
+({String code, int remaining})? totpCodeAt(
+  String secret,
+  TotpOptions stored,
+  int timeMs,
+) {
+  final resolved = resolveTotp(secret, stored);
+  if (resolved == null) return null;
+  final (:key, :options) = resolved;
+  try {
     final code = OTP.generateTOTPCodeString(
       key,
       timeMs,

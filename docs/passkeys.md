@@ -160,6 +160,7 @@ the same method names, including the existing `iosSyncCredentials` and
 
 | Keychain item | Written by | Content |
 |---|---|---|
+| `autofill_credentials` | app, method `iosSyncCredentials(json)` | JSON array of credential records, see below. |
 | `autofill_passkeys` | app, method `syncPasskeys(json)` | JSON array: every passkey record of the vault plus `entry_id` and `entry_name`. |
 | `pending_passkeys` | AutoFill extension | JSON array of passkey records the extension created, not yet in the vault. |
 
@@ -178,6 +179,19 @@ the same method names, including the existing `iosSyncCredentials` and
   then calls `clearPendingPasskeys(ids)` with the `credential_id`s it saved.
   The extension removes exactly those, so a passkey created in between is not
   lost.
+
+A credential record exists for every entry with a password or a TOTP key.
+Android's autofill cache gets the first group of fields only.
+
+| Field | Content |
+|---|---|
+| `id`, `url`, `name`, `type` | The entry's id, URL, name and type. |
+| `username`, `password` | Strings, empty when unset. `username` falls back to `account`. |
+| `totp` | The bare base32 key, `""` when none. Also bare when the entry stores an otpauth:// URL. |
+| `favorite` | Apple only. Boolean. |
+| `notes` | Apple only, present when not blank. |
+| `totp_algorithm`, `totp_digits`, `totp_period` | Apple only, present when `totp` is set: `SHA1`/`SHA256`/`SHA512`, 6 or 8, seconds. |
+| `fields` | Apple only, present when not empty. Custom fields as `{"label", "type", "value"}`, all strings. Types: `text`, `password`, `totp`, `url`, `email`, `phone`, `note` (multi-line), `ssh` (private key, multi-line). File fields and fields without a label are left out. A `totp` field carries its bare key and its own `totp_*` options; one without a usable key is sent as `password`. Mask `password`, `totp` and `ssh`. |
 
 Method arguments on the channel:
 

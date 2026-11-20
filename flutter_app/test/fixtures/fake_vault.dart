@@ -182,6 +182,7 @@ class FakeAppleBridge extends AutofillBridge {
   final cleared = <List<String>>[];
   String? syncedPasskeys;
   String? syncedCredentials;
+  String? androidCredentials;
 
   FakeAppleBridge({this.isApple = true, this.android = false, this.pending = '[]'});
 
@@ -200,5 +201,6 @@ class FakeAppleBridge extends AutofillBridge {
   Future<void> syncIosCredentials(String credentialsJson) async =>
       syncedCredentials = credentialsJson;
   @override
-  Future<void> updateCredentials(String credentialsJson) async {}
+  Future<void> updateCredentials(String credentialsJson) async =>
+      androidCredentials = credentialsJson;
 }

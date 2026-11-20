@@ -157,4 +157,27 @@ void main() {
       expect(isSameTotpKey('', 'GEZDGNBVGY3TQOJQ'), isFalse);
     });
   });
+
+  group('resolveTotp', () {
+    test('an otpauth URL brings its own key and options', () {
+      final r = resolveTotp(
+          'otpauth://totp/x?secret=gezd%20gnbv&algorithm=SHA256&digits=8&period=60',
+          const TotpOptions());
+      expect(r!.key, 'GEZDGNBV');
+      expect(r.options.algorithm, Algorithm.SHA256);
+      expect(r.options.digits, 8);
+      expect(r.options.period, 60);
+    });
+
+    test('a plain key keeps the stored options and loses its grouping', () {
+      final r = resolveTotp(' jbsw y3dp-ehpk ', const TotpOptions(digits: 8));
+      expect(r!.key, 'JBSWY3DPEHPK');
+      expect(r.options.digits, 8);
+    });
+
+    test('no key, no result', () {
+      expect(resolveTotp('  ', const TotpOptions()), isNull);
+      expect(resolveTotp('otpauth://totp/x?digits=8', const TotpOptions()), isNull);
+    });
+  });
 }
