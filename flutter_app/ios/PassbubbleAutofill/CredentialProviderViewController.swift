@@ -47,6 +47,7 @@ protocol ProviderActions: AnyObject {
     var mode: ProviderMode { get }
     func fillLogin(_ entry: Credential)
     func fillOneTimeCode(_ entry: Credential)
+    func fillCode(_ code: String)
     func insertText(_ text: String)
     func cancelRequest()
 }
@@ -184,6 +185,11 @@ class CredentialProviderViewController: ASCredentialProviderViewController, Prov
             cancel(with: .failed)
             return
         }
+        extensionContext.completeOneTimeCodeRequest(using: ASOneTimeCodeCredential(code: code))
+    }
+
+    func fillCode(_ code: String) {
+        guard #available(iOS 18.0, *) else { return }
         extensionContext.completeOneTimeCodeRequest(using: ASOneTimeCodeCredential(code: code))
     }
 
@@ -396,6 +402,9 @@ final class EntryDetailViewController: UITableViewController {
         let label: String
         let value: String
         let secret: Bool
+        var multiline = false
+        /// Set for the entry's own code and for custom fields of type `totp`.
+        var totp: TOTP? = nil
     }
 
     private let entry: Credential
@@ -411,13 +420,23 @@ final class EntryDetailViewController: UITableViewController {
         var r: [Row] = []
         if !entry.username.isEmpty { r.append(Row(kind: .username, label: "Username", value: entry.username, secret: false)) }
         if !entry.password.isEmpty { r.append(Row(kind: .password, label: "Password", value: entry.password, secret: true)) }
-        if entry.otp != nil { r.append(Row(kind: .otp, label: "One-time code", value: "", secret: false)) }
+        if let otp = entry.otp {
+            r.append(Row(kind: .otp, label: "One-time code", value: "", secret: false, totp: otp))
+        }
         if !entry.url.isEmpty { r.append(Row(kind: .url, label: "Website", value: entry.url, secret: false)) }
         for field in entry.fields where !field.value.isEmpty {
-            r.append(Row(kind: .custom, label: field.label.isEmpty ? "Field" : field.label,
-                         value: field.value, secret: field.isSecret))
+            let label = field.label.isEmpty ? "Field" : field.label
+            if let otp = field.otp {
+                // A custom 2FA field: show its live code like the entry's own.
+                r.append(Row(kind: .otp, label: label, value: "", secret: false, totp: otp))
+            } else {
+                r.append(Row(kind: .custom, label: label, value: field.value,
+                             secret: field.isSecret, multiline: field.isMultiline))
+            }
         }
-        if !entry.notes.isEmpty { r.append(Row(kind: .notes, label: "Notes", value: entry.notes, secret: false)) }
+        if !entry.notes.isEmpty {
+            r.append(Row(kind: .notes, label: "Notes", value: entry.notes, secret: false, multiline: true))
+        }
         rows = r
     }
 
@@ -433,8 +452,8 @@ final class EntryDetailViewController: UITableViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        guard entry.otp != nil, timer == nil else { return }
-        let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refreshOtpRow() }
+        guard rows.contains(where: { $0.totp != nil }), timer == nil else { return }
+        let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refreshOtpRows() }
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }
@@ -449,10 +468,12 @@ final class EntryDetailViewController: UITableViewController {
         actions?.cancelRequest()
     }
 
-    private func refreshOtpRow() {
-        guard let i = rows.firstIndex(where: { $0.kind == .otp }),
-              let cell = tableView.cellForRow(at: IndexPath(row: i, section: 0)) else { return }
-        configure(cell, row: i)
+    private func refreshOtpRows() {
+        for (i, row) in rows.enumerated() where row.totp != nil {
+            if let cell = tableView.cellForRow(at: IndexPath(row: i, section: 0)) {
+                configure(cell, row: i)
+            }
+        }
     }
 
     // MARK: Table
@@ -482,15 +503,18 @@ final class EntryDetailViewController: UITableViewController {
         content.textProperties.color = .secondaryLabel
         content.secondaryTextProperties.font = .preferredFont(forTextStyle: .body)
         content.secondaryTextProperties.color = .label
-        content.secondaryTextProperties.numberOfLines = row.kind == .notes ? 0 : 1
+        // Multi-line values (notes, note/ssh fields) in full — secrets only
+        // once revealed, so the mask stays one line.
+        let showsValue = !row.secret || revealed.contains(i)
+        content.secondaryTextProperties.numberOfLines = (row.multiline && showsValue) ? 0 : 1
 
         switch row.kind {
         case .otp:
-            if let otp = entry.otp, let code = otp.code() {
+            if let otp = row.totp, let code = otp.code() {
                 let remaining = otp.secondsRemaining()
                 content.secondaryText = Self.groupDigits(code)
                 content.secondaryTextProperties.font = .monospacedDigitSystemFont(ofSize: 22, weight: .semibold)
-                content.text = "One-time code · \(remaining)s"
+                content.text = "\(row.label) · \(remaining)s"
                 content.textProperties.color = remaining <= 5 ? .systemOrange : .secondaryLabel
             } else {
                 content.secondaryText = "Invalid secret"
@@ -502,7 +526,9 @@ final class EntryDetailViewController: UITableViewController {
                 content.secondaryText = row.value
             }
             if row.secret && revealed.contains(i) {
-                content.secondaryTextProperties.font = .monospacedSystemFont(ofSize: 17, weight: .regular)
+                // Private keys are long; a smaller mono font keeps them readable.
+                let size: CGFloat = row.multiline ? 12 : 17
+                content.secondaryTextProperties.font = .monospacedSystemFont(ofSize: size, weight: .regular)
             }
         }
         cell.contentConfiguration = content
@@ -551,7 +577,7 @@ final class EntryDetailViewController: UITableViewController {
         case (.password, .username), (.password, .password):
             actions?.fillLogin(entry)
         case (.oneTimeCode, .otp):
-            actions?.fillOneTimeCode(entry)
+            if let code = row.totp?.code() { actions?.fillCode(code) }
         case (.textInsert, _):
             if let text = value(of: indexPath.row) { actions?.insertText(text) }
         default:
@@ -563,7 +589,7 @@ final class EntryDetailViewController: UITableViewController {
 
     private func value(of i: Int) -> String? {
         let row = rows[i]
-        if row.kind == .otp { return entry.otp?.code() }
+        if row.kind == .otp { return row.totp?.code() }
         return row.value
     }
 
@@ -628,11 +654,20 @@ struct Credential: Decodable {
         let type: String
         let value: String
 
+        /// Set for `type: "totp"` with a usable key (own `totp_*` options).
+        let otp: TOTP?
+
+        /// Types the app sends: text, password, totp, url, email, phone, note, ssh.
         var isSecret: Bool {
-            ["password", "hidden", "secret", "pin", "totp"].contains(type.lowercased())
+            ["password", "totp", "ssh", "hidden", "secret", "pin"].contains(type.lowercased())
         }
 
-        enum CodingKeys: String, CodingKey { case label, name, type, value }
+        var isMultiline: Bool { ["note", "ssh"].contains(type.lowercased()) }
+
+        enum CodingKeys: String, CodingKey {
+            case label, name, type, value
+            case totpAlgorithm = "totp_algorithm", totpDigits = "totp_digits", totpPeriod = "totp_period"
+        }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -640,6 +675,12 @@ struct Credential: Decodable {
                 ?? (try? c.decode(String.self, forKey: .name)) ?? ""
             type = (try? c.decode(String.self, forKey: .type)) ?? "text"
             value = (try? c.decode(String.self, forKey: .value)) ?? ""
+            otp = type.lowercased() == "totp"
+                ? TOTP(secretOrURI: value,
+                       algorithm: try? c.decode(String.self, forKey: .totpAlgorithm),
+                       digits: try? c.decode(Int.self, forKey: .totpDigits),
+                       period: try? c.decode(Int.self, forKey: .totpPeriod))
+                : nil
         }
     }
 
